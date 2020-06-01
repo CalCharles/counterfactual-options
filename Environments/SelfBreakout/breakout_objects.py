@@ -20,6 +20,9 @@ class Object():
 	def getMidpoint(self):
 		return [self.pos[0] + (self.height / 2), self.pos[1]  + (self.width/2)]
 
+	def getPos(self, mid):
+		return [int(mid[0] - (self.height / 2)), int(mid[1]  - (self.width/2))]
+
 	def getAttribute(self):
 		return self.attribute
 
@@ -35,6 +38,7 @@ class animateObject(Object):
 		super(animateObject, self).__init__(pos, attribute)
 		self.vel = vel
 		self.apply_move = True
+		self.zero_vel = False
 
 	def move(self):
 		# print (self.pos, self.vel)
@@ -43,6 +47,8 @@ class animateObject(Object):
 		else:
 			self.apply_move = True
 			self.pos += self.vel
+		if self.zero_vel:
+			self.vel = np.zeros(self.vel.shape)
 
 def intersection(a, b):
 	midax, miday = (a.next_pos[1] * 2 + a.width)/ 2, (a.next_pos[0] * 2 + a.height)/ 2
@@ -130,6 +136,7 @@ class Paddle(animateObject):
 		self.height = 2
 		self.name = "Paddle"
 		self.nowall = False
+		self.zero_vel = True
 
 	def interact(self, other):
 		if other.name == "Action":

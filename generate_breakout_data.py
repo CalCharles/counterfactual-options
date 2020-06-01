@@ -1,5 +1,6 @@
 # Create Breakout Dataset
-from SelfBreakout.breakout_screen import Screen, RandomPolicy
+from Environments.SelfBreakout.breakout_screen import Screen, RandomPolicy
+import sys
 
 if __name__ == '__main__':
     screen = Screen()

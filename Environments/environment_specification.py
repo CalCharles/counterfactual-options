@@ -5,9 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import imageio as imio
-from Models.models import pytorch_model, models
 from collections import deque
-from RewardFunctions.changepointReward import ChangepointDetectionReward
 
 
 
@@ -43,8 +41,14 @@ class RawEnvironment():
         '''
         pass
 
+    def toString(self):
+        '''
+        creates a string form of the current extracted state of the environment (typically a dictionary of object name to object state)
+        '''
+
     def set_save(self, itr, save_dir, recycle, all_dir=""):
         self.save_path=save_dir
+        print(save_dir)
         self.itr = itr
         self.recycle = recycle
         self.all_dir = all_dir
@@ -55,7 +59,7 @@ class RawEnvironment():
         object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
         object_dumps.close()
 
-    def write_objects(self, entity_state, save_raw = True): # TODO: put into parent class
+    def write_objects(self, entity_state, frame, save_raw = True): # TODO: put into parent class
         if self.recycle > 0:
             state_path = os.path.join(self.save_path, str((self.itr % self.recycle)//2000))
             count = self.itr % self.recycle
@@ -68,7 +72,7 @@ class RawEnvironment():
             pass
         if entity_state is not None:
             object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'a')
-            object_dumps.write(entity_state.tostring() + "\n") # TODO: recycling does not stop object dumping
+            object_dumps.write(self.toString(entity_state) + "\n") # TODO: recycling does not stop object dumping
             object_dumps.close()
         if save_raw:
             imio.imsave(os.path.join(state_path, "state" + str(count % 2000) + ".png"), self.frame)

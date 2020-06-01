@@ -1,7 +1,7 @@
 # Screen
 import sys, cv2
 import numpy as np
-from SelfBreakout.breakout_objects import *
+from Environments.SelfBreakout.breakout_objects import *
 # from breakout_objects import *
 import imageio as imio
 import os, copy
@@ -18,6 +18,7 @@ class Screen(RawEnvironment):
         self.recycle = -1
         self.frameskip = frameskip
         self.total_score = 0
+        self.done = False
 
     def reset(self):
         vel= np.array([np.random.randint(1,2), np.random.choice([-1,1])])
@@ -69,24 +70,25 @@ class Screen(RawEnvironment):
     def extracted_state_dict(self):
         return {obj.name: obj.getMidpoint() for obj in self.objects}
 
-    def getState(self):
+    def get_state(self):
         self.render_frame()
-        return self.frame, {obj.name: (obj.getMidpoint(), (obj.getAttribute(), )) for obj in self.objects}
+        return self.frame, {obj.name: obj.getMidpoint() + obj.vel.tolist() + [obj.getAttribute()] for obj in self.objects}
+
+    def toString(self, extracted_state):
+        estring = ""
+        for i, obj in enumerate(self.objects):
+            estring += obj.name + ":" + " ".join(map(str, extracted_state[obj.name])) + "\t" # TODO: attributes are limited to single floats
+        estring += "Reward:" + str(self.reward) + "\t"
+        estring += "Done:" + str(int(self.done)) + "\t"
+        return estring
 
     def step(self, action, render=True): # TODO: remove render as an input variable
-        done = False
+        self.done = False
         last_loss = self.ball.losses
         self.reward = 0
         hit = False
         for i in range(self.frameskip):
-            self.actions.take_action(action[0])
-            if len(self.save_path) != 0 and i == 0:
-                if self.itr != 0:
-                    object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'a')
-                else:
-                    object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
-                self.write_objects(object_dumps, self.save_path)
-                object_dumps.close()
+            self.actions.take_action(action)
             for obj1 in self.animate:
                 for obj2 in self.objects:
                     if obj1.name == obj2.name:
@@ -101,10 +103,10 @@ class Screen(RawEnvironment):
             for ani_obj in self.animate:
                 ani_obj.move()
             if last_loss != self.ball.losses:
-                done = True
+                self.done = True
             if self.ball.losses == 5:
                 self.average_points_per_life = self.total_score / 5.0
-                done = True
+                self.done = True
                 self.episode_rewards.append(self.total_score)
                 self.total_score = 0
                 self.reset()
@@ -115,12 +117,18 @@ class Screen(RawEnvironment):
             if render:
                 self.render_frame()
         self.itr += 1
-        return self.frame, extracted_state, done
+        frame, extracted_state = self.get_state()
+        if len(self.save_path) != 0 and i == 0:
+            if self.itr == 0:
+                object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
+                object_dumps.close()
+            self.write_objects(extracted_state, frame, self.save_path)
+        return self.frame, extracted_state, self.done
 
 
 
     def run(self, policy, iterations = 10000, render=False, save_path = "runs/", duplicate_actions=1):
-        self.set_save(self, 0, save_path, -1)
+        self.set_save(0, save_path, -1)
         try:
             os.makedirs(save_path)
         except OSError:

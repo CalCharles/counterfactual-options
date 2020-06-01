@@ -1,17 +1,18 @@
 import numpy as np
 import os, cv2, time
+from Options.option import OptionLayer
 
 class OptionNode():
 # TODO: handling of multiple incoming edges to a node
-	def __init__(self, name):
+	def __init__(self, name, option_layer):
 		self.name = name
-		self.option_layer = OptionLevel()
+		self.option_layer = option_layer
 
 class OptionEdge():
-	def __init__(self, head, tail, option_level):
+	def __init__(self, head, tail, option_layer):
 		self.head = head
 		self.tail = tail
-		self.options = option_level
+		self.options = option_layer
 
 class OptionGraph():
 	def __init__(self, nodes, edges):

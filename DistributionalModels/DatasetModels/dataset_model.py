@@ -1,6 +1,8 @@
 import numpy as np
 import os, cv2, time
+import torch
 from Counterfactual.counterfactual_dataset import counterfactual_mask
+from DistributionalModels.distributional_model import DistributionalModel
 
 class DatasetModel(DistributionalModel):
     def __init__(self, **kwargs):
@@ -9,7 +11,7 @@ class DatasetModel(DistributionalModel):
         @attr has_relative indicates if the model also models the input from some output
         @attr outcome is the outcome distribution 
         '''
-        super().__init__(self, **kwargs)
+        super().__init__(**kwargs)
         # TODO: does not record which option produced which outcome
         self.observed_outcomes = [] # keeps a set of all the observed outcomes as a list, which is inefficient TODO: a better distribution method
         self.outcome_counts = [] # a running counter of how many times an outcome was seen
@@ -77,7 +79,7 @@ class FactoredDatasetModel(DistributionalModel):
         @attr has_relative indicates if the model also models the input from some output
         @attr outcome is the outcome distribution 
         '''
-        super().__init__(self, **kwargs)
+        super().__init__(**kwargs)
         # TODO: does not record which option produced which outcome
         self.names = kwargs["environment_model"].object_names
         self.unflatten = kwargs["environment_model"].unflatten_state        
@@ -94,7 +96,8 @@ class FactoredDatasetModel(DistributionalModel):
                 return i
         return -1
 
-    def add_observed(self, outcome, observed, counter):
+    def add_observed(self, outcome, mask, observed, counter):
+        outcome = torch.cat((outcome, mask), dim=0)
         i = self.check_observed(outcome, observed)
         if i < 0:
             observed.append(outcome)
@@ -107,18 +110,21 @@ class FactoredDatasetModel(DistributionalModel):
         Records the different counterfactual outputs. 
         '''
         states = outcome_rollouts.get_values("state")
-        state_len = state.size(1)
-        states = self.unflatten(outcome_rollouts.get_values("state"), vec = True, typed=False)
+        state_len = states.size(1)
+        states = self.unflatten(states, vec = True, typed=False)
         diffs = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, typed=False)
-        fullstate_masks, outcome_probs = counterfactual_mask(outcome_rollouts)
+        fullstate_masks, outcome_probs = counterfactual_mask(self.names, self.num_options, outcome_rollouts)
         state_masks = self.unflatten(fullstate_masks[:, :state_len], vec = True, typed=False)
         state_diff_masks = self.unflatten(fullstate_masks[:, state_len:], vec = True, typed=False)
-        for i in [k*self.num_options for k in range(outcome_rollouts.length // self.num_options)]: # TODO: assert evenly divisible
+        # print([(states[name].shape, state_masks[name].shape, outcome_rollouts.filled // self.num_options) for name in self.names])
+        for i in [k*self.num_options for k in range(outcome_rollouts.filled // self.num_options)]: # TODO: assert evenly divisible
             for j in range(self.num_options):
+                # print(i, j, state_masks['Ball'][i+j], state_diff_masks['Ball'][i+j], states['Ball'][i+j], diffs['Ball'][i+j])
+                # print(state_masks['Paddle'][i+j], state_diff_masks['Paddle'][i+j], states['Paddle'][i+j], diffs['Paddle'][i+j])
                 for name in self.names:
-                    self.add_observed(states[name][i+j] * state_masks[name][i+j], self.observed_outcomes[name], self.outcome_counts[name])
-                    self.add_observed(state_diffs[name][i+j] * state_diff_masks[name][i+j], self.observed_differences[name], self.difference_counts[name])
-                    self.total_count[name] += 1
+                    self.add_observed(states[name][i+j] * state_masks[name][i+j], state_masks[name][i+j], self.observed_outcomes[name], self.outcome_counts[name])
+                    self.add_observed(diffs[name][i+j] * state_diff_masks[name][i+j], state_diff_masks[name][i+j], self.observed_differences[name], self.difference_counts[name])
+                    self.total_counts[name] += 1
 
 
     def sample(self, rollouts, diff=True, name=""):

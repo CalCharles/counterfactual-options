@@ -3,10 +3,11 @@ import os, cv2, time
 
 class Option():
 	def __init__(self, policy, termination, next_level, model):
-		if policy.initialized:
-			self.policy=policy
-		else:
-			self.initialize_policy()
+		if policy is not None: # Otherwise, this is a primative level option
+			if policy.initialized:
+				self.policy=policy
+			else:
+				self.initialize_policy()
 		self.termination = termination
 		self.next_level = next_level
 		self.model = model
@@ -22,9 +23,10 @@ class Option():
 			action = self.policy.sample_action(self.model.flatten_factored_state(state))
 		chain = [action]
 		if self.next_level is not None:
-			chain = self.next_level.get_option(action).get_action_chain(state) + chain
+			rem_chain, done = self.next_level.get_option(action).get_action_chain(state)
+			chain = rem_chain + chain
 		done = self.termination.check(factored_state)
-		return action, done
+		return chain, done
 
 	def get_action_distribution(self, states):
 		'''
@@ -35,7 +37,17 @@ class Option():
 		dones = self.termination.check(factored_state)
 		return policy_rollout, dones
 
-class OptionLevel(): # this class might get subsumed by the option graph
+class PrimativeOption(Option): # primative discrete actions
+	def __init__(self, policy, termination, next_level, model, iden=0):
+		super().__init__(policy, termination, next_level, model)
+		self.id = iden
+
+	def sample_action_chain(self, state):
+		done = True
+		chain = [self.id]
+		return chain, done
+
+class OptionLayer(): # this class might get subsumed by the option graph
 	def __init__(self, options):
 		self.options = options
 		self.num_options = len(options)

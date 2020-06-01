@@ -1,6 +1,5 @@
 import pickle, os
 import numpy as np
-import ChangepointDetection.DynamicsModels as DynamicsModels
 import imageio as imio
 import sys, cv2 
 
@@ -39,11 +38,10 @@ def dump_from_line(line, time_dict):
         if obj == "\n":
             continue
         else:
-            # print(obj)
             split = obj.split(":")
             name = split[0]
             vals = split[1].split(" ")
-            state = [float(vals[i]) for i in range(vals)]
+            state = [float(i) for i in vals]
             # BB = (int(vals[0]), int(vals[1]), int(vals[2]), int(vals[3]))
             # pos = (int(vals[1]),)
             time_dict[name] = state
