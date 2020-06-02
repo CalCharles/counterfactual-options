@@ -1,6 +1,6 @@
 import os
 from arguments import get_args
-from file_management import read_obj_dumps, load_from_pickle
+from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
 from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEnvironmentModel
 from EnvironmentModels.environment_model import ModelRollouts
 from Environments.SelfBreakout.breakout_screen import Screen
@@ -31,3 +31,4 @@ if __name__ == '__main__':
 	print(outcomes)
 	dataset_model.train(relevant_states, irrelevant_outcomes, outcomes)
 	print("obs", dataset_model.observed_differences["Paddle"], dataset_model.difference_counts["Paddle"], dataset_model.observed_outcomes["Paddle"], dataset_model.outcome_counts["Paddle"])
+	save_to_pickle(os.path.join(args.dataset_dir, "dataset_model.pkl"), dataset_model)
