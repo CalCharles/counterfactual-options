@@ -1,5 +1,32 @@
 import torch
 
+
+class ObjDict(dict):
+    def __init__(self, ins_dict=None):
+        super().__init__()
+        if ins_dict is not None:
+            for n in ins_dict.keys(): 
+                self[n] = ins_dict[n]
+
+    def insert_dict(self, ins_dict):
+        for n in ins_dict.keys(): 
+            self[n] = ins_dict[n]
+
+    def __getattr__(self, name):
+        if name in self:
+            return self[name]
+        else:
+            raise AttributeError("No such attribute: " + name)
+
+    def __setattr__(self, name, value):
+        self[name] = value
+
+    def __delattr__(self, name):
+        if name in self:
+            del self[name]
+        else:
+            raise AttributeError("No such attribute: " + name)
+
 class Rollouts():
     '''
     a unified format for keeping data
@@ -8,7 +35,8 @@ class Rollouts():
         self.length = length
         self.filled = 0
         self.names = []
-        self.shapes = shapes_dict
+        self.values = ObjDict(dict())
+        self.shapes = ObjDict(shapes_dict)
         self.shapes["done"] = (1,) # dones are universal
 
     def init_or_none(self, tensor_shape):
@@ -70,6 +98,9 @@ class Rollouts():
 
     def get_values(self, name):
         return self.values[name][:self.filled]
+
+    def get_batch(self, n, weights=None):
+
 
 def merge_rollouts(rols, set_dones=False):
     total_len = sum([r.filled for r in rols])

@@ -25,13 +25,15 @@ class BreakoutEnvironmentModel(EnvironmentModel):
         factored_state["Reward"] = [float(self.environment.reward)]
         return factored_state
 
-    def flatten_factored_state(self, factored_state, typed=False):
+    def flatten_factored_state(self, factored_state, typed=False, names=None):
+        if names is None:
+            names = self.object_names
         if typed:
             if type(factored_state) == list:
                 flattened_state = list()
                 for f in factored_state:
                     flat = list()
-                    for n in self.object_names:
+                    for n in names:
                         if self.object_num[n] > 1:
                             for i in range(self.object_num[n]):
                                 flat += f[n+str(i)]
@@ -39,7 +41,7 @@ class BreakoutEnvironmentModel(EnvironmentModel):
                 flattened_state = np.array(flattened_state)
             else:
                 flattened_state = list()
-                for n in self.object_names:
+                for n in names:
                     if self.object_num[n] > 1:
                         for i in range(self.object_num[n]):
                             flattened_state += factored_state[n+str(i)]
@@ -49,12 +51,14 @@ class BreakoutEnvironmentModel(EnvironmentModel):
                 flattened_state = np.array(flattened_state)
         else:
             if type(factored_state) == list:
-                flattened_state = np.array([np.sum([factored_state[i][f] for f in self.object_names], axis=1) for i in range(factored_state)])
+                flattened_state = np.array([np.sum([factored_state[i][f] for f in names], axis=1) for i in range(factored_state)])
             else:
-                flattened_state = np.array(np.sum([factored_state[f] for f in self.object_names], axis=0))
+                flattened_state = np.array(np.sum([factored_state[f] for f in names], axis=0))
         return flattened_state
 
-    def unflatten_state(self, flattened_state, vec=False, typed=False):
+    def unflatten_state(self, flattened_state, vec=False, typed=False, names=None):
+        if names is None:
+            names = self.object_names
         def unflatten(flattened):
             at = 0
             factored = dict()

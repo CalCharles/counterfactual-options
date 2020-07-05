@@ -4,15 +4,14 @@ from Options.option import OptionLayer
 
 class OptionNode():
 # TODO: handling of multiple incoming edges to a node
-	def __init__(self, name, option_layer):
+	def __init__(self, name, option):
 		self.name = name
-		self.option_layer = option_layer
+		self.option = option
 
 class OptionEdge():
-	def __init__(self, head, tail, option_layer):
+	def __init__(self, head, tail, option):
 		self.head = head
 		self.tail = tail
-		self.options = option_layer
 
 class OptionGraph():
 	def __init__(self, nodes, edges):
@@ -24,4 +23,3 @@ class OptionGraph():
 
 	def add_edge(self, edge):
 		self.edges[(edge.tail, edge.head)] = edge
-		self.nodes[edge.head].option_layer.options += edge.options

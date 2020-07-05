@@ -18,13 +18,13 @@ class EnvironmentModel():
         '''
         return
 
-    def flatten_factored_state(self, factored_state):
+    def flatten_factored_state(self, factored_state, names=None):
         ''' 
         generates an nxdim state from a list of factored states. Overloaded to accept single factored states as well 
         This is in the environment model because the order shoud follow the order of the object names
         '''
 
-    def unflatten_state(self, flattened_state, vec=False, typed=False):
+    def unflatten_state(self, flattened_state, vec=False, typed=False, names=None):
         ''' 
         generates a list of factored states from an nxdim state. Overloaded to accept length dim vector as well 
         This is in the environment model because the order shoud follow the order of the object names
@@ -77,7 +77,7 @@ class ModelRollouts(Rollouts):
         '''
         super().__init__(length, shapes_dict)
         self.names = ["state", "state_diff", "action", "done"]
-        self.values = {n: self.init_or_none(self.shapes[n]) for n in self.names}
+        self.values = ObjDict({n: self.init_or_none(self.shapes[n]) for n in self.names})
 
     def state_equals(self, other, at=-1):
         EPSILON = 1e-10

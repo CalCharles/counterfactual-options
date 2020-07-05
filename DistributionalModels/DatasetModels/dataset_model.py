@@ -87,6 +87,8 @@ class FactoredDatasetModel(DistributionalModel):
         self.outcome_counts = {n: [] for n in self.names} # a running counter of how many times an outcome was seen
         self.observed_differences = {n: [] for n in self.names}
         self.difference_counts = {n: [] for n in self.names}
+        self.observed_both = {n: [] for n in self.names}
+        self.both_counts = {n: [] for n in self.names}
         self.total_counts = {n: 0 for n in self.names}
         self.EPSILON = 1e-5
 
@@ -113,17 +115,17 @@ class FactoredDatasetModel(DistributionalModel):
         state_len = states.size(1)
         states = self.unflatten(states, vec = True, typed=False)
         diffs = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, typed=False)
+        both = {torch.cat((states[n], diffs[n]), dim=1) for n in self.names}
         fullstate_masks, outcome_probs = counterfactual_mask(self.names, self.num_options, outcome_rollouts)
         state_masks = self.unflatten(fullstate_masks[:, :state_len], vec = True, typed=False)
         state_diff_masks = self.unflatten(fullstate_masks[:, state_len:], vec = True, typed=False)
-        # print([(states[name].shape, state_masks[name].shape, outcome_rollouts.filled // self.num_options) for name in self.names])
+        both_masks = {torch.cat((state_masks[n], state_diff_masks[n]), dim=1) for n in self.names}
         for i in [k*self.num_options for k in range(outcome_rollouts.filled // self.num_options)]: # TODO: assert evenly divisible
             for j in range(self.num_options):
-                # print(i, j, state_masks['Ball'][i+j], state_diff_masks['Ball'][i+j], states['Ball'][i+j], diffs['Ball'][i+j])
-                # print(state_masks['Paddle'][i+j], state_diff_masks['Paddle'][i+j], states['Paddle'][i+j], diffs['Paddle'][i+j])
                 for name in self.names:
                     self.add_observed(states[name][i+j] * state_masks[name][i+j], state_masks[name][i+j], self.observed_outcomes[name], self.outcome_counts[name])
                     self.add_observed(diffs[name][i+j] * state_diff_masks[name][i+j], state_diff_masks[name][i+j], self.observed_differences[name], self.difference_counts[name])
+                    self.add_observed(both[name][i+j] * both_masks[name][i+j], both_masks[name][i+j], self.observed_both[name], self.both_counts[name])
                     self.total_counts[name] += 1
 
 
