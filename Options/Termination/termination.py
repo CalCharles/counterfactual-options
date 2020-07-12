@@ -9,7 +9,7 @@ class Termination():
 	def check(self, state, diff, param):
 		return True
 
-class ParameterizedStateTermination():
+class ParameterizedStateTermination(Termination):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 		self.use_diff = kwargs['use_diff'] # compare the parameter with the diff, or with the outcome
@@ -23,19 +23,20 @@ class ParameterizedStateTermination():
 
 	def assign_parameters(self, dataset_model):
 		def assign_dict(observed, totals):
-			new_observed = dict()
-			j = 0
-			for i in observed.keys():
+			new_observed = list()
+			new_totals = list()
+			for i in range(len(observed)):
 				if totals[i] >= self.min_use:
-					new_observed[j] = observed[i]
-					j +=1
-			return new_observed, j
+					new_observed.append(observed[i])
+					new_totals.append(totals[i])
+			return new_observed, new_totals
+		print(dataset_model.observed_differences)
 		if self.use_both:
 			self.discrete_parameters, self.counts = assign_dict(dataset_model.observed_both[self.name], dataset_model.both_counts[self.name])
 		elif self.use_diff:
-			self.discrete_parameters, self.counts = assign_dict(dataset_model.observed_diff[self.name], dataset_model.diff_counts[self.name])
+			self.discrete_parameters, self.counts = assign_dict(dataset_model.observed_differences[self.name], dataset_model.difference_counts[self.name])
 		elif self.use_both:
-			self.discrete_parameters, self.counts = assign_dict(dataset_model.observed_diff[self.name], dataset_model.outcome_counts[self.name])
+			self.discrete_parameters, self.counts = assign_dict(dataset_model.observed_outcomes[self.name], dataset_model.outcome_counts[self.name])
 
 	def convert_param(self, param):
 		if self.discrete:
@@ -62,3 +63,5 @@ class ParameterizedStateTermination():
 				return (state - param).norm(p=1) <= EPSILON
 			else:
 				return (state - param).norm(p=1, dim=1) <= EPSILON
+
+terminal_forms = {'param': ParameterizedStateTermination}

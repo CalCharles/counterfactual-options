@@ -11,7 +11,8 @@ class DistributionalModel():
 		'''
 		self.has_relative = False
 		self.outcome = None
-		self.num_options = kwargs["option_level"].num_options
+		self.num_params = kwargs["option_node"].num_params
+		self.option_name = kwargs["option_node"].name
 
 	def train(self, counterfactual_rollouts, non_counterfactual_rollouts, outcome_rollouts):
 		'''

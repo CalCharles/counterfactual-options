@@ -4,24 +4,28 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 import sys, glob, copy, os, collections, time
 import numpy as np
-from ReinforcementLearning.train_rl import sample_actions
-from Models.models import pytorch_model
+from ReinforcementLearning.train_RL import sample_actions
+from ReinforcementLearning.policy import pytorch_model
 import cma, cv2
 import time
+
+class PolicyLoss():
+    def __init__(self, value_loss, action_loss, q_loss, dist_entropy, entropy_loss, action_log_probs):
+        self.value_loss, self.action_loss, self.q_loss, self.dist_entropy, self.entropy_loss, self.action_log_probs = value_loss, action_loss, q_loss, dist_entropy, entropy_loss, action_log_probs
 
 class LearningOptimizer():
     def __init__(self, args, option):
         self.option = option
-        self.optimizer = self.initialize_optimizer(args, policy)
+        self.optimizer = self.initialize_optimizer(args, self.option.policy)
         self.args = args
 
     def initialize_optimizer(self, args, policy):
         # if args.model_form == "population":
         #     return PopOptim(model, args)
         if args.optim == "RMSprop":
-            return optim.RMSprop(model.parameters(), args.lr, eps=args.eps, alpha=args.alpha)
+            return optim.RMSprop(policy.parameters(), args.lr, eps=args.eps, alpha=args.alpha)
         elif args.optim == "Adam":
-            return optim.Adam(model.parameters(), args.lr, eps=args.eps, betas=args.betas, weight_decay=args.weight_decay)
+            return optim.Adam(policy.parameters(), args.lr, eps=args.eps, betas=args.betas, weight_decay=args.weight_decay)
         else:
             raise NotImplementedError("Unimplemented optimization")
 
@@ -69,8 +73,7 @@ class DQN_optimizer(LearningOptimizer):
             q_loss = (next_value.detach() + batch.values.reward - q_values.squeeze()).norm().pow(2)
             self.step_optimizer(self.optimizer, self.option, q_loss, RL=self.RL)
             total_loss += q_loss
-            tpl +=  policy_loss
-        return total_loss/args.grad_epoch, tpl/args.grad_epoch, dist_entropy, None, None, torch.log(action_probs)
+        return PolicyLoss(total_loss/args.grad_epoch, None, q_loss, None, None, torch.log(action_probs))
 
 class PPO_optimizer(LearningOptimizer):
     def step(self, rollouts, use_range=None):
@@ -90,6 +93,6 @@ class PPO_optimizer(LearningOptimizer):
             log_output_probs = torch.log(torch.sum(probs, dim=0) / probs.size(0) + 1e-10)
             dist_entropy = -(log_probs * probs).sum(-1).mean()
             self.step_optimizer(self.optimizer, self.option, value_loss * args.value_loss_coef + action_loss + entropy_loss, RL=self.RL)
-        return value_loss, action_loss, dist_entropy, None, entropy_loss, action_log_probs
+        return PolicyLoss(value_loss, action_loss, dist_entropy, None, entropy_loss, action_log_probs)
 
-learning_algorithms = {'ppo': A2C_optimizer, 'dqn': DQN_optimizer}
+learning_algorithms = {'ppo': PPO_optimizer, 'dqn': DQN_optimizer}

@@ -1,7 +1,7 @@
 import numpy as np
 import os, cv2, time
 import torch
-from Rollouts.rollouts import Rollouts
+from Rollouts.rollouts import Rollouts, ObjDict
 
 
 class EnvironmentModel():
@@ -17,6 +17,9 @@ class EnvironmentModel():
         factored states have the format: {"name": state, ...,}
         '''
         return
+
+    def get_flattened_state(self, names=None):
+        return self.flatten_factored_state(self.get_factored_state(), names=names)
 
     def flatten_factored_state(self, factored_state, names=None):
         ''' 

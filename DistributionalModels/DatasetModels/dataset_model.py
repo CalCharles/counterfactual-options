@@ -44,28 +44,28 @@ class DatasetModel(DistributionalModel):
         fullstate_masks, outcome_probs = counterfactual_mask(outcome_rollouts)
         state_masks = fullstate_masks[:, :state_len]
         state_diff_masks = fullstate_masks[:, state_len:]
-        for i in [k*self.num_options for k in range(outcome_rollouts.length // self.num_options)]: # TODO: assert evenly divisible
-            for j in range(self.num_options):
+        for i in [k*self.num_params for k in range(outcome_rollouts.length // self.num_params)]: # TODO: assert evenly divisible
+            for j in range(self.num_params):
                 self.add_observed(states[i+j] * state_masks[i+j], self.observed_outcomes, self.outcome_counts)
                 self.add_observed(state_diffs[i+j] * state_diff_masks[i+j], self.observed_differences, self.difference_counts)
                 self.total_count += 1
 
 
-    def sample(self, rollouts, diff=True):
+    def sample(self, state, length, diff=True):
         '''
         takes a random sample of the outcomes or diffs and then returns it. This has issues since you don't know which one you are getting,
         and the outcomes and difference have been separated, so you cannot just sample from each. 
         '''
         if diff:
             possible_indexes = list(range(len(self.difference_counts)))
-            indexes = np.random.choice(possible_indexes, rollouts.length, replace=True, p=np.array(self.difference_counts) / self.total_count)
+            indexes = np.random.choice(possible_indexes, length, replace=True, p=np.array(self.difference_counts) / self.total_count)
             diffs = []
             for i in indexes:
                 diffs.append(self.observed_differences[i].copy())
             return torch.stack(diffs, dim=0)
         else:
             possible_indexes = list(range(len(self.outcome_counts)))
-            indexes = np.random.choice(possible_indexes, rollouts.length, replace=True, p=np.array(self.outcome_counts) / self.total_count)
+            indexes = np.random.choice(possible_indexes, length, replace=True, p=np.array(self.outcome_counts) / self.total_count)
             outs = []
             for i in indexes:
                 outs.append(self.observed_outcomes[i].copy())
@@ -94,15 +94,14 @@ class FactoredDatasetModel(DistributionalModel):
 
     def check_observed(self, outcome, observed):
         for i, o in enumerate(observed):
-            if (o - outcome).norm() < self.EPSILON:
+            if (o[0] - outcome).norm() < self.EPSILON:
                 return i
         return -1
 
     def add_observed(self, outcome, mask, observed, counter):
-        outcome = torch.cat((outcome, mask), dim=0)
         i = self.check_observed(outcome, observed)
         if i < 0:
-            observed.append(outcome)
+            observed.append((outcome, mask))
             counter.append(1)
         else:
             counter[i] += 1
@@ -115,13 +114,13 @@ class FactoredDatasetModel(DistributionalModel):
         state_len = states.size(1)
         states = self.unflatten(states, vec = True, typed=False)
         diffs = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, typed=False)
-        both = {torch.cat((states[n], diffs[n]), dim=1) for n in self.names}
-        fullstate_masks, outcome_probs = counterfactual_mask(self.names, self.num_options, outcome_rollouts)
+        both = {n: torch.cat((states[n], diffs[n]), dim=1) for n in self.names}
+        fullstate_masks, outcome_probs = counterfactual_mask(self.names, self.num_params, outcome_rollouts)
         state_masks = self.unflatten(fullstate_masks[:, :state_len], vec = True, typed=False)
         state_diff_masks = self.unflatten(fullstate_masks[:, state_len:], vec = True, typed=False)
-        both_masks = {torch.cat((state_masks[n], state_diff_masks[n]), dim=1) for n in self.names}
-        for i in [k*self.num_options for k in range(outcome_rollouts.filled // self.num_options)]: # TODO: assert evenly divisible
-            for j in range(self.num_options):
+        both_masks = {n: torch.cat((state_masks[n], state_diff_masks[n]), dim=1) for n in self.names}
+        for i in [k*self.num_params for k in range(outcome_rollouts.filled // self.num_params)]: # TODO: assert evenly divisible
+            for j in range(self.num_params):
                 for name in self.names:
                     self.add_observed(states[name][i+j] * state_masks[name][i+j], state_masks[name][i+j], self.observed_outcomes[name], self.outcome_counts[name])
                     self.add_observed(diffs[name][i+j] * state_diff_masks[name][i+j], state_diff_masks[name][i+j], self.observed_differences[name], self.difference_counts[name])
@@ -129,7 +128,7 @@ class FactoredDatasetModel(DistributionalModel):
                     self.total_counts[name] += 1
 
 
-    def sample(self, rollouts, diff=True, name=""):
+    def sample(self, state, length, both=False, diff=True, name=""):
         '''
         takes a random sample of the outcomes or diffs from a particular name (or a random name) and then returns it. This has issues since you don't know which one you are getting,
         and the outcomes and difference have been separated, so you cannot just sample from each. 
@@ -138,19 +137,21 @@ class FactoredDatasetModel(DistributionalModel):
             counts = np.array([self.total_counts[n] for n in self.names])
             total = sum(counts)
             possible_indexes = list(range(len(self.total_counts)))
-            name_index = np.random.choice(possible_indexes, rollouts.length, replace=True, p=counts / total)
+            name_index = np.random.choice(possible_indexes, length, replace=True, p=counts / total)[0]
+            print(name_index, self.names, name)
             name = self.names[name_index]
-        if diff:
-            possible_indexes = list(range(len(self.difference_counts[name])))
-            indexes = np.random.choice(possible_indexes, rollouts.length, replace=True, p=np.array(self.difference_counts[name]) / self.total_counts[name])
-            diffs = []
+        def get_sample(counts, observed):
+            possible_indexes = list(range(len(counts[name])))
+            indexes = np.random.choice(possible_indexes, length, replace=True, p=np.array(counts[name]) / self.total_counts[name])
+            samples = []
+            masks = []
             for i in indexes:
-                diffs.append(self.observed_differences[name][i].copy())
-            return torch.stack(diffs, dim=0)
+                samples.append(observed[name][i][0].clone())
+                masks.append(observed[name][i][1].clone())
+            return torch.stack(samples, dim=0), torch.stack(masks, dim=0)
+        if both:
+            return get_sample(self.both_counts, self.observed_both)
+        elif diff:
+            return get_sample(self.difference_counts, self.observed_differences)
         else:
-            possible_indexes = list(range(len(self.outcome_counts[name])))
-            indexes = np.random.choice(possible_indexes, rollouts.length, replace=True, p=np.array(self.outcome_counts[name]) / self.total_counts[name])
-            outs = []
-            for i in indexes:
-                outs.append(self.observed_outcomes[name][i].copy())
-            return torch.stack(outs, dim=0)
+            return get_sample(self.outcome_counts, self.observed_outcomes)

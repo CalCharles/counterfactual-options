@@ -96,7 +96,7 @@ class DiagGaussian(nn.Module):
 class Policy(nn.Module):
     def __init__(self, **kwargs):
         super(Policy, self).__init__()
-        self.num_inputs = default_value_arg(kwargs, 'latent_size', 10)
+        self.num_inputs = default_value_arg(kwargs, 'num_inputs', 10)
         self.param_dim = default_value_arg(kwargs, 'param_size', 10)
         self.num_outputs = default_value_arg(kwargs, 'num_outputs', 1)
         self.factor = default_value_arg(kwargs, 'factor', None)
@@ -111,18 +111,15 @@ class Policy(nn.Module):
         self.Q_critic = not default_value_arg(kwargs, 'Q_critic', False) 
         self.continuous = not default_value_arg(kwargs, 'continuous', False)
         model_form = not default_value_arg(kwargs, 'train', 'basic') 
-        if args.true_environment:
-            self.no_preamble = True
         self.has_final = default_value_arg(kwargs, 'needs_final', True)
         self.option_values = torch.zeros(1, self.param_dim) # changed externally to the parameters
-        self.num_layers = args.num_layers
-        if args.num_layers == 0:
-            self.insize = num_inputs
+        self.num_layers = default_value_arg(kwargs, 'num_layers', 1)
+        if self.num_layers == 0:
+            self.insize = self.num_inputs
         else:
-            self.insize = factor * factor * factor // min(factor, 8)
+            self.insize = self.factor * self.factor * self.factor // min(self.factor, 8)
         self.layers = []
-        if needs_final:
-            self.init_last(num_outputs)
+        self.init_last(self.num_outputs)
         if self.activation == "relu":
             self.acti = F.relu
         elif self.activation == "sin":
@@ -143,7 +140,7 @@ class Policy(nn.Module):
         self.action_eval = nn.Linear(self.insize, num_outputs)
         if len(self.layers) > 0:
             self.layers = self.layers[5:]
-        self.layers = [self.critic_linear, self.sigma, self.action_index, self.QFunction, self.action_eval] + self.layers
+        self.layers = [self.critic_linear, self.sigma, self.QFunction, self.action_eval] + self.layers
 
     def reset_parameters(self):
         relu_gain = nn.init.calculate_gain('relu')
@@ -153,7 +150,7 @@ class Policy(nn.Module):
                     nn.init.orthogonal_(layer.weight.data, gain=nn.init.calculate_gain('relu'))
                 else:
                     nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu') 
-            elif issubclass(type(layer), Model):
+            elif issubclass(type(layer), Policy):
                 layer.reset_parameters()
             elif type(layer) == nn.Parameter:
                 nn.init.uniform_(layer.data, 0.0, 0.2/np.prod(layer.data.shape))#.01 / layer.data.shape[0])
@@ -179,8 +176,8 @@ class Policy(nn.Module):
                         torch.nn.init.eye_(layer.weight.data)
                     if layer.bias is not None:                
                         nn.init.uniform_(layer.bias.data, 0.0, 1e-6)
-        if self.has_final:
-            nn.init.orthogonal_(self.action_probs.weight.data, gain=0.01)
+        # if self.has_final:
+        #     nn.init.orthogonal_(self.action_probs.weight.data, gain=0.01)
         print("parameter number", self.count_parameters(reuse=False))
 
     def last_layer(self, x, actions):
@@ -260,27 +257,26 @@ class Policy(nn.Module):
         self.layers = self.layers[3:]
 
 
-class BasicModel(Model):    
+class BasicPolicy(Policy):    
     def __init__(self, **kwargs):
-        super(BasicModel, self).__init__(**kwargs)
-        args, num_inputs, num_outputs, factor = self.get_args(kwargs)
-        self.hidden_size = factor*factor*factor // min(4,factor)
+        super(BasicPolicy, self).__init__(**kwargs)
+        self.hidden_size = self.factor*self.factor*self.factor // min(4,self.factor)
         print("Network Sizes: ", self.num_inputs, self.insize, self.hidden_size)
         # self.l1 = nn.Linear(self.num_inputs, self.num_inputs*factor*factor)
-        if args.num_layers == 1:
+        if self.num_layers == 1:
             self.l1 = nn.Linear(self.num_inputs,self.insize)
-        elif args.num_layers == 2:
+        elif self.num_layers == 2:
             self.l1 = nn.Linear(self.num_inputs,self.hidden_size)
             self.l2 = nn.Linear(self.hidden_size, self.insize)
-        elif args.num_layers == 3:
+        elif self.num_layers == 3:
             self.l1 = nn.Linear(self.num_inputs,self.hidden_size)
             self.l2 = nn.Linear(self.hidden_size,self.hidden_size)
             self.l3 = nn.Linear(self.hidden_size, self.insize)
-        if args.num_layers > 0:
+        if self.num_layers > 0:
             self.layers.append(self.l1)
-        if args.num_layers > 1:
+        if self.num_layers > 1:
             self.layers.append(self.l2)
-        if args.num_layers > 2:
+        if self.num_layers > 2:
             self.layers.append(self.l3)
         self.train()
         self.reset_parameters()
@@ -312,4 +308,4 @@ class BasicModel(Model):
 
         return layer_outputs
 
-models = {"basic": BasicModel}
+policy_forms = {"basic": BasicPolicy}

@@ -52,8 +52,15 @@ def get_args():
                         help='activation function for hidden layers: relu, sin, tanh, sigmoid')
     parser.add_argument('--init-form', default="uni",
                     help='initialization to use: uni, xnorm, xuni, eye')
-    parser.add_argument('--model-form', default="",
-                        help='choose the model form, which is defined in Models.models')
+    # Meta-Hyperparameters
+    parser.add_argument('--policy-type', default="basic",
+                        help='choose the model form for the policy, which is defined in Policy.policy')
+    parser.add_argument('--terminal-type', default="param",
+                        help='choose the way the terminal condition is defined, in Option.Termination.termination')
+    parser.add_argument('--reward-type', default="bin",
+                        help='choose the way the reward is defined, in Option.Reward.reward')
+    parser.add_argument('--option-type', default="discrete",
+                        help='choose the way the option is defined, in Option.option')
     # Behavior policy parameters
     parser.add_argument('--greedy-epsilon', type=float, default=0.1,
                     help='percentage of random actions in epsilon greedy')
@@ -65,6 +72,8 @@ def get_args():
                         help='defines the behavior policy, as defined in BehaviorPolicies.behavior_policies')
 
     # Learning settings
+    parser.add_argument('--learning_type', default='ppo',
+                        help='defines the algorithm used for learning')
     parser.add_argument('--seed', type=int, default=1,
                         help='random seed (default: 1)')
     parser.add_argument('--num-processes', type=int, default=1,
@@ -85,14 +94,23 @@ def get_args():
     # Replay buffer settings
     parser.add_argument('--match-option', action='store_true', default=False,
                         help='use data only from the option currently learning (default False')
-    parser.add_argument('--buffer-steps', type=int, default=-1,
-                        help='number of buffered steps in the record buffer, -1 implies it is not used (default: -1)')
+    parser.add_argument('--buffer-steps', type=int, default=32,
+                        help='number of buffered steps in the record buffer (default: 32)')
     parser.add_argument('--buffer-clip', type=int, default=20,
                         help='backwards return computation (strong effect on runtime')
     parser.add_argument('--weighting-lambda', type=float, default=1e-2,
                         help='lambda for the sample weighting in prioritized replay (default = 1e-2)')
     parser.add_argument('--prioritized-replay', default="",
                         help='different prioritized replay schemes, (TD (Q TD error), return, recent, ""), default: ""')
+    # Option Chain Parameters
+    parser.add_argument('--base-node', default="Action",
+                        help='The name of the lowest node in the option chain (generally should be Action)')
+    parser.add_argument('--use-both', type=int, default=1,
+                        help='enum for which part to use as parameter (0: state, 1: state difference, 2: both state and state difference)')
+    # termination condition parameters
+    parser.add_argument('--min-use', type=int, default=5,
+                    help='minimum number of seen states to use as a parameter')
+
     # logging settings
     parser.add_argument('--log-interval', type=int, default=10,
                         help='log interval, one log per n updates (default: 10)')
@@ -120,9 +138,6 @@ def get_args():
                         help='shows an image with the focus at each timestep like a video')
     parser.add_argument('--single-save-dir', default="",
                         help='saves all images to a single directory with name all')
-    # Option Chain Parameters
-    parser.add_argument('--base-node', default="Action",
-                        help='The name of the lowest node in the option chain (generally should be Action)')
     # environmental variables
     parser.add_argument('--gpu', type=int, default=0,
                         help='gpu number to use (default: 0)')

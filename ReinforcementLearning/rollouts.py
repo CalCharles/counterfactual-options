@@ -1,7 +1,19 @@
 import numpy as np
 import os, cv2, time
 import torch
-from Rollouts.rollouts import Rollouts
+from Rollouts.rollouts import Rollouts, ObjDict
+
+
+def get_RL_shapes(option, environment_model):
+    shapes = dict()
+    state_size = environment_model.object_sizes[option.object_name] + environment_model.object_sizes[option.next_option.object_name]
+    shapes["state"], shapes["next_state"], shapes["state_diff"] = [state_size], [state_size], [state_size]
+    shapes["action"] = option.action_shape
+    shapes["probs"] = option.action_prob_shape
+    shapes["value"], shapes["reward"], shapes["done"] = (1,), (1,), (1,)
+    param_shape = option.get_param_shape()
+    shapes["param"], shapes["mask"] = param_shape, param_shape 
+    return shapes
 
 
 class RLRollouts(Rollouts):

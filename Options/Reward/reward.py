@@ -9,7 +9,7 @@ class Reward():
 	def get_reward(self, state, diff, param):
 		return 1
 
-class BinaryParameterizedReward():
+class BinaryParameterizedReward(Reward):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 		self.use_diff = kwargs['use_diff'] # compare the parameter with the diff, or with the outcome
@@ -33,3 +33,5 @@ class BinaryParameterizedReward():
 				return ((state - param).norm(p=1) <= EPSILON).float()
 			else:
 				return ((state - param).norm(p=1, dim=1) <= EPSILON).float()
+
+reward_forms = {'bin': BinaryParameterizedReward}

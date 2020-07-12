@@ -69,7 +69,15 @@ class Rollouts():
         for n in self.names:
             if self.values[n] is not None:
                 rollout.values[n] = self.values[n][i:j]
-                rollout.filled = j - i
+        rollout.filled = j - i
+        return rollout
+
+    def split_indexes(self, idxes):
+        rollout = type(self)(self.length, self.shapes)
+        for n in self.names:
+            if self.values[n] is not None:
+                rollout.values[n] = self.values[n][idxes]
+        rollout.filled = len(idxes)
         return rollout
 
     def split_trajectories(self):
@@ -100,6 +108,8 @@ class Rollouts():
         return self.values[name][:self.filled]
 
     def get_batch(self, n, weights=None):
+        idxes = np.random.choice(np.arange(self.filled), size=n, p=weights)
+        return self.split_indexes(idxes)
 
 
 def merge_rollouts(rols, set_dones=False):
