@@ -10,6 +10,7 @@ from Environments.environment_specification import RawEnvironment
 class Screen(RawEnvironment):
     def __init__(self, frameskip = 1):
         super(Screen, self).__init__()
+        self.seed_counter = -1
         self.reset()
         self.num_actions = 4
         self.average_points_per_life = 0
@@ -21,6 +22,9 @@ class Screen(RawEnvironment):
         self.done = False
 
     def reset(self):
+        if self.seed_counter > 0:
+            self.seed_counter += 1
+            np.random.seed(self.seed_counter)
         vel= np.array([np.random.randint(1,2), np.random.choice([-1,1])])
         # self.ball = Ball(np.array([52, np.random.randint(14, 70)]), 1, vel)
         self.ball = Ball(np.array([46, np.random.randint(20, 36)]), 1, vel)
@@ -44,6 +48,7 @@ class Screen(RawEnvironment):
         self.obj_rec = [[] for i in range(len(self.objects))]
         self.counter = 0
         self.points = 0
+        self.seed_counter += 1
 
         self.render_frame()
 
@@ -91,7 +96,7 @@ class Screen(RawEnvironment):
             self.actions.take_action(action)
             for obj1 in self.animate:
                 for obj2 in self.objects:
-                    if obj1.name == obj2.name:
+                    if obj1.name == obj2.name or (obj1.name == "Ball" and obj2.name == "Paddle"):
                         continue
                     else:
                         preattr = obj2.attribute
@@ -100,8 +105,11 @@ class Screen(RawEnvironment):
                             self.reward += 1
                             self.total_score += 1
                             hit = True
-            for ani_obj in self.animate:
-                ani_obj.move()
+            self.paddle.move() # ensure the ball moves after the paddle to ease counterfactual
+            self.ball.interact(self.paddle)
+            self.ball.move()
+            # for ani_obj in self.animate:
+            #     ani_obj.move()
             if last_loss != self.ball.losses:
                 self.done = True
             if self.ball.losses == 5:
@@ -122,7 +130,7 @@ class Screen(RawEnvironment):
             if self.itr == 0:
                 object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
                 object_dumps.close()
-            self.write_objects(extracted_state, frame, self.save_path)
+            self.write_objects(extracted_state, frame)
         return self.frame, extracted_state, self.done
 
 
@@ -221,10 +229,10 @@ def DemonstratorPolicy(Policy):
         return action
 
 
-def demonstrate(save_dir, num_frames, pushgripper=False):
+def demonstrate(save_dir, num_frames):
     domain = Screen()
     quit = False
-    domain.set_save(0, save_dir, 0)
+    domain.set_save(0, save_dir, 0, True)
     for i in range(num_frames):
         frame = domain.render_frame()
         cv2.imshow('frame',frame)
@@ -240,7 +248,9 @@ def demonstrate(save_dir, num_frames, pushgripper=False):
             action = 0
         elif key == ord('d'):
             action = 3
-        domain.step([action])
+        domain.step(action)
+        if quit:
+            break
 
 
 def abbreviate_obj_dump_file(pth, new_path, get_last=-1):

@@ -18,6 +18,17 @@ class EnvironmentModel():
         '''
         return
 
+    def get_factored_zero_state(self, typed = False): # "typed" indicates if a single type can have multiple instances (true), or if all of the same type is grouped into a single vector
+        # gets a factored state with all zeros
+        factored_state = self.get_factored_state()
+        zero_state = dict()
+        for n in factored_state.keys():
+            zero_state[n] = torch.zeros(factored_state[n].shape)
+        return zero_state
+
+    def cuda_factored(self, factored_state):
+        return {n: [state.cuda() for state in factored_state[n]] for n in factored_state.keys()}
+
     def get_flattened_state(self, names=None):
         return self.flatten_factored_state(self.get_factored_state(), names=names)
 

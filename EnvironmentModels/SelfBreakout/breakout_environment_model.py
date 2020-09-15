@@ -19,10 +19,12 @@ class BreakoutEnvironmentModel(EnvironmentModel):
                     if o.name.find(n) != -1:
                         factored_state[n] += o.pos.tolist() + o.vel.tolist() + [o.attribute]
                         break
+            for n in factored_state.keys():
+                factored_state[n] = np.array(factored_state[n])
         else:
-            factored_state = {o.name: o.pos.tolist() + o.vel.tolist() + [o.attribute] for o in self.environment.objects}
-        factored_state["Done"] = [float(self.environment.done)]
-        factored_state["Reward"] = [float(self.environment.reward)]
+            factored_state = {o.name: np.array(o.pos.tolist() + o.vel.tolist() + [o.attribute]) for o in self.environment.objects}
+        factored_state["Done"] = np.array([float(self.environment.done)])
+        factored_state["Reward"] = np.array([float(self.environment.reward)])
         return factored_state
 
     def flatten_factored_state(self, factored_state, typed=False, names=None):
@@ -51,9 +53,9 @@ class BreakoutEnvironmentModel(EnvironmentModel):
                 flattened_state = np.array(flattened_state)
         else:
             if type(factored_state) == list:
-                flattened_state = np.array([np.sum([factored_state[i][f] for f in names], axis=1) for i in range(factored_state)])
+                flattened_state = np.array([np.concatenate([factored_state[i][f] for f in names], axis=1) for i in range(factored_state)])
             else:
-                flattened_state = np.array(np.sum([factored_state[f] for f in names], axis=0))
+                flattened_state = np.array(np.concatenate([factored_state[f] for f in names], axis=0))
         return flattened_state
 
     def unflatten_state(self, flattened_state, vec=False, typed=False, names=None):
@@ -88,12 +90,16 @@ class BreakoutEnvironmentModel(EnvironmentModel):
             factored = unflatten(flattened_state)
         return factored
 
-    def set_from_factored_state(self, factored_state, typed = False):
+    def set_from_factored_state(self, factored_state, typed = False, seed_counter=-1):
         '''
         TODO: only sets the active elements, and not the score, reward and other features. This could be an issue in the future.
         '''
+        if seed_counter > 0:
+            self.environment.seed_counter = seed_counter
+            self.environment.ball.reset_seed = seed_counter
         self.environment.ball.pos = np.array(self.environment.ball.getPos(factored_state["Ball"][:2]))
         self.environment.ball.vel = np.array(factored_state["Ball"][2:4]).astype(int)
+        self.environment.ball.losses = 0 # ensures that no weirdness happens since ball losses are not stored, though that might be something to keep in attribute...
         self.environment.paddle.pos = np.array(self.environment.paddle.getPos(factored_state["Paddle"][:2]))
         self.environment.paddle.vel = np.array(factored_state["Paddle"][2:4]).astype(int)
         self.environment.actions.attribute = factored_state["Action"][-1]

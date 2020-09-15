@@ -36,12 +36,13 @@ class animateObject(Object):
 
 	def __init__(self, pos, attribute, vel):
 		super(animateObject, self).__init__(pos, attribute)
+		self.animate = True
 		self.vel = vel
 		self.apply_move = True
 		self.zero_vel = False
 
 	def move(self):
-		# print (self.pos, self.vel)
+		# print (self.name, self.pos, self.vel)
 		if self.apply_move:
 			self.pos += self.vel
 		else:
@@ -64,6 +65,7 @@ class Ball(animateObject):
 		self.name = "Ball"
 		self.losses = 0
 		self.paddlehits = 0
+		self.reset_seed = -1
 
 		# MODE 1 # only odd lengths valid, prefer 7,11,15, etc. 
 		self.paddle_interact = dict()
@@ -107,6 +109,8 @@ class Ball(animateObject):
 				self.vel = np.array([-self.vel[0], self.vel[1]])
 				self.apply_move = False
 			elif other.name.find("BottomWall") != -1:
+				if self.reset_seed > 0:
+					np.random.seed(self.reset_seed)
 				self.pos = np.array([46, np.random.randint(20, 36)])
 				self.vel = np.array([1, np.random.choice([-1,1])])
 				# self.pos = np.array([46, 24])
@@ -140,9 +144,8 @@ class Paddle(animateObject):
 
 	def interact(self, other):
 		if other.name == "Action":
-			# print ("action", other.attribute)
 			if other.attribute == 0 or other.attribute == 1:
-				self.vel = np.array([0,0])
+				self.vel = np.array([0,0], dtype=np.int64)
 			elif other.attribute == 2:
 				if self.pos[1] == 12:
 					if self.nowall:

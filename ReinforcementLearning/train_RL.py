@@ -6,10 +6,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import torch.optim as optim
+from collections import deque
 
 from Environments.environment_specification import ProxyEnvironment
 from ReinforcementLearning.policy import pytorch_model
 from file_management import save_to_pickle
+
+class PolicyLoss():
+    def __init__(self, value_loss, action_loss, q_loss, dist_entropy, entropy_loss, action_log_probs):
+        self.value_loss, self.action_loss, self.q_loss, self.dist_entropy, self.entropy_loss, self.action_log_probs = value_loss, action_loss, q_loss, dist_entropy, entropy_loss, action_log_probs
 
 def sample_actions(probs, deterministic):  # TODO: why is this here?
     if deterministic is False:
@@ -29,63 +34,170 @@ def unwrap_or_none(val):
     else:
         return -1.0
 
+def true_action_prob(actions, num_actions):
+    vals = torch.zeros((num_actions,))
+    total = torch.zeros(num_actions)
+    for action in actions:
+        a = vals.clone()
+        a[action.long()] = 1
+        total += a
+    return total, len(actions)
 
 class Logger:
     def __init__(self, args):
         self.args = args
-        self.num_iters = args.num_iters
+        self.num_steps = args.num_steps
         self.start = time.time()
+        self.total = torch.zeros(4)
+        self.length = 0
 
-    def log(self, i, policy_loss, rollouts):
-        total_elapsed = i * self.num_iters
+    def log(self, i, interval, steps, policy_loss, rollouts, true_rewards, true_dones):
+        true_rewards = np.array(true_rewards)
+        total_elapsed = i * self.num_steps
         end = time.time()
-        final_rewards = rollouts.values.reward
-        el, vl, al = policy_loss.values.entropy_loss
-        logvals = "Updates {}, num timesteps {}, FPS {}, mean/median reward {:.1f}/{:.1f}, min/max reward {:.1f}/{:.1f}, entropy {}, value loss {}, policy loss {}, average_reward {}, true_reward median: {}, mean: {}, max: {}".format(
-            i,
-            total_elapsed,
-            int(total_elapsed / (end - self.start)),
-            rollouts.get_value('reward').mean(),
-            np.median(final_rewards.cpu()),
-            final_rewards.min(),
-            final_rewards.max(),
-            el,
-            vl,
-            al,
-            torch.stack(average_rewards).sum() / acount,
-            true_reward,
-            mean_reward,
-            best_reward,
-        )
-        self.start = end
+        addtotal, length = true_action_prob(rollouts.get_values('true_action')[-steps:], 4) # disable this if actions not corresponding
+        self.total += addtotal
+        self.length += length
+        if i % interval == 0:
+            final_rewards = rollouts.get_values('reward')
+            el, vl, al = policy_loss.entropy_loss, policy_loss.value_loss, policy_loss.action_loss
+            logvals = "Updates {}, num timesteps {}, FPS {}, mean/median reward {:.3f}/{:.3f}, min/max reward {:.1f}/{:.1f}, entropy {}, value loss {}, policy loss {}, true_reward median: {}, mean: {}, episode: {}".format(
+                i,
+                total_elapsed,
+                int(self.args.num_steps*interval / (end - self.start)),
+                final_rewards.mean(),
+                final_rewards.median(),
+                final_rewards.min(),
+                final_rewards.max(),
+                el,
+                vl,
+                al,
+                np.median(true_rewards),
+                np.mean(true_rewards),
+                np.sum(true_rewards) / np.sum(true_dones)
+            )
+            self.start = end
+            print(logvals)
+            print("action_probs", self.total / self.length)
+            print("probs", rollouts.get_values('probs')[-1])
+            print("Q_vals", rollouts.get_values('Q_vals')[-1])
+            self.total = torch.zeros(4)
+            self.length = 0
 
 
-def trainRL(args, rollouts, logger, environment, environment_model, option, learning_algorithm, names):
-    state = pytorch_model.wrap(environment_model.get_flattened_state(names=names), cuda=args.cuda)
-    fullstate = environment_model.get_factored_state()
-    print(state)
-    last_state = torch.zeros(state.shape)
-    if args.cuda:
-        last_state = last_state.cuda()
+
+def trainRL(args, rollouts, logger, environment, environment_model, option, learning_algorithm, names, graph):
+    input_state = pytorch_model.wrap(environment_model.get_flattened_state(names=names), cuda=args.cuda)
+    diff_state = pytorch_model.wrap(environment_model.get_flattened_state(names=[names[0]]), cuda=args.cuda)
+    full_state = environment_model.get_factored_state()
+    last_full_state = environment_model.get_factored_state()
+    if option.object_name == 'Raw':
+        stack = torch.zeros([4,84,84]).detach()
+        if args.cuda:
+            stack = stack.cuda()
+        stack = stack.roll(-1,0)
+        stack[-1] = pytorch_model.wrap(environment.render_frame(), cuda=args.cuda).detach()
+    true_rewards = deque(maxlen=1000)
+    true_dones = deque(maxlen=1000)
+    last_done = True
+    done = True
+    done_lengths = deque(maxlen=1000)
+    done_count = 0
+    object_state, next_object_state = None, None
+    policy_loss = PolicyLoss(None, None, None, None, None, None)
+    if args.warm_up > 0:
+        option.set_behavior_epsilon(1)
     for i in range(args.num_iters):
-        param, mask = option.model.sample(fullstate, 1, name=option.object_name)
+        return_update = rollouts.at
         for j in range(args.num_steps):
+            start = time.time()
+            if last_done:
+                # print("resample")
+                if option.object_name == 'Raw':
+                    param, mask = torch.tensor([1]), torch.tensor([1])
+                else:
+                    param, mask = option.dataset_model.sample(full_state, 1, both=args.use_both==2, diff=args.use_both==1, name=option.object_name)
+                param, mask = param.squeeze(), mask.squeeze()
+
+                if args.cuda:
+                    param, mask = param.cuda(), mask.cuda()
+
             # store action, currently not storing action probabilities, might be necessary
-            diff = state - last_state
-            action_chain, done, reward = option.sample_action_chain(state, diff, param)
-            rollouts.append({'state': environment_model.flatten_factored_state(state),
+            # TODO: include the diffs for each level of the option internally
+            # use the correct termination for updating the diff (internaly in option?)
+            action_chain, rl_output = option.sample_action_chain(full_state, param)
+            # print(action_chain[-1], rl_output.probs.detach())
+
+            # managing the next state
+            if args.option_type == 'raw':
+                input_state = stack.clone()
+            else:
+                object_state = option.get_flattened_object_state(full_state)
+            frame, factored, true_done = environment.step(action_chain[0].cpu().numpy())
+            done_count += 1
+            # print("sample and step", time.time() - start)
+            # start = time.time()
+
+            # print(factored["Paddle"], action_chain)
+            # cv2.imshow('frame',stack[-1].cpu().numpy() / 255.0)
+            # if cv2.waitKey(10) & 0xFF == ord('q'):
+            #     pass
+            next_full_state = environment_model.get_factored_state()
+            true_rewards.append(environment.reward), true_dones.append(true_done)
+            next_input_state = pytorch_model.wrap(environment_model.get_flattened_state(names=names), cuda=args.cuda)
+            if args.option_type == 'raw':
+                stack = stack.roll(-1,0)
+                stack[-1] = pytorch_model.wrap(frame, cuda=args.cuda)
+                next_input_state = stack.clone().detach()
+            else:
+                next_object_state = option.get_flattened_object_state(next_full_state)
+            done, reward, all_reward, diff, last_done = option.terminate_reward(next_full_state, param, action_chain)
+            # print("reward", time.time() - start)
+            # start = time.time()
+            if done:
+                done_lengths.append(done_count)
+                done_count = 0
+            # print("chain", action_chain)
+            # print(reward, param, input_state, next_input_state)
+            rollouts.append(**{'state': input_state,
+                                'next_state': next_input_state,
+                            'object_state': object_state,
+                            'next_object_state': next_object_state,
                              'state_diff': diff, 
-                             'action': action_chain[-1], 
+                             'true_action': action_chain[0],
+                             'action': action_chain[-1],
+                             'probs': rl_output.probs[0],
+                             'Q_vals': rl_output.Q_vals[0],
                              'param': param, 
                              'mask': mask, 
                              'reward': reward, 
+                             'max_reward': all_reward.max(),
+                             'all_reward': all_reward,
                              'done': done})
+            # print(input_state, diff, param, reward)
+            # print("append", time.time() - start)
+            # start = time.time()
+            input_state = next_input_state
+            full_state = next_full_state
+        next_value = option.forward(input_state.unsqueeze(0), param.unsqueeze(0)).values
+        rollouts.compute_return(args.gamma, return_update, args.num_steps, next_value, return_max = 128, return_form=args.return_form)
+        # print("return", time.time()-start)
+        # start = time.time()
+        # print(rollouts.values.returns, next_value)
+        if i >= args.warm_up:
+            if args.epsilon_schedule > 0 and i % args.epsilon_schedule == 0:
+                args.epsilon = args.epsilon * .5
+                print("epsilon", args.epsilon)
+            option.set_behavior_epsilon(args.epsilon)
+            logger.log(i, args.log_interval, args.num_steps, policy_loss, rollouts, true_rewards, true_dones)
+            # print("log", time.time() - start)
+            # start = time.time()
+            if args.train:
+                policy_loss = learning_algorithm.step(rollouts)
+                # print("train", time.time() - start)
+                # start = time.time()
+                if args.save_interval > 0 and (i+1) % args.save_interval == 0:
+                    option.save(args.save_dir)
+                    graph.save_graph(args.save_graph, [args.object])
 
-            # managing the next state
-            last_state = state.clone()
-            environment.step(action_chain[0])
-            state = environment_model.get_flattened_state(names=names)
-        fullstate = environment_model.get_factored_state()
-        policy_loss = learning_algorithm.step(rollouts)
-        logger.log(i, policy_loss, proxy_environment.rollouts)
-        option.save_network()
+    return done_lengths

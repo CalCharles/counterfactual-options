@@ -8,19 +8,18 @@ import copy, os
 from file_management import default_value_arg
 
 class RLoutput():
-    def __init__(values, dist_entropy, probs, log_probs, action_values, action_idx, std, Q_vals, dist):
+    def __init__(self, values, dist_entropy, probs, log_probs, action_values, std, Q_vals, dist):
         self.values = values 
         self.dist_entropy = dist_entropy 
         self.probs = probs 
         self.log_probs = log_probs 
         self.action_values = action_values 
-        self.action_idx = action_idx
         self.std = std 
         self.Q_vals = Q_vals 
         self.dist = dist
 
     def values(self):
-        return self.values, self.dist_entropy, self.probs, self.log_probs, self.action_values, self.action_idx, self.std, self.Q_vals, self.dist
+        return self.values, self.dist_entropy, self.probs, self.log_probs, self.action_values, self.std, self.Q_vals, self.dist
 
 
 class pytorch_model():
@@ -97,7 +96,8 @@ class Policy(nn.Module):
     def __init__(self, **kwargs):
         super(Policy, self).__init__()
         self.num_inputs = default_value_arg(kwargs, 'num_inputs', 10)
-        self.param_dim = default_value_arg(kwargs, 'param_size', 10)
+        print("num_inputs", self.num_inputs)
+        self.param_size = default_value_arg(kwargs, 'param_size', 10)
         self.num_outputs = default_value_arg(kwargs, 'num_outputs', 1)
         self.factor = default_value_arg(kwargs, 'factor', None)
         # self.minmax = default_value_arg(kwargs, 'minmax', None)
@@ -108,16 +108,20 @@ class Policy(nn.Module):
         self.scale = default_value_arg(kwargs, 'scale', 1) 
         self.activation = default_value_arg(kwargs, 'activation', 'relu') 
         self.test = not default_value_arg(kwargs, 'train', True)
-        self.Q_critic = not default_value_arg(kwargs, 'Q_critic', False) 
-        self.continuous = not default_value_arg(kwargs, 'continuous', False)
-        model_form = not default_value_arg(kwargs, 'train', 'basic') 
+        self.Q_critic = default_value_arg(kwargs, 'Q_critic', False) 
+        self.continuous = default_value_arg(kwargs, 'continuous', False)
+        model_form = default_value_arg(kwargs, 'train', 'basic') 
         self.has_final = default_value_arg(kwargs, 'needs_final', True)
-        self.option_values = torch.zeros(1, self.param_dim) # changed externally to the parameters
+        self.last_param = default_value_arg(kwargs, 'last_param', False)
+        self.normalize = default_value_arg(kwargs, 'normalize', False)
+        self.option_values = torch.zeros(1, self.param_size) # changed externally to the parameters
         self.num_layers = default_value_arg(kwargs, 'num_layers', 1)
         if self.num_layers == 0:
-            self.insize = self.num_inputs
+            self.insize = self.num_inputs + self.param_size
         else:
             self.insize = self.factor * self.factor * self.factor // min(self.factor, 8)
+        if self.last_param:
+            self.insize += self.param_size
         self.layers = []
         self.init_last(self.num_outputs)
         if self.activation == "relu":
@@ -128,6 +132,7 @@ class Policy(nn.Module):
             self.acti = torch.sigmoid
         elif self.activation == "tanh":
             self.acti = torch.tanh
+        print("activation", self.acti)
         print("current insize", self.insize)
             
     def init_last(self, num_outputs):
@@ -146,7 +151,9 @@ class Policy(nn.Module):
         relu_gain = nn.init.calculate_gain('relu')
         for layer in self.layers:
             if type(layer) == nn.Conv2d:
+                print("layer", layer, self.init_form)
                 if self.init_form == "orth":
+                    # print(layer.weight.shape, layer.weight)
                     nn.init.orthogonal_(layer.weight.data, gain=nn.init.calculate_gain('relu'))
                 else:
                     nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu') 
@@ -159,9 +166,11 @@ class Policy(nn.Module):
                 if type(layer) != nn.ModuleList:
                     fulllayer = [layer]
                 for layer in fulllayer:
+                    print("layer", layer, self.init_form)
                     # print("layer", self, layer)
                     if self.init_form == "orth":
                         nn.init.orthogonal_(layer.weight.data, gain=nn.init.calculate_gain('relu'))
+                        # print(layer.weight[10:,10:])
                     if self.init_form == "uni":
                         # print("div", layer.weight.data.shape[0], layer.weight.data.shape)
                          nn.init.uniform_(layer.weight.data, 0.0, 3 / layer.weight.data.shape[0])
@@ -180,18 +189,22 @@ class Policy(nn.Module):
         #     nn.init.orthogonal_(self.action_probs.weight.data, gain=0.01)
         print("parameter number", self.count_parameters(reuse=False))
 
-    def last_layer(self, x, actions):
+    def last_layer(self, x, param):
         '''
         input: [batch size, insize]
         output [batch size, 1], [batch size, 1], [batch_size, num_actions], [batch_size, num_actions], [batch_size, num_actions]
         '''
+        if self.last_param:
+            x = torch.cat((x,param), dim=1)
         std = self.sigma(x)
         Q_vals = self.QFunction(x)
         if self.Q_critic:
-            values = Q_vals.max(dim=1)
+            values = Q_vals.max(dim=1)[0]
         else:
             values = self.critic_linear(x)
+        # print("Qvals", Q_vals, values)
         dist = None
+        action_values = self.action_eval(x)
         if self.continuous:
             dist = FixedNormal(action_values, std)
             log_probs = dist.log_probs(actions)
@@ -201,16 +214,22 @@ class Policy(nn.Module):
             probs = F.softmax(action_values, dim=1) 
             log_probs = F.log_softmax(action_values, dim=1)
             dist_entropy = action_values - action_values.logsumexp(dim=-1, keepdim=True)
-        return values, dist_entropy, probs, log_probs, std, Q_vals, dist
+        return values, dist_entropy, probs, log_probs, action_values, std, Q_vals, dist
+
+    def preamble(self, x, p):
+        if self.normalize:
+            return (x / 84) * self.scale, p
+        return x,p
+
 
     def forward(self, x, p):
-        x = self.preamble(x)
-        x = self.hidden(x)
-        values, dist_entropy, probs, log_probs, std, Q_vals, dist = self.last_layer(x, a)
-        return RLoutput(values, dist_entropy, probs, log_probs, action_values, action_index, std, Q_vals, dist)
+        x, p = self.preamble(x, p) # TODO: if necessary, a preamble can be added back in
+        x = self.hidden(x, p)
+        values, dist_entropy, probs, log_probs, action_values, std, Q_vals, dist = self.last_layer(x, p)
+        return RLoutput(values, dist_entropy, probs, log_probs, action_values, std, Q_vals, dist)
 
-    def save(self, pth):
-        torch.save(self, os.path.join(pth, self.name + ".pt"))
+    def save(self, pth, name):
+        torch.save(self, os.path.join(pth, name + ".pt"))
 
     def get_parameters(self):
         params = []
@@ -263,6 +282,10 @@ class BasicPolicy(Policy):
         self.hidden_size = self.factor*self.factor*self.factor // min(4,self.factor)
         print("Network Sizes: ", self.num_inputs, self.insize, self.hidden_size)
         # self.l1 = nn.Linear(self.num_inputs, self.num_inputs*factor*factor)
+        if not self.last_param:
+            self.num_inputs += self.param_size
+        # self.num_inputs = self.param_size # Turn this on to only input the parameter (also line in hidden)
+        print(self.last_param, self.num_inputs)
         if self.num_layers == 1:
             self.l1 = nn.Linear(self.num_inputs,self.insize)
         elif self.num_layers == 2:
@@ -281,7 +304,11 @@ class BasicPolicy(Policy):
         self.train()
         self.reset_parameters()
 
-    def hidden(self, x):
+    def hidden(self, x, p):
+        # print(x.shape, p.shape, x, p)
+        if not self.last_param:
+            x = torch.cat((x,p), dim=1)
+        # x = p # turn this on to only input the parameter
         if self.num_layers > 0:
             x = self.l1(x)
             x = self.acti(x)
@@ -308,4 +335,47 @@ class BasicPolicy(Policy):
 
         return layer_outputs
 
-policy_forms = {"basic": BasicPolicy}
+class ImagePolicy(Policy):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # TODO: assumes images of size 84x84, make general
+        self.no_preamble = True
+        self.num_stack = 4
+        factor = self.factor
+        self.conv1 = nn.Conv2d(self.num_stack, 2 * factor, 8, stride=4)
+        self.conv2 = nn.Conv2d(2 * factor, 4 * factor, 4, stride=2)
+        self.conv3 = nn.Conv2d(4 * factor, 2 * factor, 3, stride=1)
+        self.viewsize = 7
+        # if self.args.post_transform_form == 'none':
+        #     self.linear1 = None
+        #     self.insize = 2 * self.factor * self.viewsize * self.viewsize
+        #     self.init_last(self.num_outputs)
+        # else:
+        self.linear1 = nn.Linear(2 * factor * self.viewsize * self.viewsize, self.insize)
+        self.layers.append(self.linear1)
+        self.layers.append(self.conv1)
+        self.layers.append(self.conv2)
+        self.layers.append(self.conv3)
+        self.reset_parameters()
+
+    def hidden(self, inputs, p):
+        norm_term = 1.0
+        if self.normalize:
+            norm_term =  255.0
+        x = self.conv1(inputs / norm_term)
+        x = self.acti(x)
+
+        x = self.conv2(x)
+        x = self.acti(x)
+
+        x = self.conv3(x)
+        x = self.acti(x)
+        x = x.view(-1, 2 * self.factor * self.viewsize * self.viewsize)
+        x = self.acti(x)
+        if self.linear1 is not None:
+            x = self.linear1(x)
+            x = self.acti(x)
+        return x
+
+
+policy_forms = {"basic": BasicPolicy, "image": ImagePolicy}

@@ -29,37 +29,53 @@ class CounterfactualDataset:
                 }
             )
 
+        option = option_node.option
         initialize_multiple = lambda :[
-            initialize_rollout(rollouts.length) for i in range(option_node.num_params)
+            initialize_rollout(int(rollouts.length * option.time_cutoff)) for i in range(option_node.num_params)
         ]
-        counter_rollouts = initialize_multiple()
-        counter_outcome_rollouts = initialize_multiple()
+        counter_rollouts = initialize_multiple() # the trajectory experienced by the option
+        counter_outcome_rollouts = initialize_multiple() # what happens as a result of running the option to completion
         # collecting rollouts
         k = 0
-        option = option_node.option
+        seed = 0
         for odiff, ostate in zip(rollouts.get_values("state_diff"), rollouts.get_values("state")):
-            for i, param in enumerate(option_node.option.get_possible_parameters()):
+            for i, (param, mask) in enumerate(option_node.option.get_possible_parameters()):
+                factored_ostate = self.model.unflatten_state(ostate)
                 self.model.set_from_factored_state(
-                    self.model.unflatten_state(ostate)
-                )  # TODO: setting criteria might change (for more limited models)
+                    self.model.unflatten_state(ostate), seed_counter=seed
+                )  # TODO: setting criteria might change (for more limited models
+                # reset internal variables
+                action_chain, rlout = option.sample_action_chain(factored_ostate, param)
+                option.last_factor = option.get_flattened_object_state(factored_ostate)
+                ###############
                 done = False
-                last_state = self.model.flatten_factored_state(self.model.get_factored_state())
+                last_state = self.model.get_factored_state()
+                last_diff = odiff
                 while not done:
-                    state = self.model.flatten_factored_state(self.model.get_factored_state())
-                    diff = state-last_state
-                    action_chain, done, reward = option.sample_action_chain(state, diff, param)
-                    counter_rollouts[i].append(
-                        **{"state": state, "state_diff": diff, "action": action_chain[-1], "done": done}
-                    )
+                    state = self.model.get_factored_state()
+                    # print(param, option_node.option.iscuda)
+                    action_chain, rlout = option.sample_action_chain(state, param)
                     # TODO: handle case where not done, but significant change occurs, and put in counter_outcome_rollouts
                     last_state = state
-                    self.model.step(action_chain[-1])
-                state = self.model.flatten_factored_state(self.model.get_factored_state()) # add the last state
-                diff = state-last_state
-                action_chain, done, reward = option.sample_action_chain(state, diff, param)
+                    self.model.step(action_chain[0])
+                    next_state = self.model.get_factored_state()
+                    # print(action_chain, next_state["Paddle"])
+                    done, reward, all_reward, option_diff, last_done = option.terminate_reward(next_state, param, action_chain)
+                    # print("done", done, option.timer, state["Paddle"], next_state["Paddle"], option_diff)
+                    diff = self.model.flatten_factored_state(next_state) - self.model.flatten_factored_state(state)
+                    # print(done, option.timer)
+                    counter_rollouts[i].append(
+                        **{"state": self.model.flatten_factored_state(state), "state_diff": last_diff, "action": action_chain[-1], "done": done}
+                    )
+                    last_diff = diff
+                # The last one goes into the outcome rollouts part
                 counter_outcome_rollouts[i].append(
-                    **{"state": state, "state_diff": diff, "action": action_chain[-1], "done": done}
+                     **{"state": self.model.flatten_factored_state(next_state), "state_diff": diff, "action": action_chain[-1], "done": done}
                 )
+                # print(action_chain, param, next_state["Ball"], next_state["Paddle"])
+                #     print(action_chain, param, done)
+                # print("next")
+            seed += 1
             k += 1
         splitted = []
         print(counter_rollouts)
@@ -68,7 +84,7 @@ class CounterfactualDataset:
         relevant_states = []
         irrelevant_outcomes = initialize_rollout(rollouts.length*option_node.num_params) # only use outcomes, or use all states?
         outcomes = initialize_rollout(rollouts.length*option_node.num_params)
-        print(np.array(splitted).shape)
+        print(np.array(splitted).shape, [len(splitted[i]) for i in range(len(splitted))])
         for i in range(len(splitted[0])):  # all splitted should have the same length
             ### TODO: commented checks if the relative state differs, while current only checks if the outcome state differs
             # if (
@@ -91,6 +107,7 @@ class CounterfactualDataset:
                     outcomes.append(**counter_outcome_rollouts[j].values_at(i))
             else: # keep the non-counterfactual data as well
                 irrelevant_outcomes.append(**counter_outcome_rollouts[0].values_at(i)) # only need one outcome since they are all the same
+        # print(relevant_states)
         relevant_states = merge_rollouts(relevant_states, set_dones=True)
         return relevant_states, irrelevant_outcomes, outcomes
 

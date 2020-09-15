@@ -1,5 +1,6 @@
 import torch
-
+import numpy as np
+import time
 
 class ObjDict(dict):
     def __init__(self, ins_dict=None):
@@ -36,36 +37,50 @@ class Rollouts():
         self.filled = 0
         self.names = []
         self.values = ObjDict(dict())
+        self.at = 0
         self.shapes = ObjDict(shapes_dict)
         self.shapes["done"] = (1,) # dones are universal
+        self.iscuda = False
+
+    def cuda(self):
+        self.iscuda = True
+        for n in self.names:
+            self.values[n] = self.values[n].detach().cuda()
+        return self
 
     def init_or_none(self, tensor_shape):
         if tensor_shape is None:
             return None
         else:
-            return torch.zeros(self.length, *tensor_shape)
+            return torch.zeros(self.length, *tensor_shape).detach()
 
     def insert_or_none(self, i, name, v):
         if self.values[name] is not None and v is not None:
             if type(v) != torch.Tensor:
                 v = torch.tensor(v) # TODO: replace with torch wrapper/cuda handling etc.
-            self.values[name][i] = v
+            # print(name, self.values[name].shape, v.shape, v)
+            # self.values[name][i] = v
+            self.values[name][i].copy_(v.detach())
 
 
     def insert(self, i, insert_dict):
+        # pass
         for n in self.names:
             if n in insert_dict:
                 self.insert_or_none(i, n, insert_dict[n])
 
     def append(self, **kwargs):
-        if self.filled == self.length:
-            for n in self.names:
-                self.values[n] = self.values[n].roll(-1, 0).detach()
+        # if self.filled == self.length:
+        #     for n in self.names:
+        #         self.values[n] = self.values[n].roll(-1, 0).detach()
         self.filled += int(self.filled < self.length)
-        self.insert(self.filled-1, kwargs)
+        self.insert(self.at, kwargs)
+        self.at = (self.at + 1) % self.length
 
     def split_range(self, i, j):
         rollout = type(self)(self.length, self.shapes)
+        if self.iscuda:
+            rollout.cuda()
         for n in self.names:
             if self.values[n] is not None:
                 rollout.values[n] = self.values[n][i:j]
@@ -73,10 +88,12 @@ class Rollouts():
         return rollout
 
     def split_indexes(self, idxes):
-        rollout = type(self)(self.length, self.shapes)
+        rollout = type(self)(len(idxes), self.shapes)
+        if self.iscuda:
+            rollout.cuda()
         for n in self.names:
             if self.values[n] is not None:
-                rollout.values[n] = self.values[n][idxes]
+                rollout.values[n] = self.values[n][idxes.tolist()]
         rollout.filled = len(idxes)
         return rollout
 
@@ -85,6 +102,7 @@ class Rollouts():
         generates rollout objects for each trajectory, ignoring wraparound properties
         '''
         indexes = self.values["done"].nonzero()[:,0].flatten()
+        # print(indexes)
         last_idx = 0
         splitted = []
         for idx in indexes: # inefficient, should have a one-liner for this
@@ -99,16 +117,24 @@ class Rollouts():
         for k in self.values.keys():
             # vlen = min(i+n, len(val)) - max(i, 0)
             # olen = min(oi+on, len(oval)) - max(oi, 0)
-            self.values[k][i:i+n] = other.values[k][oi:oi+n]
+            self.values[k][i:i+n].copy_(other.values[k][oi:oi+n].detach())
 
     def values_at(self, i):
         return {n: v[i] for n,v in self.values.items()}
 
     def get_values(self, name):
+        if self.filled == self.length:
+            return torch.cat([self.values[name][self.at:], self.values[name][:self.at]], dim=0)
         return self.values[name][:self.filled]
 
-    def get_batch(self, n, weights=None):
-        idxes = np.random.choice(np.arange(self.filled), size=n, p=weights)
+    def get_batch(self, n, weights=None, ordered=False):
+        if ordered:
+            # idxes = np.arange(self.filled)[self.filled-n:]
+            # if self.filled==self.length:
+            idxes = np.flip((self.at - np.arange(n) - 1) % self.filled) 
+        else:
+            idxes = np.random.choice(np.arange(self.filled), size=n, p=weights)
+        # print(idxes, self.values.action[:100])
         return self.split_indexes(idxes)
 
 
@@ -122,4 +148,5 @@ def merge_rollouts(rols, set_dones=False):
             rollout.values["done"][at:at+r.filled] = 0
             rollout.values["done"][at+r.filled-1] = 1
         at += r.filled
+    rollout.at = at 
     return rollout
