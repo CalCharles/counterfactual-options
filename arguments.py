@@ -32,7 +32,7 @@ def get_args():
                         help='discount factor for rewards (default: 0.99)')
     # cost function hyperparameters
     parser.add_argument('--return-form', default='value',
-                        help='determines what return equation to use. true is true returns, gae is gae (not implemented), value uses the value function')
+                        help='determines what return equation to use. true is true returns, gae is gae (not implemented), value uses the value function, none avoids return computation')
     parser.add_argument('--tau', type=float, default=0.95,
                         help='gae parameter (default: 0.95)')
     parser.add_argument('--entropy-coef', type=float, default=1e-2,

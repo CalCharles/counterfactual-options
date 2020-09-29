@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import sys, glob, copy, os, collections, time
 import numpy as np
 from ReinforcementLearning.train_RL import sample_actions, PolicyLoss
-from ReinforcementLearning.policy import pytorch_model
+from ReinforcementLearning.Policy.policy import pytorch_model
 import cma, cv2
 import time
 
@@ -92,7 +92,7 @@ class DQN_optimizer(LearningOptimizer):
                 total = rew.sum() + self.args.weighting_lambda * len(rew)
                 weights =  (rew + self.args.weighting_lambda) / total
                 weights = weights.squeeze().cpu().numpy()
-            batch = rollouts.get_batch(self.args.batch_size, weights = weights)
+            idxes, batch = rollouts.get_batch(self.args.batch_size, weights = weights)
             # print("batch", time.time() - start)
             # start = time.time()
             q_loss = self.DQN_loss(batch)
@@ -107,7 +107,7 @@ class GSR_optimizer(DQN_optimizer): # goal search replay
     def step(self, rollouts, use_range=None):
         total_loss = 0
         for _ in range(self.args.grad_epoch):
-            batch = rollouts.get_batch(self.args.batch_size)
+            idxes, batch = rollouts.get_batch(self.args.batch_size)
             possible_params = self.option.get_possible_parameters()
             rewards = []
             params = []
@@ -156,7 +156,7 @@ class HER_optimizer(DQN_optimizer):
     def step(self, rollouts, use_range=None):
         total_loss = 0
         for _ in range(self.args.grad_epoch):
-            batch = rollouts.get_batch(self.args.batch_size)
+            idxes, batch = rollouts.get_batch(self.args.batch_size)
             rewards = []
             params = []
             # params, masks = self.option.dataset_model.sample(batch.values.state, batch.length, both = self.args.use_both == 2, diff=self.args.use_both == 1, name=self.option.object_name)
@@ -186,7 +186,7 @@ class HER_optimizer(DQN_optimizer):
 class PPO_optimizer(LearningOptimizer):
     def step(self, rollouts, use_range=None):
         for _ in range(self.args.grad_epoch):
-            batch = rollouts.get_batch(self.args.batch_size)
+            idxes, batch = rollouts.get_batch(self.args.batch_size)
             output = self.option.forward(batch.values.state, batch.values.param)
             probs, old_probs = self.option.get_action(batch.values.action, output.probs, batch.values.probs)
             values = output.values
@@ -206,7 +206,7 @@ class PPO_optimizer(LearningOptimizer):
 
 class A2C_optimizer(LearningOptimizer):
     def step(self, rollouts, use_range=None):
-        batch = rollouts.get_batch(self.args.batch_size, ordered=True)
+        idxes, batch = rollouts.get_batch(self.args.batch_size, ordered=True)
         output = self.option.forward(batch.values.state, batch.values.param)
         # print(batch.values.state.shape)
         # print(batch.values.action)

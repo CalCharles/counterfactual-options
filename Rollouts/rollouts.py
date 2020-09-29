@@ -69,6 +69,13 @@ class Rollouts():
             if n in insert_dict:
                 self.insert_or_none(i, n, insert_dict[n])
 
+    def cut_range(self, start, end):
+        for n in self.names:
+            self.values[n] = self.values[start:end]
+
+    def cut_filled(self):
+        self.cut_range(0, self.filled)
+
     def append(self, **kwargs):
         # if self.filled == self.length:
         #     for n in self.names:
@@ -135,7 +142,7 @@ class Rollouts():
         else:
             idxes = np.random.choice(np.arange(self.filled), size=n, p=weights)
         # print(idxes, self.values.action[:100])
-        return self.split_indexes(idxes)
+        return idxes, self.split_indexes(idxes)
 
 
 def merge_rollouts(rols, set_dones=False):

@@ -79,6 +79,10 @@ class Screen(RawEnvironment):
         self.render_frame()
         return self.frame, {obj.name: obj.getMidpoint() + obj.vel.tolist() + [obj.getAttribute()] for obj in self.objects}
 
+    def clear_interactions():
+        for o in self.objects:
+            o.interaction_trace = list()
+
     def toString(self, extracted_state):
         estring = ""
         for i, obj in enumerate(self.objects):
@@ -92,6 +96,7 @@ class Screen(RawEnvironment):
         last_loss = self.ball.losses
         self.reward = 0
         hit = False
+        self.clear_interactions()
         for i in range(self.frameskip):
             self.actions.take_action(action)
             for obj1 in self.animate:
@@ -132,8 +137,6 @@ class Screen(RawEnvironment):
                 object_dumps.close()
             self.write_objects(extracted_state, frame)
         return self.frame, extracted_state, self.done
-
-
 
     def run(self, policy, iterations = 10000, render=False, save_path = "runs/", duplicate_actions=1):
         self.set_save(0, save_path, -1)

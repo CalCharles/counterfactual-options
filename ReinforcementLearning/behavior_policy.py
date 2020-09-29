@@ -1,4 +1,4 @@
-from ReinforcementLearning.policy import pytorch_model
+from ReinforcementLearning.Policy.policy import pytorch_model
 import torch.nn.functional as F
 import torch
 import numpy as np

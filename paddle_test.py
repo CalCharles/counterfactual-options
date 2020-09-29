@@ -5,7 +5,7 @@ from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEn
 from Environments.SelfBreakout.breakout_screen import Screen
 from ReinforcementLearning.rollouts import RLRollouts, get_RL_shapes
 from ReinforcementLearning.train_RL import trainRL, Logger
-from ReinforcementLearning.policy import policy_forms
+from ReinforcementLearning.Policy.policy import policy_forms
 from ReinforcementLearning.behavior_policy import behavior_forms
 from ReinforcementLearning.learning_algorithms import learning_algorithms
 from Options.Termination.termination import terminal_forms

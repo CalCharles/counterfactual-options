@@ -13,6 +13,7 @@ class Object():
 		self.width = 0
 		self.height = 0
 		self.attribute = attribute
+		self.interaction_trace = list()
 
 	def getBB(self):
 		return [self.pos[0], self.pos[1], self.pos[0] + self.height, self.pos[1] + self.width]
@@ -117,21 +118,22 @@ class Ball(animateObject):
 				# self.vel = np.array([1, 1])
 				self.apply_move = False
 				self.losses += 1
-			elif other.name.find("Block") != -1:
-				if other.attribute == 1:
-					rel_x = self.pos[1] - other.pos[1]
-					rel_y = self.pos[0] - other.pos[0]
-					print(rel_x, rel_y, self.vel, other.name, intersection(self, other))
-					other.attribute = 0
-					next_vel = self.vel
-					if rel_y == -2 or rel_y == 3 or rel_y == 2:
-						next_vel[0] = - self.vel[0]
-					# else:
-					# 	if rel_x == -2 or rel_x == 4 or (rel_x == 3 and rel_y != -2):
-					# 		next_vel[1] = - self.vel[1]
-					self.vel = np.array(next_vel)
-					self.apply_move = False
-					# self.nohit_delay = 2
+			elif other.name.find("Block") != -1 and other.attribute == 1:
+				rel_x = self.pos[1] - other.pos[1]
+				rel_y = self.pos[0] - other.pos[0]
+				print(rel_x, rel_y, self.vel, other.name, intersection(self, other))
+				other.attribute = 0
+				next_vel = self.vel
+				if rel_y == -2 or rel_y == 3 or rel_y == 2:
+					next_vel[0] = - self.vel[0]
+				# else:
+				# 	if rel_x == -2 or rel_x == 4 or (rel_x == 3 and rel_y != -2):
+				# 		next_vel[1] = - self.vel[1]
+				self.vel = np.array(next_vel)
+				self.apply_move = False
+				other.interaction_trace.append(self.name)
+				# self.nohit_delay = 2
+			self.interaction_trace.append(other.name)
 
 class Paddle(animateObject):
 	def __init__(self, pos, attribute, vel):
@@ -144,6 +146,7 @@ class Paddle(animateObject):
 
 	def interact(self, other):
 		if other.name == "Action":
+			self.interaction_trace.append(other.name)
 			if other.attribute == 0 or other.attribute == 1:
 				self.vel = np.array([0,0], dtype=np.int64)
 			elif other.attribute == 2:
@@ -151,6 +154,7 @@ class Paddle(animateObject):
 					if self.nowall:
 						self.pos = np.array([0,64])
 					self.vel = np.array([0,0])
+					self.interaction_trace.append("LeftSideWall")
 				else:
 					self.vel = np.array([0,-paddle_velocity])
 				# self.vel = np.array([0,-2])
@@ -158,10 +162,12 @@ class Paddle(animateObject):
 				if self.pos[1] >= 64:
 					if self.nowall:
 						self.pos = np.array([0,12])
+					self.interaction_trace.append("RightSideWall")
 					self.vel = np.array([0,0])
 				else:
 					self.vel = np.array([0,paddle_velocity])
 				# self.vel = np.array([0,2])
+
 
 class Wall(Object):
 	def __init__(self, pos, attribute, side):

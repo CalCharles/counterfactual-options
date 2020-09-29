@@ -4,17 +4,17 @@ from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
 from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEnvironmentModel
 from EnvironmentModels.environment_model import ModelRollouts
 from Environments.SelfBreakout.breakout_screen import Screen
-from Counterfactual.counterfactual_dataset import CounterfactualDataset
+from Counterfactual.passive_active_dataset import HackedPassiveActiveDataset
 from Options.option_graph import OptionGraph, OptionNode, load_graph
 from Options.option import Option, PrimitiveOption
-from DistributionalModels.DatasetModels.dataset_model import FactoredDatasetModel
+from DistributionalModels.InteractionModels.interaction_model import HackedInteractionModel
 
 if __name__ == '__main__':
     args = get_args()
     data = read_obj_dumps(args.dataset_dir, i=-1, rng = args.num_frames, filename='object_dumps.txt')
     environment = Screen()
     environment_model = BreakoutEnvironmentModel(environment)
-    cf_data = CounterfactualDataset(environment_model)
+    pa_data = HackedPassiveActiveDataset(environment_model) # change this when it's no longer hacked
     try:
         graph = load_graph(args.graph_dir)
         print("loaded graph from ", args.graph_dir)
@@ -29,15 +29,11 @@ if __name__ == '__main__':
     for data_dict, next_data_dict in zip(data, data[1:]):
         insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, typed=True)
         rollouts.append(**insert_dict)
-    relevant_states, irrelevant_outcomes, outcomes = cf_data.generate_dataset(rollouts, graph.nodes[args.object])
+    identifiers, passive, contingent_active, irrelevant = cf_data.generate_dataset(rollouts, graph.nodes[args.target], [n for n in graph.nodes if n.name != args.target])
     # dataset_model.sample_zero = args.sample_zero
-    dataset_model = FactoredDatasetModel(environment_model = environment_model, option_node=graph.nodes[args.object])
-    dataset_model.train(relevant_states, irrelevant_outcomes, outcomes)
-    print(dataset_model.observed_differences["Ball"])
-    if len(args.target) > 0:
-        print("reducing")
-        dataset_model.reduce_range([args.target])
-    dataset_model.save(args.dataset_dir)
+    interaction_model = HackedInteractionModel(environment_model = environment_model, target_node=graph.nodes[args.target], contingent_nodes=[n for n in graph.nodes if n.name != args.target])
+    interaction_model.train(identifiers, passive, contingent_active, irrelevant, rollouts)
+    interaction_model.save(args.dataset_dir)
     # for (diff, mask), (out, mask), (pdif, pmask), count in zip(dataset_model.observed_differences["Ball"], dataset_model.observed_outcomes["Ball"], dataset_model.observed_outcomes["Paddle"], dataset_model.outcome_counts["Ball"]):
     #     print(diff, out, pdif, mask, diff - pdif, count)
     # print(dataset_model.observed_differences["Ball"])

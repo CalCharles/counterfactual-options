@@ -9,7 +9,20 @@ class BreakoutEnvironmentModel(EnvironmentModel):
         self.object_sizes = {"Action": 5, "Paddle": 5, "Ball": 5, "Block": 5, 'Done': 1, "Reward": 1}
         self.object_num = {"Action": 1, "Paddle": 1, "Ball": 1, "Block": 100, 'Done': 1, "Reward": 1}
         self.state_size = sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])
-        self.shapes_dict = {"state": [self.state_size], "state_diff": [self.state_size], "action": [4], "done": [1]}
+        self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [4], "done": [1]}
+        self.enumeration = {"Action": [0,1], "Paddle": [1,2], "Ball": [2,3], "Block": [3,103]}
+
+    def get_interaction_trace(self, name):
+        trace = []
+        for i in range(*self.enumeration[name]):
+            trace.append(self.environment.objects[i].interaction_trace)
+        return trace
+
+    def set_interaction_traces(self, factored_state):
+        self.set_from_factored_state(factored_state)
+        self.environment.step(factored_state["Action"][-1])
+        self.set_from_factored_state(factored_state)
+
 
     def get_factored_state(self, typed = False): # "typed" indicates if a single type can have multiple instances (true), or if all of the same type is grouped into a single vector
         factored_state = {n: [] for n in self.object_names}

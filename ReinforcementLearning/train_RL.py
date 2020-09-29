@@ -9,7 +9,7 @@ import torch.optim as optim
 from collections import deque
 
 from Environments.environment_specification import ProxyEnvironment
-from ReinforcementLearning.policy import pytorch_model
+from ReinforcementLearning.Policy.policy import pytorch_model
 from file_management import save_to_pickle
 
 class PolicyLoss():
@@ -179,8 +179,9 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
             # start = time.time()
             input_state = next_input_state
             full_state = next_full_state
-        next_value = option.forward(input_state.unsqueeze(0), param.unsqueeze(0)).values
-        rollouts.compute_return(args.gamma, return_update, args.num_steps, next_value, return_max = 128, return_form=args.return_form)
+        if args.return_form != "none":
+            next_value = option.forward(input_state.unsqueeze(0), param.unsqueeze(0)).values
+            rollouts.compute_return(args.gamma, return_update, args.num_steps, next_value, return_max = 128, return_form=args.return_form)
         # print("return", time.time()-start)
         # start = time.time()
         # print(rollouts.values.returns, next_value)
@@ -196,8 +197,8 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
                 policy_loss = learning_algorithm.step(rollouts)
                 # print("train", time.time() - start)
                 # start = time.time()
-                if args.save_interval > 0 and (i+1) % args.save_interval == 0:
-                    option.save(args.save_dir)
-                    graph.save_graph(args.save_graph, [args.object])
+            if args.save_interval > 0 and (i+1) % args.save_interval == 0:
+                option.save(args.save_dir)
+                graph.save_graph(args.save_graph, [args.object])
 
     return done_lengths

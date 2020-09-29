@@ -1,7 +1,7 @@
 import numpy as np
 import os, cv2, time
 import torch
-from ReinforcementLearning.policy import pytorch_model
+from ReinforcementLearning.Policy.policy import pytorch_model
 
 class Option():
     def __init__(self, policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False):
@@ -318,6 +318,45 @@ class DiscreteCounterfactualOption(Option):
         for vec in args:
             vals.append(vec[torch.arange(vec.size(0)), idx.squeeze().long()])
         return vals
+
+class HackedStateCounterfactualOption(Option): # eventually, we will have non-hacked StateCounterfactualOption
+    def __init__(self, policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False):
+        super().__init__(policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False)
+        self.action_shape = (1,)
+        self.discrete = True
+
+    # def cuda(self):
+    #     super().cuda()
+    #     self.stack = self.stack.cuda()
+
+    def sample_action_chain(self, state, param):
+        '''
+        In practice, this should be the only step that should be significantly different from a classic option
+        forward, however, might have some bugs
+        '''
+        input_state = self.get_flattened_input_state(state)
+        factored_state = self.environment_model.get_factored_state(input_state)
+        target_state = self.dataset_model.reverse_model(param)
+        if self.temp_ext and (self.next_option is not None and not self.next_option.terminated):
+            action = self.last_action # the baction is the discrete index of the action, where the action is the parameterized form that is a parameter
+        elif type(self.next_option) is not PrimitiveOption:
+            dist = 10000
+            bestaction = None
+            for action in self.next_option.get_possible_parameters():
+                temp = self.environment_model.get_factored_state(input_state)
+                temp[self.next_option.object_name] += action # the action should be a masked expected change in state of the last object
+                features = self.dataset_model.featurize(temp)
+                newdist = ((features - target_state) * self.dataset_model.mask).norm()
+                if newdist < dist:
+                    newdist = dist
+                    bestaction = action
+            action = bestaction
+        else:
+            action = target_state[-1]
+        rem_chain, last_rl_output = self.next_option.sample_action_chain(state, action)
+        chain = rem_chain + [action]
+        self.last_action = action
+        return chain, rl_output
 
 class ContinuousParticleCounterfactualOption(Option): # TODO: write this code
     def set_parameters(self, dataset_model):

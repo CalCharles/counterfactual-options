@@ -9,7 +9,7 @@ import torch.optim as optim
 from collections import deque
 
 from Environments.environment_specification import ProxyEnvironment
-from ReinforcementLearning.policy import pytorch_model
+from ReinforcementLearning.Policy.policy import pytorch_model
 from file_management import save_to_pickle
 
 def sample_actions(probs, deterministic):  # TODO: why is this here?

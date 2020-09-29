@@ -107,7 +107,7 @@ class Policy(nn.Module):
         self.init_form = default_value_arg(kwargs, 'init_form', 'xnorm') 
         self.scale = default_value_arg(kwargs, 'scale', 1) 
         self.activation = default_value_arg(kwargs, 'activation', 'relu') 
-        self.test = not default_value_arg(kwargs, 'train', True)
+        self.test = not default_value_arg(kwargs, 'train', True) # test is also true if the policy is not trainable
         self.Q_critic = default_value_arg(kwargs, 'Q_critic', False) 
         self.continuous = default_value_arg(kwargs, 'continuous', False)
         model_form = default_value_arg(kwargs, 'train', 'basic') 
