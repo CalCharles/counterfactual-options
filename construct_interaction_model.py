@@ -12,7 +12,7 @@ from DistributionalModels.InteractionModels.interaction_model import HackedInter
 if __name__ == '__main__':
     args = get_args()
     data = read_obj_dumps(args.dataset_dir, i=-1, rng = args.num_frames, filename='object_dumps.txt')
-    environment = Screen()
+    environment = Screen(frameskip=args.frameskip)
     environment_model = BreakoutEnvironmentModel(environment)
     pa_data = HackedPassiveActiveDataset(environment_model) # change this when it's no longer hacked
     try:

@@ -7,7 +7,7 @@ from Rollouts.rollouts import Rollouts, ObjDict
 class EnvironmentModel():
     def __init__(self, environment, frameskip):
         self.environment = environment
-        self.frameskip = frameskip
+        self.frameskip = environment.frameskip
         self.object_names = [] # must be initialized, a list of names that controls the ordering of things
         self.object_sizes = {} # must be initialized, a dictionary of name to length of the state
         self.object_num = {} # must be initialized, a dictionary of name to number of instances of the object (max if not fixed)
