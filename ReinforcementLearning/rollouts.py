@@ -12,7 +12,9 @@ def get_RL_shapes(option, environment_model):
     else:
         state_size = [environment_model.object_sizes[option.object_name] + environment_model.object_sizes[option.next_option.object_name]]
         obj_size = environment_model.object_sizes[option.object_name]
-        shapes["state_diff"], shapes["object_state"], shapes["next_object_state"] = [obj_size], [obj_size], [obj_size]
+        obj_size = option.get_flattened_object_state(None).size(0)
+        diff_size = option.get_flattened_diff_state(None).size(0)
+        shapes["state_diff"], shapes["object_state"], shapes["next_object_state"] = [diff_size], [obj_size], [obj_size]
     shapes["state"], shapes["next_state"] = state_size, state_size
     shapes["action"] = option.action_shape
     shapes["true_action"] = environment_model.environment.action_shape

@@ -9,7 +9,7 @@ class BreakoutEnvironmentModel(EnvironmentModel):
         self.object_sizes = {"Action": 5, "Paddle": 5, "Ball": 5, "Block": 5, 'Done': 1, "Reward": 1}
         self.object_num = {"Action": 1, "Paddle": 1, "Ball": 1, "Block": 100, 'Done': 1, "Reward": 1}
         self.state_size = sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])
-        self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [4], "done": [1]}
+        self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [1], "done": [1]}
         self.enumeration = {"Action": [0,1], "Paddle": [1,2], "Ball": [2,3], "Block": [3,103]}
 
     def get_interaction_trace(self, name):
@@ -80,10 +80,13 @@ class BreakoutEnvironmentModel(EnvironmentModel):
             for name in self.object_names:
                 if typed: #factor each object, even those of the same type 
                     for k in range(self.object_num[name]):
+                        usename = name
+                        if self.object_num[name] > 1:
+                            usename = name+str(k)
                         if vec:
-                            factored[name+str(k)] = flattened[:, at:at+self.object_sizes[name]]
+                            factored[name] = flattened[:, at:at+self.object_sizes[name]]
                         else: # a single state at a time
-                            factored[name+str(k)] = flattened[at:at+self.object_sizes[name]]
+                            factored[name] = flattened[at:at+self.object_sizes[name]]
                         at += self.object_sizes[name]
                 else: # factor each object, grouping objects of the same type
                     if vec:

@@ -64,7 +64,6 @@ class Rollouts():
 
 
     def insert(self, i, insert_dict):
-        # pass
         for n in self.names:
             if n in insert_dict:
                 self.insert_or_none(i, n, insert_dict[n])

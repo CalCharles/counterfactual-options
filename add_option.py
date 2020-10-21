@@ -12,7 +12,8 @@ from Options.Termination.termination import terminal_forms
 from Options.option_graph import OptionGraph, OptionNode, load_graph
 from Options.option import Option, PrimitiveOption, option_forms
 from Options.Reward.reward import reward_forms
-from DistributionalModels.DatasetModels.dataset_model import FactoredDatasetModel, load_factored_model
+from DistributionalModels.DatasetModels.dataset_model import FactoredDatasetModel
+from DistributionalModels.distributional_model import load_factored_model
 import torch
 import numpy as np
 
@@ -23,7 +24,9 @@ if __name__ == '__main__':
     environment.set_save(0, args.record_rollouts, args.save_recycle, save_raw=args.save_raw)
     environment_model = BreakoutEnvironmentModel(environment)
     dataset_model = load_factored_model(args.dataset_dir)
-    print(dataset_model.observed_outcomes)
+    if args.cuda:
+        dataset_model.cuda()
+    # print(dataset_model.observed_outcomes)
     try:
         graph = load_graph(args.graph_dir)
         print("loaded graph from ", args.graph_dir)
@@ -52,6 +55,7 @@ if __name__ == '__main__':
         policy.cuda()
         rollouts = rollouts.cuda()
         option.cuda()
+        dataset_model.cuda()
     behavior_policy = behavior_forms[args.behavior_type](args)
     if not load_option:
         option.policy = policy

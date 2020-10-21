@@ -10,14 +10,14 @@ class PassiveActiveDataset:
         self.model = environment_model
         self.known_objects = ["Action"]
 
-    def train(self, rollouts, option_node):
+    def train(self, rollouts, object_name):
         '''
         If some form of classification, some form of the passive model, the active contingent model, or some other form should be trained,
         then this function will train and retain those values
         '''
         return
 
-    def generate_dataset(self, rollouts, option_node, contingent_nodes):
+    def generate_dataset(self, rollouts, object_name, contingent_nodes):
         '''
         takes in a dataset of rollouts, and determines which states are part of the passive set and which are part of the active contingent set
         defined for the option node as the target. This function will not call train, but will use the existing trained values.
@@ -27,13 +27,20 @@ class PassiveActiveDataset:
         return None, None, None
         # return relevant_states, irrelevant_outcomes, outcomes
 
-class HackedPassiveActiveDataset:
-    def generate_dataset(self, rollouts, option_node, contingent_nodes):
+def add_lists(lists):
+    combined = list()
+    for l in lists:
+        combined += l
+    return combined
+
+class HackedPassiveActiveDataset(PassiveActiveDataset):
+    def generate_dataset(self, rollouts, object_name, contingent_nodes):
         initialize_rollout = lambda length: ModelRollouts(
                 length=length, shapes_dict={
                 "state":rollouts.shapes["state"],
                 "state_diff":rollouts.shapes["state_diff"],
-                "action":option_node.action_shape,
+                "next_state": rollouts.shapes["next_state"],
+                "action":rollouts.shapes['action'],
                 "done":rollouts.shapes["done"]
                 }
             )
@@ -42,18 +49,19 @@ class HackedPassiveActiveDataset:
         passive = initialize_rollout(rollouts.length)
         irrelevant = initialize_rollout(rollouts.length)
         contingent_active = initialize_rollout(rollouts.length)
+        seed = 0
         for odiff, ostate, nstate, oaction in zip(rollouts.get_values("state_diff"), rollouts.get_values("state"), rollouts.get_values("next_state"), rollouts.get_values("action")):
             factored_ostate = self.model.unflatten_state(ostate)
             self.model.set_from_factored_state(
                 self.model.unflatten_state(ostate), seed_counter=seed
             )  # TODO: setting criteria might change (for more limited models)
             self.model.step(oaction)
-            interactions = self.model.get_interaction_trace(option_node)
-            all_interactions = np.sum(interactions, axis=1)
+            interactions = self.model.get_interaction_trace(object_name)
+            all_interactions = add_lists(interactions)
             if len(all_interactions) == 0:
                 identifiers.append(0)
                 passive.append(
-                    **{"state": ostate, "next_state": nstate, "state_diff": odiff, "action": oaction, "done": done}
+                    **{"state": ostate, "next_state": nstate, "state_diff": odiff, "action": oaction}
                 )
             else:
                 interacted = False
@@ -61,13 +69,14 @@ class HackedPassiveActiveDataset:
                     if n in all_interactions:
                         identifiers.append(1)
                         contingent_active.append(
-                            **{"state": ostate, "next_state": nstate, "state_diff": odiff, "action": oaction, "done": done}
+                            **{"state": ostate, "next_state": nstate, "state_diff": odiff, "action": oaction}
                         )
                         interacted = True
                         break
                 if not interacted:
                     identifiers.append(-1)
                     irrelevant.append(
-                        **{"state": ostate, "next_state": nstate, "state_diff": odiff, "action": oaction, "done": done}
+                        **{"state": ostate, "next_state": nstate, "state_diff": odiff, "action": oaction}
                     )
+            seed += 1
         return np.array(identifiers), passive, contingent_active, irrelevant

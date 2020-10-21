@@ -5,7 +5,7 @@ from Rollouts.rollouts import Rollouts, ObjDict
 
 
 class EnvironmentModel():
-    def __init__(self, environment, frameskip):
+    def __init__(self, environment):
         self.environment = environment
         self.frameskip = environment.frameskip
         self.object_names = [] # must be initialized, a list of names that controls the ordering of things
@@ -63,12 +63,12 @@ class EnvironmentModel():
         return factored_state['Action'][-1]
 
 
-    def step(self, action, frameskip):
+    def step(self, action):
         '''
         steps the environment. in general, this should just defer to calling the environment step.
         if the model is learned, however, this could be more involved
         '''
-        return self.environment.step(action, frameskip=frameskip)
+        return self.environment.step(action)
 
     def save_factored_state(self, factored_state, save_raw = False):
         factored_str = ""
@@ -92,7 +92,8 @@ class ModelRollouts(Rollouts):
         shapes dict should have the shape information for all the types inside
         '''
         super().__init__(length, shapes_dict)
-        self.names = ["state", "state_diff", "action", "done"]
+        self.names = ["state", "state_diff", "next_state", "action", "done"]
+        print(self.shapes)
         self.values = ObjDict({n: self.init_or_none(self.shapes[n]) for n in self.names})
 
     def state_equals(self, other, at=-1):

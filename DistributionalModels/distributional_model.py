@@ -1,5 +1,7 @@
 import numpy as np
 import os, cv2, time
+from file_management import save_to_pickle, load_from_pickle
+
 
 class DistributionalModel():
 	def __init__(self, **kwargs):
@@ -30,3 +32,9 @@ class DistributionalModel():
 		'''
 		samples an outcome, possibily conditioned on the current state, though it could just be a value
 		'''
+
+def load_factored_model(pth): 
+    model = load_from_pickle(os.path.join(pth, "dataset_model.pkl"))
+    model.load()
+    # print(model.observed_differences, model.difference_counts)
+    return model

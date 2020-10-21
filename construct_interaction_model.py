@@ -29,11 +29,15 @@ if __name__ == '__main__':
     for data_dict, next_data_dict in zip(data, data[1:]):
         insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, typed=True)
         rollouts.append(**insert_dict)
-    identifiers, passive, contingent_active, irrelevant = cf_data.generate_dataset(rollouts, graph.nodes[args.target], [n for n in graph.nodes if n.name != args.target])
+    identifiers, passive, contingent_active, irrelevant = pa_data.generate_dataset(rollouts, args.target, [n for n in graph.nodes.values() if n.name != args.target])
     # dataset_model.sample_zero = args.sample_zero
-    interaction_model = HackedInteractionModel(environment_model = environment_model, target_node=graph.nodes[args.target], contingent_nodes=[n for n in graph.nodes if n.name != args.target])
+    interaction_model = HackedInteractionModel(environment_model = environment_model, target_name=args.target, contingent_nodes=[n for n in graph.nodes.values() if n.name != args.target])
     interaction_model.train(identifiers, passive, contingent_active, irrelevant, rollouts)
     interaction_model.save(args.dataset_dir)
+    print("forward", interaction_model.forward_model)
+    print("state", interaction_model.state_model)
+    print("state counts", interaction_model.difference_counts)
+    print(interaction_model.input_mask, interaction_model.output_mask)
     # for (diff, mask), (out, mask), (pdif, pmask), count in zip(dataset_model.observed_differences["Ball"], dataset_model.observed_outcomes["Ball"], dataset_model.observed_outcomes["Paddle"], dataset_model.outcome_counts["Ball"]):
     #     print(diff, out, pdif, mask, diff - pdif, count)
     # print(dataset_model.observed_differences["Ball"])

@@ -22,3 +22,8 @@ python add_option.py --dataset-dir data/hackedpaddle/ --object Ball --buffer-ste
 python add_option.py --dataset-dir data/hackedpaddle/ --object Ball --buffer-steps 10000 --num-steps 32 --factor 64 --num-layers 1 --learning-type her --gamma .99 --batch-size 16 --grad-epoch 10 --gpu 3 --normalize --entropy-coef .01 --warm-up 100 --num-iters 1000000 --behavior-type greedyQ --Q-critic --epsilon .95 --epsilon-schedule 10000 --set-time-cutoff --lr 1e-6 --graph-dir data/paddlegraph --use-both 0 --min-use 0 --train --record-rollouts ../datasets/caleb_data/ballpri/ --save-interval 1000 --save-graph data/tempprigraph --prioritized-replay max_reward --weighting-lambda .05 > ballpri.txt 
 
 python add_option.py --dataset-dir data/random/ --object Paddle --buffer-steps 100000 --num-steps 5 --factor 16 --warm-up 10000 --esilon 1 --epsilon-schedule 10000 --learning-type a2c --gamma .99 --batch-size 4 --grad-epoch 4 --gpu 2 --lr .00025 --option-type raw --policy-type image --normalize --num-iters 500000 --entropy-coef 0.01 --init-form orth > rawtestdqn.txt
+
+
+Hacked commands
+python construct_interaction_model.py --graph-dir data/PAgraph/ --dataset-dir data/random/ --num-frames 1000 --object Action --target Paddle > interactiontest.txt
+python add_option.py --dataset-dir data/random/ --object Paddle --option-type hacked --buffer-steps 5 --num-steps 5 --gamma .1 --batch-size 5 --record-rollouts data/paddle --num-iters 1000 > hackedpaddletrain.txt

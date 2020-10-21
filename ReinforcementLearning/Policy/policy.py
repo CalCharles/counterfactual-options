@@ -7,6 +7,14 @@ import torch.optim as optim
 import copy, os
 from file_management import default_value_arg
 
+def dummy_RLoutput(n, num_actions, cuda):
+    one = torch.tensor([n, 0])
+    actions = torch.tensor([n, num_actions])
+    if cuda:
+        one = one.cuda()
+        actions = actions.cuda()
+    return RLoutput(one.clone(), )
+
 class RLoutput():
     def __init__(self, values, dist_entropy, probs, log_probs, action_values, std, Q_vals, dist):
         self.values = values 

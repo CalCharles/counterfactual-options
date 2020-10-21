@@ -75,12 +75,6 @@ class DatasetModel(DistributionalModel):
                 outs.append(self.observed_outcomes[i].copy())
             return torch.stack(outs, dim=0)
 
-def load_factored_model(pth): 
-    model = load_from_pickle(os.path.join(pth, "dataset_model.pkl"))
-    model.load()
-    print(model.observed_differences, model.difference_counts)
-    return model
-
 class FactoredDatasetModel(DistributionalModel):
 
     def __init__(self, **kwargs):

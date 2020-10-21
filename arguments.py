@@ -46,9 +46,9 @@ def get_args():
     # model hyperparameters
     parser.add_argument('--num-layers', type=int, default=1,
                         help='number of layers for network. When using basis functions, defines independence relations (see ReinforcementLearning.basis_models.py)')
-        parser.add_argument('--factor', type=int, default=4,
-                            help='decides width of the network')
-        parser.add_argument('--optim', default="RMSprop",
+    parser.add_argument('--factor', type=int, default=4,
+                        help='decides width of the network')
+    parser.add_argument('--optim', default="RMSprop",
                         help='optimizer to use: Adam, RMSprop, Evol')
     parser.add_argument('--activation', default="relu",
                         help='activation function for hidden layers: relu, sin, tanh, sigmoid')

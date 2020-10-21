@@ -79,7 +79,7 @@ class Screen(RawEnvironment):
         self.render_frame()
         return self.frame, {obj.name: obj.getMidpoint() + obj.vel.tolist() + [obj.getAttribute()] for obj in self.objects}
 
-    def clear_interactions():
+    def clear_interactions(self):
         for o in self.objects:
             o.interaction_trace = list()
 
@@ -138,8 +138,8 @@ class Screen(RawEnvironment):
             self.write_objects(extracted_state, frame)
         return self.frame, extracted_state, self.done
 
-    def run(self, policy, iterations = 10000, render=False, save_path = "runs/", duplicate_actions=1):
-        self.set_save(0, save_path, -1)
+    def run(self, policy, iterations = 10000, render=False, save_path = "runs/", save_raw = True, duplicate_actions=1):
+        self.set_save(0, save_path, -1, save_raw)
         try:
             os.makedirs(save_path)
         except OSError:

@@ -19,6 +19,7 @@ class Option():
         self.discrete = self.termination.discrete
         self.iscuda = False
         self.last_factor = self.get_flattened_object_state(self.environment_model.get_factored_zero_state())
+        print("last_factor", self.last_factor)
         # parameters for temporal extension
         self.temp_ext = temp_ext 
         self.last_action = None
@@ -85,14 +86,18 @@ class Option():
         if self.next_option is not None:
             last_done, last_reward, last_all_reward, diff, last_last_done = self.next_option.terminate_reward(state, self.next_option.convert_param(chain[-1]), chain[:len(chain)-1], needs_reward=False)
         object_state, diff = self.get_flattened_object_state(state), self.get_flattened_diff_state(state)
-        # print(object_state, diff, last_done, self.last_factor)
         mask = self.get_mask(param)
-        done = self.termination.check(object_state * mask, diff * mask, param)
+        if mask.size(0) == diff.size(0) != object_state.size(0):
+            corrected_object_state = diff.clone()
+        else:
+            corrected_object_state = object_state
+        # print(corrected_object_state, diff, last_done, self.last_factor)
+        done = self.termination.check(corrected_object_state * mask, diff * mask, param)
         if needs_reward:
-            reward = self.reward.get_reward(object_state * mask, diff * mask, param)
+            reward = self.reward.get_reward(corrected_object_state * mask, diff * mask, param)
             all_reward = []
             for param, mask in self.get_possible_parameters(): # TODO: unless there are a ton of parameters, this shouldn't be too expensive
-                r = self.reward.get_reward(object_state * mask, diff * mask, param)
+                r = self.reward.get_reward(corrected_object_state * mask, diff * mask, param)
                 if self.reward_timer > 0:
                     r = 0
                 all_reward.append(r)
@@ -105,14 +110,14 @@ class Option():
                 self.reward_timer -= 1
             if all_reward.max() > 0:
                 # if self.object_name == "Ball":
-                #     print(object_state, mask, param)
+                #     print(corrected_object_state, mask, param)
                 self.reward_timer = self.reward_freq
         else:
             reward = 0
             all_reward = [0 for i in range(len(self.get_possible_parameters()))]
             all_reward = pytorch_model.wrap(all_reward, cuda=self.iscuda)
         # print(self.object_name, all_reward, self.get_possible_parameters())
-        # print ("rewarding", object_state * mask, param * mask, reward)
+        # print ("rewarding", corrected_object_state * mask, param * mask, reward)
         # if reward > 0:
         if last_done:
             self.last_factor = object_state
@@ -319,7 +324,7 @@ class DiscreteCounterfactualOption(Option):
             vals.append(vec[torch.arange(vec.size(0)), idx.squeeze().long()])
         return vals
 
-class HackedStateCounterfactualOption(Option): # eventually, we will have non-hacked StateCounterfactualOption
+class HackedStateCounterfactualOption(DiscreteCounterfactualOption): # eventually, we will have non-hacked StateCounterfactualOption
     def __init__(self, policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False):
         super().__init__(policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False)
         self.action_shape = (1,)
@@ -328,6 +333,10 @@ class HackedStateCounterfactualOption(Option): # eventually, we will have non-ha
     # def cuda(self):
     #     super().cuda()
     #     self.stack = self.stack.cuda()
+    def get_flattened_diff_state(self, factored_state):
+        object_state = pytorch_model.wrap(self.environment_model.get_flattened_state(names=[self.object_name]), cuda=self.iscuda)
+        return torch.cat((object_state, object_state - self.last_factor), dim=0)
+
 
     def sample_action_chain(self, state, param):
         '''
@@ -335,24 +344,25 @@ class HackedStateCounterfactualOption(Option): # eventually, we will have non-ha
         forward, however, might have some bugs
         '''
         input_state = self.get_flattened_input_state(state)
-        factored_state = self.environment_model.get_factored_state(input_state)
         target_state = self.dataset_model.reverse_model(param)
+        rl_output = self.policy.forward(input_state.unsqueeze(0), param.unsqueeze(0))
         if self.temp_ext and (self.next_option is not None and not self.next_option.terminated):
             action = self.last_action # the baction is the discrete index of the action, where the action is the parameterized form that is a parameter
-        elif type(self.next_option) is not PrimitiveOption:
+        else:
             dist = 10000
             bestaction = None
             for action in self.next_option.get_possible_parameters():
-                temp = self.environment_model.get_factored_state(input_state)
-                temp[self.next_option.object_name] += action # the action should be a masked expected change in state of the last object
-                features = self.dataset_model.featurize(temp)
-                newdist = ((features - target_state) * self.dataset_model.mask).norm()
+                temp = self.environment_model.get_factored_state(typed=False)
+                if type(self.next_option) is not PrimitiveOption:
+                    temp[self.next_option.object_name] += action[0] # the action should be a masked expected change in state of the last object
+                else:
+                    temp[self.next_option.object_name][-1] = action[0]
+                features = self.dataset_model.featurize(np.expand_dims(self.environment_model.flatten_factored_state(temp, typed = False), axis=0))
+                newdist = ((features - target_state[1]) * self.dataset_model.input_mask).norm()
                 if newdist < dist:
                     newdist = dist
                     bestaction = action
-            action = bestaction
-        else:
-            action = target_state[-1]
+            action = bestaction[0]
         rem_chain, last_rl_output = self.next_option.sample_action_chain(state, action)
         chain = rem_chain + [action]
         self.last_action = action
@@ -370,4 +380,4 @@ class ContinuousGaussianCounterfactualOption(Option):
         pass
 
 option_forms = {"discrete": DiscreteCounterfactualOption, "continuousGaussian": ContinuousGaussianCounterfactualOption, 
-"continuousParticle": ContinuousParticleCounterfactualOption, "raw": RawOption}
+"continuousParticle": ContinuousParticleCounterfactualOption, "raw": RawOption, "hacked": HackedStateCounterfactualOption}
