@@ -27,7 +27,7 @@ if __name__ == '__main__':
     last_state = None
     graph.nodes[args.object].option.set_behavior_epsilon(0)
     for data_dict, next_data_dict in zip(data, data[1:]):
-        insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, typed=True)
+        insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True)
         rollouts.append(**insert_dict)
     relevant_states, irrelevant_outcomes, outcomes = cf_data.generate_dataset(rollouts, graph.nodes[args.object])
     # dataset_model.sample_zero = args.sample_zero

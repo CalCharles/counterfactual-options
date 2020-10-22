@@ -32,6 +32,31 @@ class DistributionalModel():
 		'''
 		samples an outcome, possibily conditioned on the current state, though it could just be a value
 		'''
+		return
+
+class HypothesisModel():
+	def __init__(self, **kwargs):
+		self.option_name = kwargs["option_node"].name
+		self.instanced = kwargs["instanced"]
+		self.environment_model = kwargs["environment_model"]
+        self.unflatten = kwargs["environment_model"].unflatten_state
+		# self.num_objects = kwargs["environment_model"].get_num(instanced=self.instanced)
+
+	def train(self, rollouts):
+		'''
+		trains the necessary components
+		'''
+		pass
+
+	def predict(self, rollouts):
+		'''
+		predicts the next state from the factored state, as well as the passive and active components
+		'''
+
+	def sample(self, all=False):
+		'''
+		sample a hypothesis from the set of hypotheses, if @param all is true, returns all of the hypotheses
+		'''
 
 def load_factored_model(pth): 
     model = load_from_pickle(os.path.join(pth, "dataset_model.pkl"))

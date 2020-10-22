@@ -175,14 +175,14 @@ class FactoredDatasetModel(DistributionalModel):
         '''
         states = outcome_rollouts.get_values("state")
         state_len = states.size(1)
-        states = self.unflatten(states, vec = True, typed=False)
-        diffs = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, typed=False)
+        states = self.unflatten(states, vec = True, instanced=False)
+        diffs = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, instanced=False)
         both = {n: torch.cat((states[n], diffs[n]), dim=1) for n in self.names}
         fullstate_masks, outcome_probs = counterfactual_mask(self.names, self.num_params, outcome_rollouts)
         if lock_mask.sum() > 0: # a hack to fix the mask 
             # TODO: a hack to remove positive z, a hack to only reward once every N time steps
-            state_masks = self.unflatten(fullstate_masks[:, :state_len], vec = True, typed=False)
-            state_diff_masks = self.unflatten(fullstate_masks[:, state_len:], vec = True, typed=False)
+            state_masks = self.unflatten(fullstate_masks[:, :state_len], vec = True, instanced=False)
+            state_diff_masks = self.unflatten(fullstate_masks[:, state_len:], vec = True, instanced=False)
             for n in self.names:
                 # print(n, state_masks[n].shape, lock_mask.shape, state_masks[n][(state_masks[n].sum(dim=1) > 0).nonzero()].squeeze().shape)
                 # print(n, "posvel", state_masks[n][(state_masks[n][:,2] > 0).nonzero().squeeze()])
@@ -192,8 +192,8 @@ class FactoredDatasetModel(DistributionalModel):
                     state_diff_masks[n][(state_diff_masks[n].sum(dim=1) > 0).nonzero().squeeze(),:] = lock_mask.clone()
             both_masks = {n: torch.cat((state_masks[n], state_diff_masks[n]), dim=1) for n in self.names}
         else:
-            state_masks = self.unflatten(fullstate_masks[:, :state_len], vec = True, typed=False)
-            state_diff_masks = self.unflatten(fullstate_masks[:, state_len:], vec = True, typed=False)
+            state_masks = self.unflatten(fullstate_masks[:, :state_len], vec = True, instanced=False)
+            state_diff_masks = self.unflatten(fullstate_masks[:, state_len:], vec = True, instanced=False)
             both_masks = {n: torch.cat((state_masks[n], state_diff_masks[n]), dim=1) for n in self.names}
         for i in [k*self.num_params for k in range(outcome_rollouts.filled // self.num_params)]: # TODO: assert evenly divisible
             for j in range(self.num_params):

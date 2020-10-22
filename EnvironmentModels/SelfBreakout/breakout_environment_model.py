@@ -24,9 +24,9 @@ class BreakoutEnvironmentModel(EnvironmentModel):
         self.set_from_factored_state(factored_state)
 
 
-    def get_factored_state(self, typed = False): # "typed" indicates if a single type can have multiple instances (true), or if all of the same type is grouped into a single vector
+    def get_factored_state(self, instanced = False): # "instanced" indicates if a single type can have multiple instances (true), or if all of the same type is grouped into a single vector
         factored_state = {n: [] for n in self.object_names}
-        if not typed:
+        if not instanced:
             for o in self.environment.objects:
                 for n in self.object_names:
                     if o.name.find(n) != -1:
@@ -40,10 +40,10 @@ class BreakoutEnvironmentModel(EnvironmentModel):
         factored_state["Reward"] = np.array([float(self.environment.reward)])
         return factored_state
 
-    def flatten_factored_state(self, factored_state, typed=False, names=None):
+    def flatten_factored_state(self, factored_state, instanced=False, names=None):
         if names is None:
             names = self.object_names
-        if typed:
+        if instanced:
             if type(factored_state) == list:
                 flattened_state = list()
                 for f in factored_state:
@@ -71,14 +71,14 @@ class BreakoutEnvironmentModel(EnvironmentModel):
                 flattened_state = np.array(np.concatenate([factored_state[f] for f in names], axis=0))
         return flattened_state
 
-    def unflatten_state(self, flattened_state, vec=False, typed=False, names=None):
+    def unflatten_state(self, flattened_state, vec=False, instanced=False, names=None):
         if names is None:
             names = self.object_names
         def unflatten(flattened):
             at = 0
             factored = dict()
             for name in self.object_names:
-                if typed: #factor each object, even those of the same type 
+                if instanced: #factor each object, even those of the same type 
                     for k in range(self.object_num[name]):
                         usename = name
                         if self.object_num[name] > 1:
@@ -106,7 +106,7 @@ class BreakoutEnvironmentModel(EnvironmentModel):
             factored = unflatten(flattened_state)
         return factored
 
-    def set_from_factored_state(self, factored_state, typed = False, seed_counter=-1):
+    def set_from_factored_state(self, factored_state, instanced = False, seed_counter=-1):
         '''
         TODO: only sets the active elements, and not the score, reward and other features. This could be an issue in the future.
         '''
@@ -121,7 +121,7 @@ class BreakoutEnvironmentModel(EnvironmentModel):
         self.environment.actions.attribute = factored_state["Action"][-1]
         for i in range(5):
             for j in range(20):
-                if typed:
+                if instanced:
                     self.environment.blocks[i*20+j].attribute = float(factored_state["Block" + str(i * 20 + j)][-1])
                 else:
                     self.environment.blocks[i*20+j].attribute = float(factored_state["Block"][(i*20+j)*5+4])

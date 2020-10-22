@@ -36,7 +36,7 @@ class InteractionModel(DistributionalModel):
         # takes in the states, using self.target_name and self.contingent_nodes to get a list of features
         # features: target node state, state difference, always 1, always zero
         # features breakdown: target position, target velocity, target attribute, position difference
-        unflattened = self.unflatten(states, vec=True, typed=True)
+        unflattened = self.unflatten(states, vec=True, instanced=True)
         # print(unflattened.keys())
         # print([unflattened[self.target_name].clone().shape]
         #  + [unflattened[n].shape for n in self.cont_names]
@@ -163,7 +163,7 @@ class InteractionModel(DistributionalModel):
 
     def backward_model(self, target):
         return
- 
+
 class ClassificationNetwork(nn.Module):
     def __init__(self, num_inputs, featurizer):
         self.num_inputs = num_inputs
@@ -271,10 +271,10 @@ class SimpleInteractionModel(InteractionModel):
             states = rollouts.get_values("state")
         diffs = rollouts.get_values("state_diff")
         if indexes is None: # might have issues with single states?
-            # print(self.unflatten(states, vec=True, typed=True), self.unflatten(diffs, vec=True, typed=True))
-            return torch.cat((self.unflatten(states, vec=True, typed=True)[self.target_name], self.unflatten(diffs, vec=True, typed=True)[self.target_name]), dim=1)
+            # print(self.unflatten(states, vec=True, instanced=True), self.unflatten(diffs, vec=True, instanced=True))
+            return torch.cat((self.unflatten(states, vec=True, instanced=True)[self.target_name], self.unflatten(diffs, vec=True, instanced=True)[self.target_name]), dim=1)
         else:
-            return torch.cat((self.unflatten(states, vec=True, typed=True)[self.target_name][indexes], self.unflatten(diffs, vec=True, typed=True)[self.target_name][indexes]), dim=1)
+            return torch.cat((self.unflatten(states, vec=True, instanced=True)[self.target_name][indexes], self.unflatten(diffs, vec=True, instanced=True)[self.target_name][indexes]), dim=1)
 
     def add_observations_mask(self, rollouts, ca_indexes, featurized, input_mask, output_mask):
         target = self.get_target(rollouts, nxt = True, indexes =ca_indexes)
@@ -376,7 +376,7 @@ class HackedInteractionModel(SimpleInteractionModel):
 
     def check_trace(self, x):
         def set_traces(self, flat_state):
-            factored_state = self.unflatten(flat_state, vec=True, typed=True)
+            factored_state = self.unflatten(flat_state, vec=True, instanced=True)
             self.environment_model.set_interaction_traces(factored_state)
             trace = self.environment_model.get_interaction_trace(self.target_name)
             if len([name for name in trace if name in self.cont_names]) == len(trace) and len(trace) > 0:

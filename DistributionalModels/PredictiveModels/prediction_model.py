@@ -74,8 +74,8 @@ class FactoredOutcomePredictionModel(DistributionalModel):
 		input_states = get_corresponding_first(c_state, c_diff, counterfactual_rollouts)
 		nc_state, nc_diff = non_counterfactual_rollouts.get_values("state"), non_counterfactual_rollouts.get_values("state_diff")
 		nc_input_states = get_corresponding_first(nc_state, nc_diff, non_counterfactual_rollouts)
-		out_state = self.unflatten(outcome_rollouts.get_values("state"), vec = True, typed=False)
-		out_diff = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, typed=False)
+		out_state = self.unflatten(outcome_rollouts.get_values("state"), vec = True, instanced=False)
+		out_diff = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, instanced=False)
 		input_states = torch.cat((input_states, nc_input_states), dim = 0)
 		if self.use_counterfactual_mask:
 			training_probability, counterfactual_component_masks = counterfactual_factored_mask(outcome_rollouts)
@@ -95,8 +95,8 @@ class FactoredOutcomePredictionModel(DistributionalModel):
 
 # TODO: put this in the right place
 def counterfactual_factored_mask(outcome_rollouts):
-	out_state = self.unflatten(outcome_rollouts.get_values("state"), vec = True, typed=False)
-	out_diff = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, typed=False)
+	out_state = self.unflatten(outcome_rollouts.get_values("state"), vec = True, instanced=False)
+	out_diff = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, instanced=False)
 	factored_data = dict()
 	name_counts = Counter()
 	for name in self.names:

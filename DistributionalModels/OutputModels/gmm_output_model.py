@@ -46,16 +46,16 @@ class FactoredGaussianMixtureOutputModel(DistributionalModel):
         self.num_modes = 0
 
 	def train(self, counterfactual_rollouts, non_counterfactual_rollouts, outcome_rollouts):
-		out_state = self.unflatten(outcome_rollouts.get_values("state"), vec = True, typed=False)
-		out_diff = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, typed=False)
+		out_state = self.unflatten(outcome_rollouts.get_values("state"), vec = True, instanced=False)
+		out_diff = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, instanced=False)
 		factored_data = dict()
 		for name in self.names:
 			factored_data[name] = torch.cat((out_state[name], out_diff[name]), dim = 1)
 			self.models[name].fit(factored_data[name])
 
 	def predict(self, rollouts):
-		out_state = self.unflatten(outcome_rollouts.get_values("state"), vec = True, typed=False)
-		out_diff = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, typed=False)
+		out_state = self.unflatten(outcome_rollouts.get_values("state"), vec = True, instanced=False)
+		out_diff = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, instanced=False)
 		factored_data = dict()
 		factored_preds = dict()
 		for name in self.names:
@@ -94,8 +94,8 @@ class FactoredCounterfactualGaussianMixtureOutputModel(DistributionalModel):
         self.probable_names = []
 
 	def train(self, counterfactual_rollouts, non_counterfactual_rollouts, outcome_rollouts):
-		out_state = self.unflatten(outcome_rollouts.get_values("state"), vec = True, typed=False)
-		out_diff = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, typed=False)
+		out_state = self.unflatten(outcome_rollouts.get_values("state"), vec = True, instanced=False)
+		out_diff = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, instanced=False)
 		factored_data = dict()
 		name_counts = Counter()
 		for name in self.names:
@@ -115,8 +115,8 @@ class FactoredCounterfactualGaussianMixtureOutputModel(DistributionalModel):
 		self.probable_names = [n for n in self.names if self.training_probability[n] > self.min_probability]
 
 	def predict(self, rollouts):
-		out_state = self.unflatten(outcome_rollouts.get_values("state"), vec = True, typed=False)
-		out_diff = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, typed=False)
+		out_state = self.unflatten(outcome_rollouts.get_values("state"), vec = True, instanced=False)
+		out_diff = self.unflatten(outcome_rollouts.get_values("state_diff"), vec = True, instanced=False)
 		factored_data = dict()
 		factored_preds = dict()
 		for name in self.probable_names:

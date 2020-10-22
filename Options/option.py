@@ -352,12 +352,12 @@ class HackedStateCounterfactualOption(DiscreteCounterfactualOption): # eventuall
             dist = 10000
             bestaction = None
             for action in self.next_option.get_possible_parameters():
-                temp = self.environment_model.get_factored_state(typed=False)
+                temp = self.environment_model.get_factored_state(instanced=False)
                 if type(self.next_option) is not PrimitiveOption:
                     temp[self.next_option.object_name] += action[0] # the action should be a masked expected change in state of the last object
                 else:
                     temp[self.next_option.object_name][-1] = action[0]
-                features = self.dataset_model.featurize(np.expand_dims(self.environment_model.flatten_factored_state(temp, typed = False), axis=0))
+                features = self.dataset_model.featurize(np.expand_dims(self.environment_model.flatten_factored_state(temp, instanced = False), axis=0))
                 newdist = ((features - target_state[1]) * self.dataset_model.input_mask).norm()
                 if newdist < dist:
                     newdist = dist

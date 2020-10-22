@@ -12,6 +12,13 @@ class EnvironmentModel():
         self.object_sizes = {} # must be initialized, a dictionary of name to length of the state
         self.object_num = {} # must be initialized, a dictionary of name to number of instances of the object (max if not fixed)
 
+    def get_num(self, instanced=False):
+        if instanced:
+            return sum(self.object_num.values())
+        else:
+            return len(self.object_num.keys())
+
+
     def get_factored_state(self):
         '''
         gets the factored state for the current environment
@@ -19,7 +26,7 @@ class EnvironmentModel():
         '''
         return
 
-    def get_factored_zero_state(self, typed = False): # "typed" indicates if a single type can have multiple instances (true), or if all of the same type is grouped into a single vector
+    def get_factored_zero_state(self, instanced = False): # "instanced" indicates if a single type can have multiple instances (true), or if all of the same type is grouped into a single vector
         # gets a factored state with all zeros
         factored_state = self.get_factored_state()
         zero_state = dict()
@@ -39,7 +46,7 @@ class EnvironmentModel():
         This is in the environment model because the order shoud follow the order of the object names
         '''
 
-    def unflatten_state(self, flattened_state, vec=False, typed=False, names=None):
+    def unflatten_state(self, flattened_state, vec=False, instanced=False, names=None):
         ''' 
         generates a list of factored states from an nxdim state. Overloaded to accept length dim vector as well 
         This is in the environment model because the order shoud follow the order of the object names
@@ -76,11 +83,11 @@ class EnvironmentModel():
             factored_str = name + ":" + " ".join(map(str, state)) + "\t"
         self.environment.write_objects(factored_str, save_raw=save_raw)
 
-    def get_insert_dict(self, factored_state, next_factored_state, last_state=None, typed=False):
+    def get_insert_dict(self, factored_state, next_factored_state, last_state=None, instanced=False):
         if last_state is None:
-            last_state = torch.zeros(self.flatten_factored_state(factored_state, typed=typed).shape)
-        state = torch.tensor(self.flatten_factored_state(factored_state, typed=typed)).float()
-        next_state = torch.tensor(self.flatten_factored_state(next_factored_state, typed=typed)).float()
+            last_state = torch.zeros(self.flatten_factored_state(factored_state, instanced=instanced).shape)
+        state = torch.tensor(self.flatten_factored_state(factored_state, instanced=instanced)).float()
+        next_state = torch.tensor(self.flatten_factored_state(next_factored_state, instanced=instanced)).float()
         insert_dict = {'state': state, 'next_state': next_state, 'state_diff': state-last_state, 'done': self.get_done(factored_state), 'action': self.get_action(factored_state)}
         return insert_dict, state
 
