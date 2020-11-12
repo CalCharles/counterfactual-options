@@ -37,6 +37,24 @@ class Network(nn.Module):
         self.num_inputs, self.num_outputs = kwargs["num_inputs"], kwargs["num_outputs"]
         self.init_form = kwargs["init_form"]
         self.layers = []
+        self.acti = self.get_acti(kwargs["acti"])
+
+    def run_acti(self, acti, x):
+        if acti is not None:
+            return acti(x)
+        return x
+
+    def get_acti(self, acti):
+        if args.activation == "relu":
+            return F.relu
+        elif args.activation == "sin":
+            return torch.sin
+        elif args.activation == "sigmoid":
+            return torch.sigmoid
+        elif args.activation == "tanh":
+            return torch.tanh
+        elif args.activation == "none":
+            return None
 
     def reset_parameters(self):
         relu_gain = nn.init.calculate_gain('relu')
@@ -141,11 +159,11 @@ class BasicMLPNetwork(Network):
     def forward(self, x):
         if self.num_layers > 0:
             x = self.l1(x)
-            x = self.acti(x)
+            x = self.run_acti(x)
         if self.num_layers > 1:
             x = self.l2(x)
-            x = self.acti(x)
+            x = self.run_acti(x)
         if self.num_layers > 2:
             x = self.l3(x)
-            x = self.acti(x)
+            x = self.run_acti(x)
         return x

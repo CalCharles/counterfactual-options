@@ -48,6 +48,13 @@ class Rollouts():
             self.values[n] = self.values[n].detach().cuda()
         return self
 
+    def initialize_shape(self, shape_dict, create=False):
+        if create:
+            self.values = ObjDict({n: self.init_or_none(shape_dict[n]) for n in self.names})
+        else:
+            for n, tensor_shape in shape_dict.items():
+                self.values[n] = self.init_or_none(tensor_shape)
+
     def init_or_none(self, tensor_shape):
         if tensor_shape is None:
             return None

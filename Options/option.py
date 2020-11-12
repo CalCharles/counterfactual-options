@@ -3,17 +3,40 @@ import os, cv2, time
 import torch
 from ReinforcementLearning.Policy.policy import pytorch_model
 
-class Option():
-    def __init__(self, policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False):
-        self.policy=policy
+class PolicyReward():
+    def __init__(self, policy, behavior_policy, termination, next_option, reward)
+        self.policy = policy
         self.behavior_policy = behavior_policy
         self.termination = termination
-        self.reward = reward # the reward function for this option
+        self.reward = reward
         self.next_option = next_option
-        self.dataset_model = dataset_model
-        self.environment_model = environment_model
+
+class Featurizers():
+    def __init__(self, object_name, gamma_featurizer, delta_featurizer, contingent_input):
         self.object_name = object_name
-        self.names = names # names for the input state
+        self.gamma_featurizer = gamma_featurizer
+        self.delta_featurizer = delta_featurizer
+        self.contingent_input = contingent_input
+
+class Option():
+    def __init__(self, policy_reward, models, featurizers, temp_ext=False):
+        '''
+        policy_reward is a PolicyReward object, which contains the necessary components to run a policy
+        models is a tuple of dataset model and environment model
+        featurizers is Featurizers object, which contains the object name, the gamma features, the delta features, and a vector representing which features are contingent
+        '''
+        if policy_reward is not None:
+            self.policy = policy_reward.policy
+            self.behavior_policy = policy_reward.behavior_policy
+            self.termination = policy_reward.termination
+            self.reward = policy_reward.reward # the reward function for this option
+            self.next_option = policy_reward.next_option
+        self.dataset_model, self.environment_model = models
+        if featurizers is not None:
+            self.object_name = featurizers.object_name
+            self.gamma_featurizer = featurizers.gamma_featurizer
+            self.delta_featurizer = featurizers.delta_featurizer
+            self.contingent_input = featurizers.contingent_input
         self.action_shape = (1,) # should be set in subclass
         self.action_prob_shape = (1,) # should be set in subclass
         self.discrete = self.termination.discrete
@@ -46,11 +69,13 @@ class Option():
     #         if self.policy is not None:
 
 
+    # def get_flattened_input_state(self, factored_state):
+    #     return pytorch_model.wrap(self.environment_model.get_flattened_state(names=self.names), cuda=self.iscuda)
     def get_flattened_input_state(self, factored_state):
-        return pytorch_model.wrap(self.environment_model.get_flattened_state(names=self.names), cuda=self.iscuda)
+        return self.gamma_featurizer.featurize(self.environment_model.get_flattened_state(names=self.names), cuda=self.iscuda)
 
     def get_flattened_object_state(self, factored_state):
-        return pytorch_model.wrap(self.environment_model.get_flattened_state(names=[self.object_name]), cuda=self.iscuda)
+        return self.gamma_featurizer.featurize(self.environment_model.get_flattened_state(names=[self.object_name]), cuda=self.iscuda)
 
     def get_flattened_diff_state(self, factored_state):
         return self.get_flattened_object_state(factored_state) - self.last_factor

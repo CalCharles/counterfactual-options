@@ -5,7 +5,39 @@ from collections import Counter
 from EnvironmentModels.environment_model import ModelRollouts
 from Rollouts.rollouts import merge_rollouts
 
-class CounterfactualDataset:
+class CounterfactualStateDataset():
+    def __init__(self, environment_model):
+        self.model = environment_model
+        self.known_objects = ["Action"]
+
+    def generate_dataset(self, rollouts, controllable_feature_selectors):
+        '''
+        given a set of rollouts without all_state filled out, fill out all_state
+        each controllable feature selector only applies to one feature
+        '''
+        # initialize space for all_state_next features
+        total_features = 0
+        for cfs in controllable_feature_selectors:
+            num_features = cfs.get_num_steps()
+            total_features += num_features 
+        rollouts.initialize_shape({'all_state_next': (rollouts.length, total_features, rollouts.values.state.shape[1])})
+
+        for i, (odiff, ostate, oaction) in enumerate(zip(rollouts.get_values("state_diff"), rollouts.get_values("state"), rollouts.get_values("action"))):
+            j = 0
+            for cfs in controllable_feature_selectors: # can only handle varying one cfs at a time
+                for v in cfs.get_steps():
+                    nstate = ostate.clone()
+                    cfs.feature_selector.assign_feature((cfs.feature_selector.flat_feature[0], v))
+                    self.model.set_from_factored_state(
+                        self.model.unflatten_state(nstate), seed_counter=seed
+                    )  # TODO: setting criteria might change (for more limited models
+                    self.model.step(oaction)
+                    selected_next_state = self.model.flatten_factored_state(self.model.get_factored_state())
+                    rollouts.values.all_state_next[i,j] = selected_next_state
+
+
+
+class CounterfactualDataset():
     def __init__(self, environment_model):
         self.model = environment_model
         self.known_objects = ["Action"]

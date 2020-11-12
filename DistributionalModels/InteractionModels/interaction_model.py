@@ -8,6 +8,7 @@ from collections import Counter
 from Counterfactual.counterfactual_dataset import counterfactual_mask
 from DistributionalModels.distributional_model import DistributionalModel
 from file_management import save_to_pickle, load_from_pickle
+from Networks.distributions import Bernoulli, Categorical, DiagGaussian
 
 class InteractionModel(DistributionalModel):
 
@@ -479,4 +480,76 @@ class HackedInteractionModel(SimpleInteractionModel):
             masks.append(self.observed_differences[self.target_name][i][1].clone())
         return torch.stack(samples, dim=0), torch.stack(masks, dim=0)
 
+class NeuralInteractionForwardModel(nn.Module):
+    def __init__(self, **kwargs):
+        self.gamma = kwargs['gamma']
+        self.delta = kwargs['delta']
+        self.controllable = kwargs['controllable']
+        self.environment_model = kwargs['environment_model']
+        self.passive_model = kwargs['passive_class'](**kwargs)
+        self.forward_model = kwargs['forward_class'](**kwargs)
+        if kwargs['dist'] == "Discrete":
+            self.forward_dist = Categorical(self.base.output_size, self.delta.num_outputs)
+        elif kwargs['dist'] == "Gaussian":
+            self.forward_dist = DiagGaussian(self.base.output_size, self.delta.output_size)
+        elif kwargs['dist'] == "MultiBinary":
+            self.forward_dist = Bernoulli(self.base.output_size, self.delta.output_size)
+        else:
+            raise NotImplementedError
+        self.interaction_model = kwargs['interaction_class'](**kwargs)
+        self.initialize_weights()
+
+    def initialize_weights(self):
+        self.forward_model.initialize_weights()
+        self.interaction_model.initialize_weights()
+        self.passive_model.initialize_weights()
+
+    def test_forward(self, states, next_states):
+        return self.delta(batchvals.next_state) - self.forward_model(self.gamma(self.environment_model.sample_feature(batchvals.states))) # batch size, num samples, state size
+
+    def train(self, train_args, rollouts):
+        self.optimizer = optim.Adam(self.parameters(), train_args.lr, eps=train_args.eps, betas=train_args.betas, weight_decay=train_args.weight_decay)
+        for i in range(train_args.pretrain_iters):
+            idxes, batchvals = rollouts.get_batch(train_args.batch_size)
+            prediction_params = self.forward_model(self.gamma(batchvals.values.state))
+            passive_prediction_params = self.passive_model(self.delta(batchvals.values.state))
+            loss = - self.dist(prediction_params).log_probs(self.delta(batchvals.values.next_state)) - self.dist(passive_prediction_params).log_probs(self.delta(batchvals.next_state))
+            self.optimizer.zero_grad()
+            (loss).backward()
+            torch.nn.utils.clip_grad_norm_(self.forward_model.parameters(), self.args.max_grad_norm)
+        for i in range(train_args.train_iters):
+            idxes, batchvals = rollouts.get_batch(train_args.batch_size)
+            prediction_params = self.forward_model(self.gamma(batchvals.values.state))
+            interaction_likelihood = self.interaction_model(batchvals.values.states)
+            passive_prediction_params = self.passive_model(self.delta(batchvals.values.state))
+            passive_loss = - self.dist(passive_prediction_params).log_probs(self.delta(batchvals.values.next_state))
+            forward_loss = - self.dist(prediction_params).log_probs(self.delta(batchvals.values.next_state)) * interaction_likelihood
+            interaction_loss = (1-interaction_likelihood) * train_args.interaction_lambda + interaction_likelihood * torch.exp(passive_loss) # try to make the interaction set as large as possible, but don't penalize for passive dynamics states
+            # version which varies the input and samples the trained forward model
+            # interaction_diversity_loss = interaction_likelihood * F.sigmoid(torch.max(self.delta(batchvals.next_state) - self.forward_model(self.gamma(self.environment_model.sample_feature(batchvals.states, self.controllable))), dim = 1).norm(dim=1)) # batch size, num samples, state size
+            # version which varies the input and samples the true model (all_controlled_next_state is an n x state size tensor containing the next state of the state given n settings of of the controllable feature(s))
+            interaction_diversity_loss = interaction_likelihood * F.sigmoid(torch.max(self.delta(batchvals.values.next_state) - self.delta(batchvals.all_controlled_next_state), dim = 1).norm(dim=1)) # batch size, num samples, state size
+            loss = (passive_loss + forward_loss + interaction_diversity_loss + interaction_loss).sum()
+            self.optimizer.zero_grad()
+            (loss).backward()
+            torch.nn.utils.clip_grad_norm_(self.forward_model.parameters(), self.args.max_grad_norm)
+
+    def assess_losses(self, test_rollout):
+        prediction_params = self.forward_model(self.gamma(test_rollout.values.state))
+        interaction_likelihood = self.interaction_model(test_rollout.values.states)
+        passive_prediction_params = self.passive_model(self.delta(test_rollout.values.state))
+        passive_loss = - self.dist(passive_prediction_params).log_probs(self.delta(test_rollout.values.next_state))
+        forward_loss = - self.dist(prediction_params).log_probs(self.delta(test_rollout.values.next_state)) * interaction_likelihood
+        interaction_loss = (1-interaction_likelihood) * train_args.interaction_lambda + interaction_likelihood * torch.exp(passive_loss) # try to make the interaction set as large as possible, but don't penalize for passive dynamics states
+        return passive_loss, forward_loss, interaction_loss
+
+    def determine_active_set(self, rollouts):
+        states, next_states = rollouts.get_values('state'), rollouts.get_values('next_state')
+        test_diff = torch.max(torch.max(self.test_forward(states), dim=1), dim=0)
+        v = torch.zeros(test_diff.shape)
+        v[test_diff > self.active_epsilon] = 1 
+        return delta.get_subset(v)
+
+    def hypothesize(self, state):
+        return self.interaction_model(state), self.forward_model(state)
 

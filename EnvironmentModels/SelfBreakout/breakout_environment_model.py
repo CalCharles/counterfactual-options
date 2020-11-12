@@ -11,6 +11,7 @@ class BreakoutEnvironmentModel(EnvironmentModel):
         self.state_size = sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])
         self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [1], "done": [1]}
         self.enumeration = {"Action": [0,1], "Paddle": [1,2], "Ball": [2,3], "Block": [3,103]}
+        self.set_indexes()
 
     def get_interaction_trace(self, name):
         trace = []
