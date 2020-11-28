@@ -16,6 +16,7 @@ class BreakoutEnvironmentModel(EnvironmentModel):
     def get_interaction_trace(self, name):
         trace = []
         for i in range(*self.enumeration[name]):
+            # print(name, self.environment.objects[i].interaction_trace)
             trace.append(self.environment.objects[i].interaction_trace)
         return trace
 

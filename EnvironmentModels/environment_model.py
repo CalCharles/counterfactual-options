@@ -1,8 +1,8 @@
 import numpy as np
-import os, cv2, time
+import os, cv2, time, copy
 import torch
 from Rollouts.rollouts import Rollouts, ObjDict
-
+from Networks.network import ConstantNorm
 
 class EnvironmentModel():
     def __init__(self, environment):
@@ -92,20 +92,22 @@ class EnvironmentModel():
             factored_str = name + ":" + " ".join(map(str, state)) + "\t"
         self.environment.write_objects(factored_str, save_raw=save_raw)
 
-    def get_insert_dict(self, factored_state, next_factored_state, last_state=None, instanced=False):
+    def get_insert_dict(self, factored_state, next_factored_state, last_state=None, instanced=False, action_shift=False):
         if last_state is None:
             last_state = torch.zeros(self.flatten_factored_state(factored_state, instanced=instanced).shape)
+        if action_shift:
+            factored_state['Action'] = copy.copy(next_factored_state['Action'])
         state = torch.tensor(self.flatten_factored_state(factored_state, instanced=instanced)).float()
         next_state = torch.tensor(self.flatten_factored_state(next_factored_state, instanced=instanced)).float()
-        insert_dict = {'state': state, 'next_state': next_state, 'state_diff': state-last_state, 'done': self.get_done(factored_state), 'action': self.get_action(factored_state)}
+        insert_dict = {'state': state, 'next_state': next_state, 'state_diff': next_state-state, 'done': self.get_done(factored_state), 'action': self.get_action(factored_state)}
         return insert_dict, state
 
     def create_entity_selector(self, names):
         flat_features = list()
         factored_features = dict()
         for name in names:
-            flat_features += list(range(self.indexes[name]))
-            factored_features[name] = np.arange(self.indexes[name]).dtype('int')
+            flat_features += list(range(*self.indexes[name]))
+            factored_features[name] = np.arange(*self.indexes[name]).astype('int')
         return FeatureSelector(flat_features, factored_features)
 
 class ControllableFeature():
@@ -114,14 +116,17 @@ class ControllableFeature():
         self.feature_range = feature_range # two element list
         self.feature_step = feature_step
 
+    def object(self):
+        return self.feature_selector.get_entity()[0]
+
     def get_indexes(self):
         return list(self.feature_selector.values())[0]
 
     def get_num_steps(self):
-        return (cfs.feature_range[1] - cfs.feature_range[0]) // cfs.feature_step
+        return (self.feature_range[1] - self.feature_range[0]) // self.feature_step
 
     def get_steps(self):
-        return [i * cfs.feature_step + cfs.feature_range[0] for i in range(self.get_num_steps)]
+        return [i * self.feature_step + self.feature_range[0] for i in range(self.get_num_steps())]
 
 class FeatureSelector():
     def __init__(self, flat_features, factored_features):
@@ -131,7 +136,7 @@ class FeatureSelector():
         For the hash function to work, feature selectors must be immutable, and the hash is the tuple constructed by the flat_features
         To ensure immutability, the flat features must be sorted, and the factored features must be sorted to match the flat features
         '''
-        self._flat_features = np.array(flat_features).dtype("int")
+        self.flat_features = np.array(flat_features).astype("int")
         self.factored_features = factored_features
         self.clean_factored_features()
 
@@ -139,10 +144,13 @@ class FeatureSelector():
         return tuple(self.flat_features)
 
     def __eq__(self, other):
-        return tuple(self.flat_features) = tuple(other.flat_features)
+        return tuple(self.flat_features) == tuple(other.flat_features)
     
     def get_entity(self):
         return list(self.factored_features.keys())
+
+    def output_size(self):
+        return len(self.flat_features)
 
     def clean_factored_features(self): # only cleaned once at the start
         new_factored = dict()
@@ -152,7 +160,7 @@ class FeatureSelector():
             else:
                 new_factored[name] = [self.factored_features[name]]
         for name in self.factored_features.keys():
-            self.factored_features[name] = np.array(self.factored_features[name]).dtype("int")
+            self.factored_features[name] = np.array(self.factored_features[name]).astype("int")
 
     def __call__(self, states):
         if type(states) is dict: # factored features
@@ -161,14 +169,18 @@ class FeatureSelector():
             return states[self.flat_features]
         elif len(states.shape) == 2: # a batch of flattened state
             return states[:, self.flat_features]
+        elif len(states.shape) == 3: # a batch of stacks of flattened state
+            return states[:, :, self.flat_features]
 
-def assign_feature(self, states, assignment): # assignment is a tuple assignment keys (tuples or indexes), and assignment values
+def assign_feature(states, assignment): # assignment is a tuple assignment keys (tuples or indexes), and assignment values
     if type(states) is dict: # factored features
         states[assignment[0][0]][assignment[0][1]] = assignment[1]
     elif len(states.shape) == 1: # a single flattened state
-        return states[assignment[0]] = assignment[1]
+        states[assignment[0]] = assignment[1]
     elif len(states.shape) == 2: # a batch of flattened state
-        return states[:, assignment[0]] = assignment[1]
+        states[:, assignment[0]] = assignment[1]
+    elif len(states.shape) == 3: # a batch of stacks of flattened state
+        states[:, :, assignment[0]] = assignment[1]
 
 class ModelRollouts(Rollouts):
     def __init__(self, length, shapes_dict):
@@ -179,9 +191,9 @@ class ModelRollouts(Rollouts):
         '''
         super().__init__(length, shapes_dict)
         self.names = ["state", "state_diff", "next_state", "action", "done"]
-        if "all_state" in list(shapes_dict.shapes_dict.keys()):
+        if "all_state_next" in list(shapes_dict.keys()):
             self.names.append("all_state_next")
-        print(self.shapes)
+        # print(self.shapes)
         self.initialize_shape(self.shapes, create=True)
         # self.values = ObjDict({n: self.init_or_none(self.shapes[n]) for n in self.names})
 

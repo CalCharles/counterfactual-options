@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-import time
+import time, copy
 
 class ObjDict(dict):
     def __init__(self, ins_dict=None):
@@ -99,6 +99,23 @@ class Rollouts():
                 rollout.values[n] = self.values[n][i:j]
         rollout.filled = j - i
         return rollout
+
+    def split_train_test(self, ratio):
+        idxes = list(range(self.filled))
+        train_num = int(self.filled * ratio)
+        train = np.random.choice(idxes, size=train_num)
+        vals = train.tolist()
+        vals.sort()
+        test = copy.copy(idxes)
+        a = 0
+        popped = 0
+        while a < len(idxes):
+            if a == vals[0]:
+                test.pop(a - popped)
+                popped += 1
+                vals.pop(0)
+            a += 1
+        return self.split_indexes(np.array(train)), self.split_indexes(np.array(test))
 
     def split_indexes(self, idxes):
         rollout = type(self)(len(idxes), self.shapes)

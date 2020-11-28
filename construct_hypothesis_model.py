@@ -2,12 +2,14 @@ import os
 from arguments import get_args
 from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
 from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEnvironmentModel
-from EnvironmentModels.environment_model import ModelRollouts
+from EnvironmentModels.environment_model import ModelRollouts, FeatureSelector, ControllableFeature
 from Environments.SelfBreakout.breakout_screen import Screen
+from Counterfactual.counterfactual_dataset import CounterfactualStateDataset
 from Counterfactual.passive_active_dataset import HackedPassiveActiveDataset
 from Options.option_graph import OptionGraph, OptionNode, load_graph
 from Options.option import Option, PrimitiveOption
-from DistributionalModels.InteractionModels.interaction_model import NeuralInteractionForwardModel
+from DistributionalModels.InteractionModels.interaction_model import default_model_args
+from DistributionalModels.InteractionModels.feature_explorer import FeatureExplorer
 
 if __name__ == '__main__':
     args = get_args()
@@ -21,19 +23,29 @@ if __name__ == '__main__':
         actions = PrimitiveOption(None, None, None, None, environment_model, None, None, "Action", ["Actions"], num_params=environment.num_actions)
         nodes = {'Action': OptionNode('Action', actions, action_shape = (1,), num_params=environment.num_actions)}
         graph = OptionGraph(nodes, dict())
-        afs = FeatureSelector([environment_model.indexes('Action')[1]], {'Action': environment_model.object_sizes['Action'] - 1})
-        controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions,1])]
+        afs = FeatureSelector([environment_model.indexes['Action'][1] - 1], {'Action': environment_model.object_sizes['Action'] - 1})
+        controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
     graph.load_environment_model(environment_model)
+    environment_model.shapes_dict["all_state_next"] = [args.num_samples, environment_model.state_size]
     rollouts = ModelRollouts(len(data), environment_model.shapes_dict)
+
     last_state = None
-    graph.nodes[args.object].option.set_behavior_epsilon(0)
+    for cfs in controllable_feature_selectors:
+        graph.nodes[cfs.object()].option.set_behavior_epsilon(0)
     for data_dict, next_data_dict in zip(data, data[1:]):
-        insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True)
+        insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
         rollouts.append(**insert_dict)
+    if args.cuda:
+        rollouts.cuda()
+    # cf_state = CounterfactualStateDataset(environment_model)
+    # rollouts = cf_state.generate_dataset(rollouts, controllable_feature_selectors)
+    
     # dataset_model.sample_zero = args.sample_zero
     # hypothesis_model = NeuralInteractionForwardModel(environment_model = environment_model, target_name=args.target, contingent_nodes=[n for n in graph.nodes.values() if n.name != args.target])
     # hypothesis_model.train(rollouts)
-    feature_explorer = FeatureExplorer(graph, controllable_feature_selectors, environment_model, args) # args should contain the model args, might want subspaces for arguments or something since args is now gigantic
+    model_args = default_model_args()
+    model_args['controllable'], model_args['environment_model'] = controllable_feature_selectors, environment_model
+    feature_explorer = FeatureExplorer(graph, controllable_feature_selectors, environment_model, model_args) # args should contain the model args, might want subspaces for arguments or something since args is now gigantic
     hypothesis_model, delta, gamma = feature_explorer.search(rollouts, args) # again, args contains the training parameters, but we might want subsets since this is a ton of parameters more 
     hypothesis_model.save(args.dataset_dir)
 

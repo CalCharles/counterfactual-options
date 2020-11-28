@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import numpy as np
 
 class pytorch_model():
     def __init__(self, combiner=None, loss=None, reducer=None, cuda=True):
@@ -31,6 +32,37 @@ class pytorch_model():
     def concat(data, axis=0):
         return torch.cat(data, dim=axis)
 
+# # normalization functions
+class NormalizationFunctions():
+    def __init__(self, **kwargs):
+        pass
+
+    def __call__(self, val):
+        return
+
+    def reverse(self, val):
+        return
+
+class ConstantNorm():
+    def __init__(self, **kwargs):
+        self.mean = kwargs['mean']
+        self.std = kwargs['variance']
+        self.inv_std = kwargs['invvariance']
+
+    def __call__(self, val):
+        return (val - self.mean) * self.inv_std
+
+    def reverse(self, val):
+        return val * self.std + self.mean
+
+    def cuda(self):
+        if type(self.mean) == torch.Tensor:
+            self.mean = self.mean.cuda()
+            self.std = self.std.cuda()
+            self.inv_std = self.inv_std.cuda()
+
+## end of normalization functions
+
 class Network(nn.Module):
     def __init__(self, **kwargs):
         super().__init__()
@@ -38,6 +70,16 @@ class Network(nn.Module):
         self.init_form = kwargs["init_form"]
         self.layers = []
         self.acti = self.get_acti(kwargs["acti"])
+        self.iscuda = False
+
+    def cuda(self):
+        super().cuda()
+        self.iscuda = True
+
+    def cpu(self):
+        super().cpu()
+        self.iscuda = False
+
 
     def run_acti(self, acti, x):
         if acti is not None:
@@ -45,15 +87,15 @@ class Network(nn.Module):
         return x
 
     def get_acti(self, acti):
-        if args.activation == "relu":
+        if acti == "relu":
             return F.relu
-        elif args.activation == "sin":
+        elif acti == "sin":
             return torch.sin
-        elif args.activation == "sigmoid":
+        elif acti == "sigmoid":
             return torch.sigmoid
-        elif args.activation == "tanh":
+        elif acti == "tanh":
             return torch.tanh
-        elif args.activation == "none":
+        elif acti == "none":
             return None
 
     def reset_parameters(self):
@@ -64,7 +106,7 @@ class Network(nn.Module):
                     nn.init.orthogonal_(layer.weight.data, gain=nn.init.calculate_gain('relu'))
                 else:
                     nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu') 
-            elif issubclass(type(layer), Model):
+            elif issubclass(type(layer), Network):
                 layer.reset_parameters()
             elif type(layer) == nn.Parameter:
                 nn.init.uniform_(layer.data, 0.0, 0.2/np.prod(layer.data.shape))#.01 / layer.data.shape[0])
@@ -120,38 +162,43 @@ class Network(nn.Module):
         if self.iscuda:
             self.cuda()
 
+    def count_parameters(self, reuse=True):
+        if reuse and self.parameter_count > 0:
+            return self.parameter_count
+        self.parameter_count = 0
+        for param in self.parameters():
+            # print(param.size(), np.prod(param.size()), self.insize, self.hidden_size)
+            self.parameter_count += np.prod(param.size())
+        return self.parameter_count
+
     def forward(self, x):
         '''
         all should have a forward function, but not all forward functions have the same signature
         '''
         return
 
-    def train(self, dataset, labels):
-        '''
-        multiple objectives might require a different signature, but all networks should have some train function
-        '''
-        pass
-
 class BasicMLPNetwork(Network):    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.factor = kwargs['factor']
-        self.hidden_size = factor*factor*factor // min(4,factor)
+        self.num_layers = kwargs['num_layers']
+        self.hidden_size = self.factor*self.factor*self.factor // min(4,self.factor)
+        
         print("Network Sizes: ", self.num_inputs, self.num_outputs, self.hidden_size)
-        if args.num_layers == 1:
+        if self.num_layers == 1:
             self.l1 = nn.Linear(self.num_inputs,self.num_outputs)
-        elif args.num_layers == 2:
+        elif self.num_layers == 2:
             self.l1 = nn.Linear(self.num_inputs,self.hidden_size)
             self.l2 = nn.Linear(self.hidden_size, self.num_outputs)
-        elif args.num_layers == 3:
+        elif self.num_layers == 3:
             self.l1 = nn.Linear(self.num_inputs,self.hidden_size)
             self.l2 = nn.Linear(self.hidden_size,self.hidden_size)
             self.l3 = nn.Linear(self.hidden_size, self.num_outputs)
-        if args.num_layers > 0:
+        if self.num_layers > 0:
             self.layers.append(self.l1)
-        if args.num_layers > 1:
+        if self.num_layers > 1:
             self.layers.append(self.l2)
-        if args.num_layers > 2:
+        if self.num_layers > 2:
             self.layers.append(self.l3)
         self.train()
         self.reset_parameters()
@@ -159,11 +206,11 @@ class BasicMLPNetwork(Network):
     def forward(self, x):
         if self.num_layers > 0:
             x = self.l1(x)
-            x = self.run_acti(x)
         if self.num_layers > 1:
+            x = self.acti(x)
             x = self.l2(x)
-            x = self.run_acti(x)
         if self.num_layers > 2:
+            x = self.acti(x)
             x = self.l3(x)
-            x = self.run_acti(x)
+
         return x

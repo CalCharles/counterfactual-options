@@ -58,6 +58,10 @@ def get_args():
                     help='use the parameter at the last layer, otherwise, does it at the first layer')
     parser.add_argument('--normalize', action='store_true', default=False,
                     help='normalizes the inputs using 84')
+    parser.add_argument('--predict-dynamics', action='store_true', default=False,
+                    help='predict the dynamics instead of the next state')
+    parser.add_argument('--action-shift', action='store_true', default=False,
+                    help='shift the actions back one time step so the action is applied at the last time step')
     # Meta-Hyperparameters
     parser.add_argument('--policy-type', default="basic",
                         help='choose the model form for the policy, which is defined in Policy.policy')
@@ -99,12 +103,18 @@ def get_args():
                         help='steps between a check for reward, (default 1)')
     parser.add_argument('--num-iters', type=int, default=int(2e5),
                         help='number of iterations for training (default: 2e5)')
+    parser.add_argument('--interaction-iters', type=int, default=0,
+                        help='number of iterations for training the interaction network with true values (default: 0)')
+    parser.add_argument('--pretrain-iters', type=int, default=int(2e4),
+                        help='number of iterations for training (default: 2e4)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
     parser.add_argument('--Q-critic', action='store_true', default=False,
                         help='use the q function to compute the state value')
     parser.add_argument('--warm-up', type=int, default=0,
                         help='warm up updates to fill buffer (default: 0)')
+    parser.add_argument('--ratio', type=float, default=0.9,
+                    help='ratio of training samples to testing ones')
 
     # PPO settings
     parser.add_argument('--clip-param', type=float, default=0.2,
@@ -129,6 +139,8 @@ def get_args():
                         help='The name of the lowest node in the option chain (generally should be Action)')
     parser.add_argument('--use-both', type=int, default=1,
                         help='enum for which part to use as parameter (0: state, 1: state difference, 2: both state and state difference)')
+    parser.add_argument('--num-samples', type=int, default=10,
+                        help='number of samples to take for all_state_next')
     # termination condition parameters
     parser.add_argument('--min-use', type=int, default=5,
                     help='minimum number of seen states to use as a parameter')

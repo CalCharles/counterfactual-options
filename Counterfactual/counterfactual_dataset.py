@@ -2,7 +2,8 @@ import numpy as np
 import os, cv2, time
 import torch
 from collections import Counter
-from EnvironmentModels.environment_model import ModelRollouts
+from EnvironmentModels.environment_model import ModelRollouts, assign_feature
+from Networks.network import pytorch_model
 from Rollouts.rollouts import merge_rollouts
 
 class CounterfactualStateDataset():
@@ -19,22 +20,26 @@ class CounterfactualStateDataset():
         total_features = 0
         for cfs in controllable_feature_selectors:
             num_features = cfs.get_num_steps()
-            total_features += num_features 
-        rollouts.initialize_shape({'all_state_next': (rollouts.length, total_features, rollouts.values.state.shape[1])})
+            total_features += num_features
+        rollouts.initialize_shape({'all_state_next': (total_features, rollouts.values.state.shape[1])})
 
         for i, (odiff, ostate, oaction) in enumerate(zip(rollouts.get_values("state_diff"), rollouts.get_values("state"), rollouts.get_values("action"))):
             j = 0
             for cfs in controllable_feature_selectors: # can only handle varying one cfs at a time
                 for v in cfs.get_steps():
                     nstate = ostate.clone()
-                    cfs.feature_selector.assign_feature((cfs.feature_selector.flat_feature[0], v))
+                    if cfs.object() == "Action":
+                        oaction = v
+                    assign_feature(nstate, (cfs.feature_selector.flat_features[0], v))
                     self.model.set_from_factored_state(
-                        self.model.unflatten_state(nstate), seed_counter=seed
+                        self.model.unflatten_state(nstate), seed_counter=0
                     )  # TODO: setting criteria might change (for more limited models
                     self.model.step(oaction)
                     selected_next_state = self.model.flatten_factored_state(self.model.get_factored_state())
-                    rollouts.values.all_state_next[i,j] = selected_next_state
-
+                    # print(cfs.object(), j, nstate, selected_next_state)
+                    rollouts.values.all_state_next[i,j] = pytorch_model.wrap(selected_next_state, cuda=rollouts.iscuda)
+                    j += 1
+        return rollouts
 
 
 class CounterfactualDataset():

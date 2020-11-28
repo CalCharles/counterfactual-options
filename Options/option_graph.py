@@ -4,7 +4,7 @@ from file_management import save_to_pickle, load_from_pickle
 
 class OptionNode():
 # TODO: handling of multiple incoming edges to a node
-    def __init__(self, name option, action_shape, num_params):
+    def __init__(self, name, option, action_shape, num_params):
         self.name = name # the name of the object being controlled
         self.option = option # stores most of the necessary information
         self.action_shape = action_shape

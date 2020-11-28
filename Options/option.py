@@ -4,7 +4,7 @@ import torch
 from ReinforcementLearning.Policy.policy import pytorch_model
 
 class PolicyReward():
-    def __init__(self, policy, behavior_policy, termination, next_option, reward)
+    def __init__(self, policy, behavior_policy, termination, next_option, reward):
         self.policy = policy
         self.behavior_policy = behavior_policy
         self.termination = termination
