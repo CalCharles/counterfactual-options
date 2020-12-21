@@ -18,12 +18,10 @@ def get_RL_shapes(option, environment_model):
     shapes["state"], shapes["next_state"] = state_size, state_size
     shapes["action"] = option.action_shape
     shapes["true_action"] = environment_model.environment.action_shape
-    shapes["probs"], shapes["Q_vals"] = option.action_prob_shape, option.action_prob_shape # assumed Q distribution matches action probs
+    shapes["probs"], shapes["Q_vals"], shapes["std"] = option.action_prob_shape, option.action_prob_shape, option.action_prob_shape # assumed Q distribution, diagonal covariance matches action probs
     shapes["value"], shapes["reward"], shapes["max_reward"], shapes["done"], shapes["returns"] = (1,), (1,), (1,), (1,), (1,)
-    param_shape = option.get_param_shape()
+    param_shape = option.param_shape
     shapes["param"], shapes["mask"] = param_shape, param_shape 
-    param_num = len(option.get_possible_parameters())
-    shapes["all_reward"] = (param_num, )
     return shapes
 
 
@@ -35,7 +33,7 @@ class RLRollouts(Rollouts):
         shapes dict should have the shape information for all the types inside
         '''
         super().__init__(length, shapes_dict)
-        self.names = ["state", "next_state", "object_state", "next_object_state", "state_diff", "action", 'true_action', 'probs', 'Q_vals', 'value', 'param', 'mask', 'reward', "max_reward", "all_reward", "returns", "done"]
+        self.names = ["state", "next_state", "object_state", "next_object_state", "state_diff", "action", 'true_action', 'probs', 'Q_vals', 'std', 'value', 'param', 'mask', 'reward', "max_reward", "returns", "done"]
         # print({n: self.shapes[n] for n in self.names})
         self.values = ObjDict({n: self.init_or_none(self.shapes[n]) for n in self.names})
         self.wrap = False

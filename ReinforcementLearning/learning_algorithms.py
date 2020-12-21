@@ -188,7 +188,8 @@ class PPO_optimizer(LearningOptimizer):
         for _ in range(self.args.grad_epoch):
             idxes, batch = rollouts.get_batch(self.args.batch_size)
             output = self.option.forward(batch.values.state, batch.values.param)
-            probs, old_probs = self.option.get_action(batch.values.action, output.probs, batch.values.probs)
+            probs, log_probs = self.option.get_action(batch.values.action, output.probs, output.std)
+            old_probs, old_log_probs = self.option.get_action(batch.values.action, batch.values.probs, batch.values.std)
             values = output.values
             log_probs, old_log_probs = torch.log(probs + 1e-10), torch.log(old_probs + 1e-10)
             advantages = batch.values.returns.view(-1, 1) - values
@@ -208,20 +209,10 @@ class A2C_optimizer(LearningOptimizer):
     def step(self, rollouts, use_range=None):
         idxes, batch = rollouts.get_batch(self.args.batch_size, ordered=True)
         output = self.option.forward(batch.values.state, batch.values.param)
-        # print(batch.values.state.shape)
-        # print(batch.values.action)
-        # for i, stack in enumerate(batch.values.state):
-        #     cv2.imshow('frame',stack[-1].cpu().numpy() / 255.0)
-        #     # print(batch.values.reward[i], batch.values.returns[i])
-        #     # print(output.log_probs[i])
-        #     # print("action", batch.values.action[i])
-        #     if cv2.waitKey(10000) & 0xFF == ord('q'):
-        #         pass
         log_probs, probs = self.option.get_action(batch.values.action, output.log_probs, output.probs)
         values = output.values
         advantages = batch.values.returns.detach() - values
         value_loss = advantages.pow(2).mean()
-        # print (advantages.shape, log_probs.shape)
         action_loss = -(advantages.detach() * log_probs.unsqueeze(1)).mean()
         dist_entropy = -(log_probs * probs).sum(-1).mean()
         entropy_loss = -dist_entropy * self.args.entropy_coef

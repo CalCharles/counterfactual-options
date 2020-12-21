@@ -215,5 +215,11 @@ def render_dump(obj_dumps):
     frame[pos[0]-1:pos[0]+1, pos[1]-1:pos[1]+1] = 1.0 * 255
     return frame
 
+def printframe(state, name='frame'):
+    cv2.imshow(name, state)
+    if cv2.waitKey(100) & 0xFF == ord('q'):
+        pass
+
+
 if __name__ == '__main__':
     visualize_frame_dumps(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]))

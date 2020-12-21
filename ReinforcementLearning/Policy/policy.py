@@ -6,6 +6,7 @@ from torch.autograd import Variable
 import torch.optim as optim
 import copy, os
 from file_management import default_value_arg
+from Networks.network import Network
 
 def dummy_RLoutput(n, num_actions, cuda):
     one = torch.tensor([n, 0])
@@ -100,6 +101,17 @@ class DiagGaussian(nn.Module):
         action_logstd = self.logstd(zeros)
         return FixedNormal(action_mean, action_logstd.exp())
 
+class QFunction(Network):
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.l1 = nn.Linear(self.num_inputs + self.hidden_size, 1)
+
+    def forward(self, hidden, action):
+        x = torch.cat([hidden, action], dim=1)
+        x = self.l1(x)
+        return x
+
+
 class Policy(nn.Module):
     def __init__(self, **kwargs):
         super(Policy, self).__init__()
@@ -147,7 +159,7 @@ class Policy(nn.Module):
         self.critic_linear = nn.Linear(self.insize, 1)
         self.sigma = nn.Linear(self.insize, 1)
         if self.continuous:
-            self.QFunction = nn.Linear(self.insize, 1)
+            self.QFunction = Qfunction(self.insize + self.num_outputs, 1)
         else:
             self.QFunction = nn.Linear(self.insize, num_outputs)
         self.action_eval = nn.Linear(self.insize, num_outputs)
@@ -205,23 +217,24 @@ class Policy(nn.Module):
         if self.last_param:
             x = torch.cat((x,param), dim=1)
         std = self.sigma(x)
-        Q_vals = self.QFunction(x)
-        if self.Q_critic:
-            values = Q_vals.max(dim=1)[0]
-        else:
-            values = self.critic_linear(x)
         # print("Qvals", Q_vals, values)
         dist = None
         action_values = self.action_eval(x)
         if self.continuous:
+            Q_vals = self.QFunction(x, action_values)
             dist = FixedNormal(action_values, std)
             log_probs = dist.log_probs(actions)
             dist_entropy = dist.entropy().mean()
             probs = torch.exp(log_probs)
         else:
+            Q_vals = self.QFunction(x)
             probs = F.softmax(action_values, dim=1) 
             log_probs = F.log_softmax(action_values, dim=1)
             dist_entropy = action_values - action_values.logsumexp(dim=-1, keepdim=True)
+        if self.Q_critic:
+            values = Q_vals.max(dim=1)[0]
+        else:
+            values = self.critic_linear(x)
         return values, dist_entropy, probs, log_probs, action_values, std, Q_vals, dist
 
     def preamble(self, x, p):
@@ -229,6 +242,10 @@ class Policy(nn.Module):
             return (x / 84) * self.scale, p
         return x,p
 
+    def compute_Q(self, state, action):
+        x, p = self.preamble(state, p) # TODO: if necessary, a preamble can be added back in
+        x = self.hidden(x, p)
+        return self.Qfunction(x, action)
 
     def forward(self, x, p):
         x, p = self.preamble(x, p) # TODO: if necessary, a preamble can be added back in
