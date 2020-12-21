@@ -27,7 +27,6 @@ class EnvironmentModel():
             self.indexes[name] = [idx, idx+step]
             idx += step
 
-
     def get_factored_state(self):
         '''
         gets the factored state for the current environment
@@ -110,17 +109,60 @@ class EnvironmentModel():
             factored_features[name] = np.arange(*self.indexes[name]).astype('int')
         return FeatureSelector(flat_features, factored_features)
 
+    def flat_to_factored(self, idx):
+        for name in self.indexes.keys():
+            if self.indexes[name][0] <= idx < self.indexes[name][1]: 
+                return name, idx - self.indexes[name][0]
+
+    def get_subset(self, entity_selector, flat_bin):
+        # flat_bin is a binary vector that is 1 when the feature is chosen and 0 otherwise
+        new_flat = list()
+        flat_bin[2] = 1
+        a = entity_selector.flat_features[(flat_bin == 1).nonzero()].flatten()
+        ad = dict()
+        for n, idx in [self.flat_to_factored(i) for i in a]:
+            if n in ad:
+                ad[n].append(idx)
+            else:
+                ad[n] = [idx]
+        return FeatureSelector(a, ad)
+
+def get_selection_list(cfss): # TODO: put this inside ControllableFeature as a static function
+    possibility_lists = list()
+    for cfs in cfss: # order of cfs matter
+        possibility_lists.append(list(range(*cfs.feature_range, cfs.feature_step)))
+    while True:
+        pl = possibility_lists[i]
+            
+
 class ControllableFeature():
-    def __init__(self, feature_selector, feature_range, feature_step ):
+    def __init__(self, feature_selector, feature_range, feature_step, feature_model=None):
         self.feature_selector = feature_selector
         self.feature_range = feature_range # two element list
         self.feature_step = feature_step
+        self.feature_model = feature_model # if the control of this feature can be captured by a model (i.e. an interaction model or combination of models)
+
+    def hypothesize(self, state):
+        return self.feature_model.hypothesize(state)
 
     def object(self):
         return self.feature_selector.get_entity()[0]
 
     def get_indexes(self):
         return list(self.feature_selector.values())[0]
+
+    def sample_feature(self, states):
+        all_states = []
+        for f in range(*self.feature_range, self.feature_step):
+            assigned_states = states.clone()
+            assign_feature(assigned_states, (self.feature_selector.flat_features[0], f))
+            all_states.append(assigned_states)
+        return torch.stack(all_states, dim=1)
+
+    def assign_feature(self, states, f):
+        assign_feature(states, (self.feature_selector.flat_features[0], f))
+        return states
+
 
     def get_num_steps(self):
         return (self.feature_range[1] - self.feature_range[0]) // self.feature_step
@@ -145,7 +187,7 @@ class FeatureSelector():
 
     def __eq__(self, other):
         return tuple(self.flat_features) == tuple(other.flat_features)
-    
+
     def get_entity(self):
         return list(self.factored_features.keys())
 
@@ -153,12 +195,6 @@ class FeatureSelector():
         return len(self.flat_features)
 
     def clean_factored_features(self): # only cleaned once at the start
-        new_factored = dict()
-        for name in self.factored_features.keys():
-            if name in new_factored:
-                new_factored[name].append(self.factored_features[name])
-            else:
-                new_factored[name] = [self.factored_features[name]]
         for name in self.factored_features.keys():
             self.factored_features[name] = np.array(self.factored_features[name]).astype("int")
 

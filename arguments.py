@@ -115,6 +115,8 @@ def get_args():
                         help='warm up updates to fill buffer (default: 0)')
     parser.add_argument('--ratio', type=float, default=0.9,
                     help='ratio of training samples to testing ones')
+    parser.add_argument('--model-error-significance', type=float, default=1,
+                    help='amount of difference in l2 norm to determine that prediction is happening')
 
     # PPO settings
     parser.add_argument('--clip-param', type=float, default=0.2,
@@ -137,7 +139,7 @@ def get_args():
     # Option Chain Parameters
     parser.add_argument('--base-node', default="Action",
                         help='The name of the lowest node in the option chain (generally should be Action)')
-    parser.add_argument('--use-both', type=int, default=1,
+    parser.add_argument('--use-both', type=int, default=0,
                         help='enum for which part to use as parameter (0: state, 1: state difference, 2: both state and state difference)')
     parser.add_argument('--num-samples', type=int, default=10,
                         help='number of samples to take for all_state_next')
@@ -187,6 +189,8 @@ def get_args():
     # load variables
     parser.add_argument('--load-weights', action ='store_true', default=False,
                         help='load the options for the existing network')
+    parser.add_argument('--load-network', default="",
+                        help='path to network')
     args = parser.parse_args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()

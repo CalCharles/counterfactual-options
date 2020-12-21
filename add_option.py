@@ -13,6 +13,7 @@ from Options.option_graph import OptionGraph, OptionNode, load_graph
 from Options.option import Option, PrimitiveOption, option_forms
 from Options.Reward.reward import reward_forms
 from DistributionalModels.DatasetModels.dataset_model import FactoredDatasetModel
+from DistributionalModels.InteractionModels.interaction_model import load_neural_model
 from DistributionalModels.distributional_model import load_factored_model
 import torch
 import numpy as np
@@ -23,7 +24,8 @@ if __name__ == '__main__':
     environment = Screen()
     environment.set_save(0, args.record_rollouts, args.save_recycle, save_raw=args.save_raw)
     environment_model = BreakoutEnvironmentModel(environment)
-    dataset_model = load_factored_model(args.dataset_dir)
+    dataset_model = load_neural_model(args.dataset_dir)
+    # dataset_model = load_factored_model(args.dataset_dir)
     if args.cuda:
         dataset_model.cuda()
     # print(dataset_model.observed_outcomes)

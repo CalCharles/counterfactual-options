@@ -11,12 +11,12 @@ class DiagGaussianForwardNetwork(Network):
         self.std = BasicMLPNetwork(**kwargs)
         self.normalization = kwargs['normalization_function']
         self.layers += [self.mean, self.std]
-        
+
         self.train()
         self.reset_parameters()
     
     def forward(self, x):
         x = self.normalization(x)
-        return torch.tanh(self.mean(x)), torch.sigmoid(self.std(x))
+        return torch.tanh(self.mean(x)), torch.sigmoid(self.std(x)) + 1e-2
 
 forward_nets = {"base": DiagGaussianForwardNetwork}

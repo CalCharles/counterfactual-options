@@ -88,16 +88,21 @@ class Option():
         '''
         # if self.object_name == "Paddle":
         #     print(self.policy.action_eval.weight)
+
+        # compute policy information for next state
         input_state = self.get_flattened_input_state(state)
         rl_output = self.policy.forward(input_state.unsqueeze(0), param.unsqueeze(0))
+
+        # get the action from the behavior policy, baction is integer for discrete
         if self.temp_ext and (self.next_option is not None and not self.next_option.terminated):
             baction = self.last_action # the baction is the discrete index of the action, where the action is the parameterized form that is a parameter
         else:
             baction = self.behavior_policy.get_action(rl_output)
-        if self.next_option.discrete:
-            action = self.next_option.convert_param(baction.squeeze())
-            # print(self.object_name, baction, action, param, self.next_option.get_possible_parameters()[baction.squeeze().long()][0], self.next_option.convert_param(baction.squeeze()), self.next_option.discrete)
+        action = self.next_option.convert_param(baction.squeeze())
+        # print(self.object_name, baction, action, param, self.next_option.get_possible_parameters()[baction.squeeze().long()][0], self.next_option.convert_param(baction.squeeze()), self.next_option.discrete)
         chain = [baction.squeeze()]
+        
+        # recursively propagate action up the chain
         if self.next_option is not None:
             rem_chain, last_rl_output = self.next_option.sample_action_chain(state, action)
             chain = rem_chain + chain
@@ -348,6 +353,12 @@ class DiscreteCounterfactualOption(Option):
         for vec in args:
             vals.append(vec[torch.arange(vec.size(0)), idx.squeeze().long()])
         return vals
+
+class ModelCounterfactualOption(Option):
+    def __init__(self, policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False):
+        super.__init__(policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=temp_ext)
+
+
 
 class HackedStateCounterfactualOption(DiscreteCounterfactualOption): # eventually, we will have non-hacked StateCounterfactualOption
     def __init__(self, policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False):

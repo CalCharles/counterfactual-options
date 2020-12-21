@@ -27,3 +27,8 @@ python add_option.py --dataset-dir data/random/ --object Paddle --buffer-steps 1
 Hacked commands
 python construct_interaction_model.py --graph-dir data/PAgraph/ --dataset-dir data/random/ --num-frames 1000 --object Action --target Paddle > interactiontest.txt
 python add_option.py --dataset-dir data/random/ --object Paddle --option-type hacked --buffer-steps 5 --num-steps 5 --gamma .1 --batch-size 5 --record-rollouts data/paddle --num-iters 1000 > hackedpaddletrain.txt
+
+
+New interaction model
+Train paddle model
+python construct_hypothesis_model.py --dataset-dir data/random/ --log-interval 500 --factor 32 --num-layers 2 --predict-dynamics --action-shift --batch-size 10 --pretrain-iters 0 --interaction-iters 100 --num-iters 3000
