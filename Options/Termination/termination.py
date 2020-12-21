@@ -18,7 +18,7 @@ class ParameterizedStateTermination(Termination):
 		self.name = kwargs['name']
 		self.discrete = True #kwargs['discrete']
 		# in the discrete parameter space case
-		dataset_model = kwargs['dataset_model']
+		self.dataset_model = kwargs['dataset_model']
 		self.min_use = kwargs['min_use']
 		self.assign_parameters(dataset_model)
 		print(self.name)
@@ -63,4 +63,32 @@ class ParameterizedStateTermination(Termination):
 			else:
 				return (state - param).norm(p=1, dim=1) <= self.epsilon
 
-terminal_forms = {'param': ParameterizedStateTermination}
+class InteractionTermination(Termination):
+	def __init__(self, **kwargs):
+		super().__init__()
+		self.interaction_model = kwargs["interaction_model"]
+		self.epsilon = kwargs["epsilon"]
+
+	def check(self, state, diff, param):
+		interaction_pred = self.interaction_model(state)
+		return interaction_pred > 1 - self.epsilon
+
+class CombinedTermination(Termination):
+	def __init__(self, **kwargs):
+		super().__init__()
+		self.interaction_model = kwargs["interaction_model"]
+		self.horizon = kwargs["horizon"]
+		self.parameterized_termination = ParameterizedStateTermination(**kwargs)
+		self.interaction_probability = kwargs["int_prob"]
+
+	def check(self, state, diff, param):
+		# terminates if the parameter matches and interaction is true
+		# has some probability of terminating if interaction is true
+		interaction_pred = self.interaction_model(state)
+		if np.random.rand() < interaction_pred:
+			param_term = self.parameterized_termination.check(state, diff, param)
+			if param_term == 1 or (param_term == 0 and np.random.rand() < interaction_pred * self.interaction_probability):
+				return 1
+		return 0
+
+terminal_forms = {'param': ParameterizedStateTermination, 'comb': CombinedTermination}

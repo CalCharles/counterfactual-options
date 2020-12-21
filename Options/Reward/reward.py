@@ -35,4 +35,24 @@ class BinaryParameterizedReward(Reward):
 			else:
 				return ((state - param).norm(p=1, dim=1) <= self.epsilon).float()
 
-reward_forms = {'bin': BinaryParameterizedReward}
+class InteractionReward(Reward):
+	def __init__(self, **kwargs):
+		super().__init__(**kwargs)
+		self.interaction_model = kwargs["interaction_model"]
+
+	def get_reward(self, state, diff, param):
+		return self.interaction_model(state)  - 1
+
+class CombinedReward(Reward):
+	def __init__(self, **kwargs):
+		super().__init__(**kwargs)
+		self.interaction_reward = InteractionReward(**kwargs)
+		self.parameterized_reward = BinaryParameterizedReward(**kwargs)
+		self.lmbda = kwargs["parameterized_lambda"]
+
+	def get_reward(self, state, diff, param):
+		ireward = self.interaction_model.get_reward(state, diff, param)
+		preward = self.parameterized_reward.get_reward(state, diff, param)
+		return ireward * self.lmbda + preward
+
+reward_forms = {'bin': BinaryParameterizedReward, 'int': InteractionReward, 'comb': CombinedReward}

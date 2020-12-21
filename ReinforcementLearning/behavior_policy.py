@@ -54,5 +54,4 @@ class SoftQ(BehaviorPolicy):
             action = pytorch_model.wrap(np.random.randint(self.num_outputs, size = rl_output.Q_vals.shape[0]), cuda = self.iscuda)
         return action
 
-
 behavior_forms = {"prob": Probs, "greedyQ": GreedyQ, "softQ": SoftQ}

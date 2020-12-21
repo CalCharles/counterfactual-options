@@ -5,7 +5,7 @@ import torch
 from collections import Counter
 from EnvironmentModels.environment_model import ModelRollouts
 from Rollouts.rollouts import merge_rollouts
-from DistributionalModels.InteractionModels.interaction_model import interaction_models
+from DistributionalModels.InteractionModels.interaction_model import interaction_models, nfd, nf
 
 class FeatureExplorer():
 	def __init__(self, graph, controllable_feature_selectors, environment_model, model_args):
@@ -28,36 +28,48 @@ class FeatureExplorer():
 					for name in self.em.object_names:
 						if name != controllable_entity and name not in delta_tested:
 							entity_selection = self.em.create_entity_selector([controllable_entity, name])
-							model, test, gamma_new, delta_new = self.train(cfs.object(), rollouts, train_args, self.em.create_entity_selector([controllable_entity]), name)
-							if self.pass_criteria(model.assess_losses(test)):
-								found = True
-								gamma = gamma_new
-								delta = delta_new
-								break
+							model, test, gamma_new, delta_new = self.train(cfs, rollouts, train_args, entity_selection, name)
+							comb_passed, combined = self.pass_criteria(model, test, train_args.model_error_significance)
+							gamma_comb = gamma_new
+							delta_comb = delta_new
 							entity_selection = self.em.create_entity_selector([controllable_entity])
-							model, gamma_new, delta_new = self.train(self.em.create_entity_selector([controllable_entity]), name)
-							if self.pass_criteria(model.assess_losses(test)):
+							model, test, gamma_new, delta_new = self.train(cfs, rollouts, train_args, entity_selection, name)
+							sep_passed, sep = self.pass_criteria(model, test, train_args.model_error_significance)
+							if sep_passed or comb_passed:
+								train_args.separation_difference = 1e-1# Change this line later
+								if sep >= combined - train_args.separation_difference:
+									print("selected combined")
+									gamma = gamma_comb
+									delta = delta_comb
+								else:
+									print("selected separate")
+									gamma = gamma_new
+									delta = delta_new
 								found = True
-								gamma = gamma_new
-								delta = delta_new
 								break
-							delta.add(name)
-					gamma.add(controllable_entity)
+							delta_tested.add(name)
+					gamma_tested.add(controllable_entity)
+					if found:
+						break
 		return model, gamma, delta
 
-	def train(self, control_name, rollouts, train_args, entity_selection, name):
-		print("Training ", control_name, "-> ", name)
+	def pass_criteria(self, model, test, model_error_significance): # TODO: using difference from passive is not a great criteria since the active follows a difference loss once interaction is added in
+		forward_error, passive_error = model.assess_error(test)
+		passed = forward_error > passive_error - model_error_significance
+		return passed, forward_error-passive_error
+
+	def train(self, cfs, rollouts, train_args, entity_selection, name):
+		print("Training ", cfs.object(), "-> ", name)
+		if entity_selection.output_size() == 5:
+			self.model_args['normalization_function'] = nf
+		else:
+			self.model_args['normalization_function'] = nfd
 		self.model_args['gamma'] = entity_selection
 		self.model_args['delta'] = self.em.create_entity_selector([name])
 		self.model_args['num_inputs'] = self.model_args['gamma'].output_size()
 		self.model_args['num_outputs'] = self.model_args['delta'].output_size()
 		model = interaction_models[self.model_args['model_type']](**self.model_args)
 		train, test = rollouts.split_train_test(train_args.ratio)
-		model.train(train, train_args, control_name=control_name, target_name=name)
+		model.train(train, train_args, control=cfs, target_name=name)
 		return model, test, self.model_args['gamma'], self.model_args['delta']
-
-
-				# if cfs.feature_selector in self.gamma_tested and gamma_size == 1: 
-				# 	continue
-				# else: # start picking elements
 

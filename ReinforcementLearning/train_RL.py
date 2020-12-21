@@ -84,9 +84,9 @@ class Logger:
             self.total = torch.zeros(4)
             self.length = 0
 
-
-
 def trainRL(args, rollouts, logger, environment, environment_model, option, learning_algorithm, names, graph):
+    # initialize states. input state/stack goes to the policy, diff state keeps last two states
+    # full state, last full state goes into the ground truth forward model
     input_state = pytorch_model.wrap(environment_model.get_flattened_state(names=names), cuda=args.cuda)
     diff_state = pytorch_model.wrap(environment_model.get_flattened_state(names=[names[0]]), cuda=args.cuda)
     full_state = environment_model.get_factored_state()
@@ -97,13 +97,19 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
             stack = stack.cuda()
         stack = stack.roll(-1,0)
         stack[-1] = pytorch_model.wrap(environment.render_frame(), cuda=args.cuda).detach()
+
+    # initialize information about ground truth rewards and dones for recording
     true_rewards = deque(maxlen=1000)
     true_dones = deque(maxlen=1000)
-    last_done = True
-    done = True
     done_lengths = deque(maxlen=1000)
     done_count = 0
+
+    # 
     object_state, next_object_state = None, None
+    last_done = True
+    done = True
+
+    # policy loss is for logging purposes only
     policy_loss = PolicyLoss(None, None, None, None, None, None)
     if args.warm_up > 0:
         option.set_behavior_epsilon(1)
@@ -121,12 +127,12 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
 
                 if args.cuda:
                     param, mask = param.cuda(), mask.cuda()
+            param, mask = option.get_param(last_done)
 
             # store action, currently not storing action probabilities, might be necessary
             # TODO: include the diffs for each level of the option internally
             # use the correct termination for updating the diff (internaly in option?)
             action_chain, rl_output = option.sample_action_chain(full_state, param)
-            # print(action_chain[-1], rl_output.probs.detach())
 
             # managing the next state
             if args.option_type == 'raw':
@@ -159,7 +165,7 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
                 done_count = 0
             # print("chain", action_chain)
             # print(reward, param, input_state, next_input_state)
-            rollouts.append(**{'state': input_state,
+            option.record_state(**{'state': input_state,
                                 'next_state': next_input_state,
                             'object_state': object_state,
                             'next_object_state': next_object_state,
@@ -174,14 +180,11 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
                              'max_reward': all_reward.max(),
                              'all_reward': all_reward,
                              'done': done})
-            # print(input_state, diff, param, reward)
-            # print("append", time.time() - start)
-            # start = time.time()
             input_state = next_input_state
             full_state = next_full_state
         if args.return_form != "none":
             next_value = option.forward(input_state.unsqueeze(0), param.unsqueeze(0)).values
-            rollouts.compute_return(args.gamma, return_update, args.num_steps, next_value, return_max = 128, return_form=args.return_form)
+            option.compute_return(args.gamma, return_update, args.num_steps, next_value, return_max = 128, return_form=args.return_form)
         # print("return", time.time()-start)
         # start = time.time()
         # print(rollouts.values.returns, next_value)
@@ -190,11 +193,11 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
                 args.epsilon = args.epsilon * .5
                 print("epsilon", args.epsilon)
             option.set_behavior_epsilon(args.epsilon)
-            logger.log(i, args.log_interval, args.num_steps, policy_loss, rollouts, true_rewards, true_dones)
+            logger.log(i, args.log_interval, args.num_steps, policy_loss, option.rollouts, true_rewards, true_dones)
             # print("log", time.time() - start)
             # start = time.time()
             if args.train:
-                policy_loss = learning_algorithm.step(rollouts)
+                policy_loss = learning_algorithm.step(option.rollouts)
                 # print("train", time.time() - start)
                 # start = time.time()
             if args.save_interval > 0 and (i+1) % args.save_interval == 0:
