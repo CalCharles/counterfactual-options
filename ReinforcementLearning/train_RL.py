@@ -91,6 +91,8 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
     diff_state = pytorch_model.wrap(environment_model.get_flattened_state(names=[names[0]]), cuda=args.cuda)
     full_state = environment_model.get_factored_state()
     last_full_state = environment_model.get_factored_state()
+
+    # refactor this into the option section
     if option.object_name == 'Raw':
         stack = torch.zeros([4,84,84]).detach()
         if args.cuda:
@@ -113,81 +115,47 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
     policy_loss = PolicyLoss(None, None, None, None, None, None)
     if args.warm_up > 0:
         option.set_behavior_epsilon(1)
+
+    # an iteration corresponds to a learning step
     for i in range(args.num_iters):
         return_update = rollouts.at
         for j in range(args.num_steps):
             start = time.time()
-            if last_done:
-                # print("resample")
-                if option.object_name == 'Raw':
-                    param, mask = torch.tensor([1]), torch.tensor([1])
-                else:
-                    param, mask = option.dataset_model.sample(full_state, 1, both=args.use_both==2, diff=args.use_both==1, name=option.object_name)
-                param, mask = param.squeeze(), mask.squeeze()
 
-                if args.cuda:
-                    param, mask = param.cuda(), mask.cuda()
+            # resamples parameter and mask if last_done is true
             param, mask = option.get_param(last_done)
 
             # store action, currently not storing action probabilities, might be necessary
             # TODO: include the diffs for each level of the option internally
             # use the correct termination for updating the diff (internaly in option?)
-            action_chain, rl_output = option.sample_action_chain(full_state, param)
+            action_chain, rl_outputs = option.sample_action_chain(full_state, param)
 
-            # managing the next state
-            if args.option_type == 'raw':
-                input_state = stack.clone()
-            else:
-                object_state = option.get_flattened_object_state(full_state)
+            # step the environment
             frame, factored, true_done = environment.step(action_chain[0].cpu().numpy())
-            done_count += 1
-            # print("sample and step", time.time() - start)
-            # start = time.time()
-
-            # print(factored["Paddle"], action_chain)
-            # cv2.imshow('frame',stack[-1].cpu().numpy() / 255.0)
-            # if cv2.waitKey(10) & 0xFF == ord('q'):
-            #     pass
+            # Record information about next state
             next_full_state = environment_model.get_factored_state()
             true_rewards.append(environment.reward), true_dones.append(true_done)
-            next_input_state = pytorch_model.wrap(environment_model.get_flattened_state(names=names), cuda=args.cuda)
-            if args.option_type == 'raw':
-                stack = stack.roll(-1,0)
-                stack[-1] = pytorch_model.wrap(frame, cuda=args.cuda)
-                next_input_state = stack.clone().detach()
-            else:
-                next_object_state = option.get_flattened_object_state(next_full_state)
-            done, reward, all_reward, diff, last_done = option.terminate_reward(next_full_state, param, action_chain)
-            # print("reward", time.time() - start)
-            # start = time.time()
+
+            # progress the option and then calculate if terminated
+            option.step(state, chain)
+            dones, rewards = option.terminate_reward(next_full_state, param, action_chain)
+            done, last_done = dones[-1], dones[-2]
+
+            # done count measures number of terminations
+            done_count += 1
             if done:
                 done_lengths.append(done_count)
                 done_count = 0
-            # print("chain", action_chain)
-            # print(reward, param, input_state, next_input_state)
-            option.record_state(**{'state': input_state,
-                                'next_state': next_input_state,
-                            'object_state': object_state,
-                            'next_object_state': next_object_state,
-                             'state_diff': diff, 
-                             'true_action': action_chain[0],
-                             'action': action_chain[-1],
-                             'probs': rl_output.probs[0],
-                             'Q_vals': rl_output.Q_vals[0],
-                             'param': param, 
-                             'mask': mask, 
-                             'reward': reward, 
-                             'max_reward': all_reward.max(),
-                             'all_reward': all_reward,
-                             'done': done})
-            input_state = next_input_state
+
+            # refactor this into the option part
+            option.record_state(state, next_state, action_chain, rl_outputs, param, rewards, dones)
+
             full_state = next_full_state
         if args.return_form != "none":
+            input_state = option.get_state(full_state, form=0, inp=0)
             next_value = option.forward(input_state.unsqueeze(0), param.unsqueeze(0)).values
             option.compute_return(args.gamma, return_update, args.num_steps, next_value, return_max = 128, return_form=args.return_form)
-        # print("return", time.time()-start)
-        # start = time.time()
-        # print(rollouts.values.returns, next_value)
+
         if i >= args.warm_up:
             if args.epsilon_schedule > 0 and i % args.epsilon_schedule == 0:
                 args.epsilon = args.epsilon * .5
