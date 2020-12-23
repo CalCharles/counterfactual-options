@@ -523,6 +523,9 @@ class NeuralInteractionForwardModel(nn.Module):
         kwargs['normalization_function'], kwargs['num_inputs'] = kwargs['output_normalization_function'], kwargs['num_outputs']
         self.passive_model = forward_nets[kwargs['passive_class']](**kwargs)
         kwargs['normalization_function'], kwargs['num_inputs'] = norm_fn, num_inputs
+        self.interaction_binary = kwargs['interaction_binary']
+        if len(self.interaction_binary) > 0:
+            self.forward_threshold, self.passive_threshold = self.interaction_binary
         if kwargs['dist'] == "Discrete":
             self.dist = Categorical(kwargs['num_outputs'], kwargs['num_outputs'])
         elif kwargs['dist'] == "Gaussian":
@@ -576,6 +579,12 @@ class NeuralInteractionForwardModel(nn.Module):
         self.interaction_model.reset_parameters()
         self.passive_model.reset_parameters()
 
+    def compute_interaction(self, forward_error, passive_loss):
+        active_prediction = torch.nonzero(forward_error < self.forward_threshold)
+        not_passive = torch.nonzero(passive_loss > self.passive_threshold)
+        return torch.nonzero(active_prediction+not_passive > 1)
+
+
     def train(self, rollouts, train_args, control, target_name=None):
         self.control_feature = control
         control_name = self.control_feature.object()
@@ -621,16 +630,17 @@ class NeuralInteractionForwardModel(nn.Module):
                     "\ntarget: ", target,
                     "\nal: ", active_loss,
                     "\npl: ", passive_loss)
+        bce_loss = nn.BCELoss()
         if train_args.interaction_iters > 0:
             trace = self.generate_interaction_trace(rollouts, [control_name], [target_name])
-            loss = nn.BCELoss()
+            
             weights = trace * 100 + 1
             weights = weights / weights.sum()
             for i in range(train_args.interaction_iters):
                 idxes, batchvals = rollouts.get_batch(train_args.batch_size, weights=weights)
                 interaction_likelihood = self.interaction_model(self.gamma(batchvals.values.state))
                 target = trace[idxes].unsqueeze(1)
-                trace_loss = loss(interaction_likelihood, target)
+                trace_loss = bce_loss(interaction_likelihood, target)
                 self.optimizer.zero_grad()
                 (trace_loss).backward()
                 torch.nn.utils.clip_grad_norm_(self.parameters(), train_args.max_grad_norm)
@@ -641,6 +651,7 @@ class NeuralInteractionForwardModel(nn.Module):
                         "\ntarget: ", target)
                     print(target, interaction_likelihood)
             self.interaction_model.needs_grad=False # no gradient will pass through the interaction model
+        interaction_schedule = 0
         for i in range(train_args.num_iters):
             idxes, batchvals = rollouts.get_batch(train_args.batch_size)
             prediction_params = self.forward_model(self.gamma(batchvals.values.state))
@@ -648,7 +659,8 @@ class NeuralInteractionForwardModel(nn.Module):
             passive_prediction_params = self.passive_model(self.delta(batchvals.values.state))
             target = self.network_args.output_normalization_function(self.delta(self.get_targets(batchvals)))
             passive_loss = - self.dist(*passive_prediction_params).log_probs(target)
-            forward_loss = - self.dist(*prediction_params).log_probs(target) * interaction_likelihood
+            forward_error = - self.dist(*prediction_params).log_probs(target)
+            forward_loss = forward_error * interaction_likelihood
             # version with interaction loss
             # interaction_loss = (1-interaction_likelihood) * train_args.weighting_lambda + interaction_likelihood * torch.exp(passive_loss) # try to make the interaction set as large as possible, but don't penalize for passive dynamics states
             
@@ -661,7 +673,15 @@ class NeuralInteractionForwardModel(nn.Module):
             # interaction_diversity_loss = interaction_likelihood * torch.sigmoid(torch.max(self.delta(batchvals.values.all_state_next) - next_state_broadcast, dim = 1)[0].norm(dim=1)) # batch size, num samples, state size
             # loss = (passive_loss + forward_loss + interaction_diversity_loss + interaction_loss).sum()
             # version without diversity loss or interaction loss
-            loss = (passive_loss + forward_loss).sum()
+
+            # version with adversarial loss max(0, P(x|am) - P(x|pm)) - interaction_model
+            # interaction_loss = bce_loss(torch.max(torch.exp(forward_error.clone().detach()) - torch.exp(passive_loss.clone().detach()), 0), interaction_likelihood)
+
+            # version with binarized loss
+            interaction_binaries = self.compute_interaction(passive_loss, forward_error)
+            interaction_loss = bce_loss(interaction_likelihood, interaction_binaries)
+
+            loss = (passive_loss + forward_loss * interaction_schedule + forward_error * (1-interaction_schedule)).sum()
             self.optimizer.zero_grad()
             (loss).backward()
             torch.nn.utils.clip_grad_norm_(self.parameters(), train_args.max_grad_norm)
