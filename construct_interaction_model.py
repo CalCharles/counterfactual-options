@@ -19,8 +19,8 @@ if __name__ == '__main__':
         graph = load_graph(args.graph_dir)
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
-        actions = PrimitiveOption(None, None, None, None, environment_model, None, None, "Action", ["Actions"], num_params=environment.num_actions)
-        nodes = {'Action': OptionNode('Action', actions, action_shape = (1,), num_params=environment.num_actions)}
+        actions = PrimitiveOption(None, models, "Action")
+        nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}
         graph = OptionGraph(nodes, dict())
     graph.load_environment_model(environment_model)
     rollouts = ModelRollouts(len(data), environment_model.shapes_dict)

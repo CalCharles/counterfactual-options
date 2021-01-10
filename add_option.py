@@ -3,6 +3,7 @@ from arguments import get_args
 from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
 from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEnvironmentModel
 from Environments.SelfBreakout.breakout_screen import Screen
+from Rollouts.rollouts import ObjDict
 from ReinforcementLearning.rollouts import RLRollouts, get_RL_shapes
 from ReinforcementLearning.train_RL import trainRL, Logger
 from ReinforcementLearning.Policy.policy import policy_forms
@@ -13,7 +14,7 @@ from Options.option_graph import OptionGraph, OptionNode, load_graph
 from Options.option import Option, PrimitiveOption, option_forms
 from Options.Reward.reward import reward_forms
 from DistributionalModels.DatasetModels.dataset_model import FactoredDatasetModel
-from DistributionalModels.InteractionModels.interaction_model import load_neural_model
+from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model
 from DistributionalModels.distributional_model import load_factored_model
 import torch
 import numpy as np
@@ -24,8 +25,12 @@ if __name__ == '__main__':
     environment = Screen()
     environment.set_save(0, args.record_rollouts, args.save_recycle, save_raw=args.save_raw)
     environment_model = BreakoutEnvironmentModel(environment)
-    dataset_model = load_neural_model(args.dataset_dir)
+    dataset_model = load_hypothesis_model(args.dataset_dir)
+    dataset_model.environment_model = environment_model
+
+    print(dataset_model.selection_binary)
     # dataset_model = load_factored_model(args.dataset_dir)
+    pr, models = ObjDict(), (dataset_model, environment_model) # policy_reward, featurizers
     if args.cuda:
         dataset_model.cuda()
     # print(dataset_model.observed_outcomes)
@@ -33,18 +38,22 @@ if __name__ == '__main__':
         graph = load_graph(args.graph_dir)
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
-        actions = PrimitiveOption(None, None, None, None, environment_model, None, None, "Action", ["Actions"], num_params=environment.num_actions)
-        nodes = {'Action': OptionNode('Action', actions, action_shape = (1,), num_params=environment.num_actions)}
+        actions = PrimitiveOption(None, models, "Action")
+        nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}
         graph = OptionGraph(nodes, dict())
-    termination = terminal_forms[args.terminal_type](use_diff=args.use_both==1, use_both=args.use_both==2, name=args.object, min_use=args.min_use, dataset_model=dataset_model, epsilon=args.epsilon_close)
+    termination = terminal_forms[args.terminal_type](use_diff=args.use_both==1, use_both=args.use_both==2, name=args.object, min_use=args.min_use, dataset_model=dataset_model, epsilon=args.epsilon_close, interaction_probability=args.interaction_probability)
     reward = reward_forms[args.reward_type](use_diff=args.use_both==1, use_both=args.use_both==2, epsilon=args.epsilon_close) # using the same epsilon for now, but that could change
-    names = [args.object, dataset_model.option_name]
+    print (dataset_model.name)
+    option_name = dataset_model.name.split("->")[0]
+    names = [args.object, option_name]
     load_option = not args.train and args.object in graph.nodes
     print(load_option, args.object)
     if not load_option:
-        option = option_forms[args.option_type](None, None, termination, graph.nodes[dataset_model.option_name].option, dataset_model, environment_model, reward, args.object, names, temp_ext=False)
+        pr.policy, pr.behavior_policy, pr.rollouts, pr.termination, pr.reward, pr.next_option = None, None, None, termination, reward, graph.nodes[option_name].option 
+        option = option_forms[args.option_type](pr, models, args.object, temp_ext=False)
     else:
         option = graph.nodes[args.object].option
+        self.assign_models(models)
     rl_shape_dict = get_RL_shapes(option, environment_model)
     rollouts = RLRollouts(args.buffer_steps, rl_shape_dict)
     print(rl_shape_dict["state"], rl_shape_dict["probs"], rl_shape_dict["param"])
@@ -60,9 +69,8 @@ if __name__ == '__main__':
         dataset_model.cuda()
     behavior_policy = behavior_forms[args.behavior_type](args)
     if not load_option:
-        option.policy = policy
-        option.behavior_policy = behavior_policy
-        graph.nodes[args.object] = OptionNode(args.object, option, action_shape = option.action_shape, num_params = len(option.get_possible_parameters()))
+        option.policy, option.behavior_policy, option.rollouts = policy, behavior_policy, rollouts
+        graph.nodes[args.object] = OptionNode(args.object, option, action_shape = option.action_shape)
     else:
         graph.load_environment_model(environment_model)
     print(load_option, option.policy)

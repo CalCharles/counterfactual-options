@@ -6,7 +6,7 @@ import sys, glob, copy, os, collections, time
 import numpy as np
 from ReinforcementLearning.train_RL import sample_actions, PolicyLoss
 from ReinforcementLearning.Policy.policy import pytorch_model
-import cma, cv2
+import cv2
 import time
 
 

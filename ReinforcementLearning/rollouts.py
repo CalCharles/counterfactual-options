@@ -12,15 +12,15 @@ def get_RL_shapes(option, environment_model):
     else:
         state_size = [environment_model.object_sizes[option.object_name] + environment_model.object_sizes[option.next_option.object_name]]
         obj_size = environment_model.object_sizes[option.object_name]
-        obj_size = option.get_flattened_object_state(None).size(0)
-        diff_size = option.get_flattened_diff_state(None).size(0)
+        obj_size = option.get_state(form=1,inp=1).size(0)
+        diff_size = option.get_state(form=2,inp=1).size(0)
         shapes["state_diff"], shapes["object_state"], shapes["next_object_state"] = [diff_size], [obj_size], [obj_size]
     shapes["state"], shapes["next_state"] = state_size, state_size
     shapes["action"] = option.action_shape
     shapes["true_action"] = environment_model.environment.action_shape
     shapes["probs"], shapes["Q_vals"], shapes["std"] = option.action_prob_shape, option.action_prob_shape, option.action_prob_shape # assumed Q distribution, diagonal covariance matches action probs
     shapes["value"], shapes["reward"], shapes["max_reward"], shapes["done"], shapes["returns"] = (1,), (1,), (1,), (1,), (1,)
-    param_shape = option.param_shape
+    param_shape = [option.get_state(form=1,inp=1).size(0)]
     shapes["param"], shapes["mask"] = param_shape, param_shape 
     return shapes
 
@@ -34,7 +34,7 @@ class RLRollouts(Rollouts):
         '''
         super().__init__(length, shapes_dict)
         self.names = ["state", "next_state", "object_state", "next_object_state", "state_diff", "action", 'true_action', 'probs', 'Q_vals', 'std', 'value', 'param', 'mask', 'reward', "max_reward", "returns", "done"]
-        # print({n: self.shapes[n] for n in self.names})
+        print({n: self.shapes[n] for n in self.names})
         self.values = ObjDict({n: self.init_or_none(self.shapes[n]) for n in self.names})
         self.wrap = False
 

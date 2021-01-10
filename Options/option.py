@@ -4,22 +4,6 @@ import torch
 from ReinforcementLearning.Policy.policy import pytorch_model
 from Networks.distributions import Bernoulli, Categorical, DiagGaussian
 
-
-class PolicyReward():
-    def __init__(self, policy, behavior_policy, termination, next_option, reward):
-        self.policy = policy
-        self.behavior_policy = behavior_policy
-        self.termination = termination
-        self.reward = reward
-        self.next_option = next_option
-
-class Featurizers():
-    def __init__(self, object_name, gamma_featurizer, delta_featurizer, contingent_input):
-        self.object_name = object_name
-        self.gamma_featurizer = gamma_featurizer
-        self.delta_featurizer = delta_featurizer
-        self.contingent_input = contingent_input
-
 INPUT_STATE = 0
 OUTPUT_STATE = 1
 
@@ -29,30 +13,24 @@ DIFF = 2
 
 
 class Option():
-    def __init__(self, policy_reward, models, featurizers, rollouts, temp_ext=False):
+    def __init__(self, policy_reward, models, object_name, temp_ext=False):
         '''
         policy_reward is a PolicyReward object, which contains the necessary components to run a policy
         models is a tuple of dataset model and environment model
         featurizers is Featurizers object, which contains the object name, the gamma features, the delta features, and a vector representing which features are contingent
         '''
         if policy_reward is not None:
-            self.policy = policy_reward.policy
-            self.behavior_policy = policy_reward.behavior_policy
-            self.termination = policy_reward.termination
-            self.reward = policy_reward.reward # the reward function for this option
-            self.next_option = policy_reward.next_option
-        self.dataset_model, self.environment_model = models
-        if featurizers is not None:
-            self.object_name = featurizers.object_name
-            self.gamma_featurizer = featurizers.gamma_featurizer
-            self.delta_featurizer = featurizers.delta_featurizer
-            self.contingent_input = featurizers.contingent_input
-        self.rollouts = rollouts
+            self.assign_policy_reward(policy_reward)
+        else:
+            self.discrete_actions = False
+        self.assign_models(models)
+        self.assign_featurizers()
+        self.object_name = object_name
         self.action_shape = (1,) # should be set in subclass
         self.action_prob_shape = (1,) # should be set in subclass
-        self.discrete = self.termination.discrete
+        self.discrete = False
         self.iscuda = False
-        self.last_factor = self.get_flattened_object_state(self.environment_model.get_factored_zero_state())
+        self.last_factor = self.get_state(form=1, inp=1)
         print("last_factor", self.last_factor)
         # parameters for temporal extension TODO: move this to a single function
         self.temp_ext = temp_ext 
@@ -62,6 +40,23 @@ class Option():
         self.timer = 0
         self.reward_timer = 0 # a hack to reduce the frequency of rewards
         self.reward_freq = 13
+
+    def assign_models(self, models):
+        self.dataset_model, self.environment_model = models
+
+    def assign_policy_reward(self, policy_reward):
+        self.policy = policy_reward.policy
+        self.behavior_policy = policy_reward.behavior_policy
+        self.termination = policy_reward.termination
+        self.reward = policy_reward.reward # the reward function for this option
+        self.next_option = policy_reward.next_option
+        self.discrete_actions = self.next_option.discrete # the action space might be discrete even if the parameter space is continuous
+        self.rollouts = policy_reward.rollouts
+
+    def assign_featurizers(self):
+        self.gamma_featurizer = self.dataset_model.gamma
+        self.delta_featurizer = self.dataset_model.delta
+        self.contingent_input = self.dataset_model.controllable
 
     def cuda(self):
         self.iscuda = True
@@ -81,27 +76,30 @@ class Option():
 
     # def get_flattened_input_state(self, factored_state):
     #     return pytorch_model.wrap(self.environment_model.get_flattened_state(names=self.names), cuda=self.iscuda)
-    def get_state(self, factored_state, form=0, inp=0):
-        # form is an enumerator, 1 is full state, 2 is gamma state, 3 is diff using last_factor
-        featurize = self.gamma_featurizer.featurize if is_inp == 0 else self.delta_featurizer.featurize
+    def get_state(self, factored_state=None, form=1, inp=0):
+        if factored_state is None:
+            factored_state = self.environment_model.get_flattened_state()
+        # form is an enumerator, 0 is full state, 1 is gamma/delta state, 2 is diff using last_factor
+        featurize = self.gamma_featurizer if inp == 0 else self.delta_featurizer
         if form == 0:
-            return featurize(self.environment_model.get_flattened_state(), cuda=self.iscuda)
+            return pytorch_model.wrap(self.environment_model.flatten_factored_state(factored_state), cuda=self.iscuda)
         elif form == 1:
-            return featurize(self.environment_model.get_flattened_state(), cuda=self.iscuda)
+            return pytorch_model.wrap(featurize(self.environment_model.flatten_factored_state(factored_state)), cuda=self.iscuda)
         else:
-            return self.delta_featurizer.featurize(self.get_flattened_object_state(factored_state)) - self.last_factor
+            return pytorch_model.wrap(self.delta_featurizer(self.environment_model.flatten_factored_state(factored_state)), cuda=self.iscuda) - self.last_factor
 
-    def get_param(self, last_done, param, mask):
+    def get_param(self, full_state, last_done):
         # move this into option file
         if last_done:
             # print("resample")
-            if option.object_name == 'Raw':
+            if self.object_name == 'Raw':
                 param, mask = torch.tensor([1]), torch.tensor([1])
-            else:
-                param, mask = option.dataset_model.sample(full_state, 1, both=args.use_both==2, diff=args.use_both==1, name=option.object_name)
+            else: # commented out is old version
+                # param, mask = self.dataset_model.sample(full_state, 1, both=self.use_both==2, diff=self.use_both==1, name=self.object_name)
+                param, mask = self.dataset_model.sample(self.get_state(full_state, form=0))
             param, mask = param.squeeze(), mask.squeeze()
 
-            if args.cuda:
+            if self.cuda:
                 param, mask = param.cuda(), mask.cuda()
         return param, mask
 
@@ -186,8 +184,11 @@ class Option():
                 'done': dones[-1]})
 
 
-    def get_input_state(self): # gets the state used for the forward model/policy
-        input_state = self.gamma_featurizer(self.pytorch_model.wrap(environment_model.get_flattened_state(), cuda=args.cuda))
+    def get_input_state(self, state = None): # gets the state used for the forward model/policy
+        if state is not None:
+            input_state = self.gamma_featurizer(self.pytorch_model.wrap(environment_model.get_flattened_state(), cuda=args.cuda))
+        else:
+            input_state = self.gamma_featurizer(self.pytorch_model.wrap(environment_model.flatten_factored_state(state)))
         return input_state
 
     def forward(self, state, param): # runs the policy and gets the RL output
@@ -213,8 +214,8 @@ class Option():
 
 
 class PrimitiveOption(Option): # primative discrete actions
-    def __init__(self, policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, num_params=0, temp_ext=False):
-        self.num_params = num_params
+    def __init__(self, policy_reward, models, object_name, temp_ext=False):
+        self.num_params = models[1].environment.num_actions
         self.object_name = "Action"
         self.action_shape = (1,)
         self.action_prob_shape = (1,)
@@ -258,8 +259,8 @@ class PrimitiveOption(Option): # primative discrete actions
     #     return param
 
 class RawOption(Option):
-    def __init__(self, policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False):
-        super().__init__(policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False)
+    def __init__(self, policy_reward, models, object_name, temp_ext=False):
+        super().__init__(policy_reward, models, object_name, temp_ext=temp_ext)
         self.object_name = "Raw"
         self.action_shape = (1,)
         self.action_prob_shape = (self.environment_model.environment.num_actions,)
@@ -306,8 +307,8 @@ class RawOption(Option):
         return mean[torch.arange(mean.size(0)), idx.squeeze().long()]
 
 class DiscreteCounterfactualOption(Option):
-    def __init__(self, policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False):
-        super().__init__(policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False)
+    def __init__(self, policy_reward, models, object_name, temp_ext=False):
+        super().__init__(self, policy_reward, models, object_name, temp_ext=temp_ext)
         self.action_shape = (1,)
         self.action_prob_shape = (len(self.next_option.get_possible_parameters()),)
 
@@ -318,10 +319,7 @@ class DiscreteCounterfactualOption(Option):
         self.termination.set_parameters(dataset_model)
 
     def convert_param(self, baction):
-        if self.discrete:
-            # idx = param.max(0)[1]
-            return self.get_possible_parameters()[baction.long()][0]
-        return param
+        return self.get_possible_parameters()[baction.long()][0]
 
     def get_param_shape(self):
         return self.get_possible_parameters()[0][0].shape
@@ -357,10 +355,12 @@ class DiscreteCounterfactualOption(Option):
         return mean[torch.arange(mean.size(0)), idx.squeeze().long()], torch.log(mean[torch.arange(mean.size(0)), idx.squeeze().long()])
 
 class ModelCounterfactualOption(Option):
-    def __init__(self, policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False):
-        super.__init__(policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=temp_ext)
+    def __init__(self, policy_reward, models, object_name, temp_ext=False):
+        super().__init__(policy_reward, models, object_name, temp_ext=temp_ext)
 
     def get_action(self, action, mean, variance):
+        if self.discrete_actions:
+            return mean[torch.arange(mean.size(0)), action.squeeze().long()], torch.log(mean[torch.arange(mean.size(0)), action.squeeze().long()])
         idx = action
         dist = torch.distributions.normal.Normal # TODO: hardcoded action distribution as diagonal gaussian
         log_probs = dist(mean, variance).log_probs(action)
@@ -370,8 +370,8 @@ class ModelCounterfactualOption(Option):
         return self.policy.compute_Q(state, action)
 
 class HackedStateCounterfactualOption(DiscreteCounterfactualOption): # eventually, we will have non-hacked StateCounterfactualOption
-    def __init__(self, policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False):
-        super().__init__(policy, behavior_policy, termination, next_option, dataset_model, environment_model, reward, object_name, names, temp_ext=False)
+    def __init__(self, policy_reward, models, object_name, temp_ext=False):
+        super().__init__(self, policy_reward, models, object_name, temp_ext=temp_ext)
         self.action_shape = (1,)
         self.discrete = True
 
@@ -424,5 +424,5 @@ class ContinuousGaussianCounterfactualOption(Option):
     def get_action(self, action, *args):
         pass
 
-option_forms = {"discrete": DiscreteCounterfactualOption, "continuousGaussian": ContinuousGaussianCounterfactualOption, 
+option_forms = {"discrete": DiscreteCounterfactualOption, "continuousGaussian": ContinuousGaussianCounterfactualOption, 'model': ModelCounterfactualOption,
 "continuousParticle": ContinuousParticleCounterfactualOption, "raw": RawOption, "hacked": HackedStateCounterfactualOption}

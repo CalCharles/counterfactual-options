@@ -123,7 +123,7 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
             start = time.time()
 
             # resamples parameter and mask if last_done is true
-            param, mask = option.get_param(last_done)
+            param, mask = option.get_param(full_state, last_done)
 
             # store action, currently not storing action probabilities, might be necessary
             # TODO: include the diffs for each level of the option internally

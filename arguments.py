@@ -105,6 +105,12 @@ def get_args():
                         help='number of iterations for training (default: 2e5)')
     parser.add_argument('--interaction-iters', type=int, default=0,
                         help='number of iterations for training the interaction network with true values (default: 0)')
+    parser.add_argument('--interaction-binary', type=float, nargs='+', default=list(),
+                        help='the minimum values for the binaries  (default: empty list)')
+    parser.add_argument('--interaction-probability', type=float, default=1,
+                        help='the minimum probability needed to use interaction as reward  (default: 1)')
+    parser.add_argument('--interaction-prediction', type=float, default=0.3,
+                        help='the minimum distance to define the active set  (default: 0.3)')
     parser.add_argument('--pretrain-iters', type=int, default=int(2e4),
                         help='number of iterations for training (default: 2e4)')
     parser.add_argument('--no-cuda', action='store_true', default=False,

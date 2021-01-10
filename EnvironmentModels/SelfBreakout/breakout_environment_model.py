@@ -1,5 +1,5 @@
 import numpy as np
-import os, cv2, time
+import os, cv2, time, torch
 from EnvironmentModels.environment_model import EnvironmentModel
 
 class BreakoutEnvironmentModel(EnvironmentModel):
@@ -45,6 +45,8 @@ class BreakoutEnvironmentModel(EnvironmentModel):
     def flatten_factored_state(self, factored_state, instanced=False, names=None):
         if names is None:
             names = self.object_names
+        if type(factored_state) == np.ndarray or type(factored_state) == torch.Tensor: # already flattened
+            return factored_state
         if instanced:
             if type(factored_state) == list:
                 flattened_state = list()

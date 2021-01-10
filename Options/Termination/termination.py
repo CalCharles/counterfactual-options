@@ -20,7 +20,7 @@ class ParameterizedStateTermination(Termination):
 		# in the discrete parameter space case
 		self.dataset_model = kwargs['dataset_model']
 		self.min_use = kwargs['min_use']
-		self.assign_parameters(dataset_model)
+		# self.assign_parameters(self.dataset_model) # this line is commented out because we aren't using a stored parameter list
 		print(self.name)
 
 	def assign_parameters(self, dataset_model):
@@ -66,7 +66,7 @@ class ParameterizedStateTermination(Termination):
 class InteractionTermination(Termination):
 	def __init__(self, **kwargs):
 		super().__init__()
-		self.interaction_model = kwargs["interaction_model"]
+		self.interaction_model = kwargs["dataset_model"]
 		self.epsilon = kwargs["epsilon"]
 
 	def check(self, state, diff, param):
@@ -76,10 +76,10 @@ class InteractionTermination(Termination):
 class CombinedTermination(Termination):
 	def __init__(self, **kwargs):
 		super().__init__()
-		self.interaction_model = kwargs["interaction_model"]
-		self.horizon = kwargs["horizon"]
+		self.dataset_model = kwargs["dataset_model"]
+		self.interaction_model = self.dataset_model.interaction_model
 		self.parameterized_termination = ParameterizedStateTermination(**kwargs)
-		self.interaction_probability = kwargs["int_prob"]
+		self.interaction_probability = kwargs["interaction_probability"]
 
 	def check(self, state, diff, param):
 		# terminates if the parameter matches and interaction is true

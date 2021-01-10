@@ -16,7 +16,7 @@ class InteractionNetwork(BasicMLPNetwork):
         x = self.normalization(x)
         v = super().forward(x)
         v = self.final_linear(v)
-        v = F.sigmoid(v)
+        v = torch.sigmoid(v)
         return v
 
 interaction_nets = {"base": InteractionNetwork}

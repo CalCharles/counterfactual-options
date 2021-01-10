@@ -20,8 +20,8 @@ if __name__ == '__main__':
         graph, controllable_feature_selectors = load_graph(args.graph_dir)
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
-        actions = PrimitiveOption(None, None, None, None, environment_model, None, None, "Action", ["Actions"], num_params=environment.num_actions)
-        nodes = {'Action': OptionNode('Action', actions, action_shape = (1,), num_params=environment.num_actions)}
+        actions = PrimitiveOption(None, (None, environment_model), "Action")
+        nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}
         graph = OptionGraph(nodes, dict())
         afs = FeatureSelector([environment_model.indexes['Action'][1] - 1], {'Action': environment_model.object_sizes['Action'] - 1})
         controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
@@ -44,15 +44,17 @@ if __name__ == '__main__':
     # hypothesis_model = NeuralInteractionForwardModel(environment_model = environment_model, target_name=args.target, contingent_nodes=[n for n in graph.nodes.values() if n.name != args.target])
     # hypothesis_model.train(rollouts)
     model_args = default_model_args()
+    model_args.factor, model_args.num_layers, model_args.interaction_binary, model_args.interaction_prediction = args.factor, args.num_layers, args.interaction_binary, args.interaction_prediction
     model_args['controllable'], model_args['environment_model'] = controllable_feature_selectors, environment_model
     feature_explorer = FeatureExplorer(graph, controllable_feature_selectors, environment_model, model_args) # args should contain the model args, might want subspaces for arguments or something since args is now gigantic
     hypothesis_model, delta, gamma = feature_explorer.search(rollouts, args) # again, args contains the training parameters, but we might want subsets since this is a ton of parameters more 
-    hypothesis_model.save(args.dataset_dir)
 
     # save the cfs
     afs = FeatureSelector([environment_model.indexes['Action'][1] - 1], {'Action': environment_model.object_sizes['Action'] - 1})
     controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
-
+    hypothesis_model.determine_active_set(rollouts)
+    hypothesis_model.save(args.save_dir)
+    print(hypothesis_model.selection_binary)
     # print("forward", interaction_model.forward_model)
     # print("state", interaction_model.state_model)
     # print("state counts", interaction_model.difference_counts)

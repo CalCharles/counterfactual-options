@@ -1,5 +1,5 @@
 import numpy as np
-import os, cv2, time, copy
+import os, cv2, time, copy, itertools
 import torch
 from Rollouts.rollouts import Rollouts, ObjDict
 from Networks.network import ConstantNorm
@@ -52,6 +52,7 @@ class EnvironmentModel():
         ''' 
         generates an nxdim state from a list of factored states. Overloaded to accept single factored states as well 
         This is in the environment model because the order shoud follow the order of the object names
+        if the input state is not flattened, return
         '''
 
     def unflatten_state(self, flattened_state, vec=False, instanced=False, names=None):
@@ -117,8 +118,8 @@ class EnvironmentModel():
     def get_subset(self, entity_selector, flat_bin):
         # flat_bin is a binary vector that is 1 when the feature is chosen and 0 otherwise
         new_flat = list()
-        flat_bin[2] = 1
-        a = entity_selector.flat_features[(flat_bin == 1).nonzero()].flatten()
+        # flat_bin[2] = 1
+        a = entity_selector.flat_features[torch.nonzero((flat_bin == 1).long())].flatten()
         ad = dict()
         for n, idx in [self.flat_to_factored(i) for i in a]:
             if n in ad:
@@ -128,11 +129,17 @@ class EnvironmentModel():
         return FeatureSelector(a, ad)
 
 def get_selection_list(cfss): # TODO: put this inside ControllableFeature as a static function
+
     possibility_lists = list()
     for cfs in cfss: # order of cfs matter
-        possibility_lists.append(list(range(*cfs.feature_range, cfs.feature_step)))
-    while True:
-        pl = possibility_lists[i]
+        print( cfs.feature_range, cfs.feature_step)
+        fr, s = list(), cfs.feature_range[0]
+        while s <= cfs.feature_range[1]: # allows for single value controllable features to avoid bugs
+            fr.append(s)
+            s += cfs.feature_step
+        possibility_lists.append(fr)
+    return itertools.product(*possibility_lists)
+
             
 
 class ControllableFeature():
@@ -157,12 +164,9 @@ class ControllableFeature():
             assigned_states = states.clone()
             assign_feature(assigned_states, (self.feature_selector.flat_features[0], f))
             all_states.append(assigned_states)
-        return torch.stack(all_states, dim=1)
-
-    def assign_feature(self, states, f):
-        assign_feature(states, (self.feature_selector.flat_features[0], f))
-        return states
-
+        if len(states.shape) == 1: # a single flattened state
+            return torch.stack(all_states, dim=0) # if there are no batches, then this is the 0th dim
+        return torch.stack(all_states, dim=1) # if we have a batch of states, then this is the 1st dim
 
     def get_num_steps(self):
         return (self.feature_range[1] - self.feature_range[0]) // self.feature_step

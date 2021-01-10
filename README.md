@@ -1,3 +1,7 @@
+requirements: pytorch, opencv, imageio
+
+python generate_breakout_data.py data/random 3000
+
 python construct_dataset_model.py --graph-dir data/graph/ --dataset-dir data/random/ --num-frames 1000 --object Action
 python add_option.py --dataset-dir data/random/ --object Paddle --buffer-steps 5 --num-steps 5 --factor 8 --learning-type a2c --gamma .1 --batch-size 5 --gpu 2 --normalize --entropy-coef .01 --record-rollouts data/paddle --num-iters 10000 --save-graph data/tempgraph --train --save-interval 1000 > paddletrain.txt
 
@@ -32,3 +36,7 @@ python add_option.py --dataset-dir data/random/ --object Paddle --option-type ha
 New interaction model
 Train paddle model
 python construct_hypothesis_model.py --dataset-dir data/random/ --log-interval 500 --factor 32 --num-layers 2 --predict-dynamics --action-shift --batch-size 10 --pretrain-iters 0 --interaction-iters 100 --num-iters 3000
+
+python construct_hypothesis_model.py --dataset-dir data/random/ --log-interval 500 --factor 8 --num-layers 2 --predict-dynamics --action-shift --batch-size 10 --pretrain-iters 0 --epsilon-schedule 4000 --num-iters 16000 --interaction-binary -1 -8 --save-dir data/interaction_ln > train_hypothesis.txt
+
+python add_option.py --dataset-dir data/random/ --object Paddle --option-type model --buffer-steps 5 --num-steps 5 --gamma .1 --batch-size 5 --record-rollouts data/paddle --num-iters 1000
