@@ -4,15 +4,14 @@ import os, cv2, time
 
 class Termination():
 	def __init__(self, **kwargs):
-		pass
+		self.use_diff = kwargs['use_diff'] # compare the parameter with the diff, or with the outcome
 
-	def check(self, state, diff, param):
+	def check(self, state, param):
 		return True
 
 class ParameterizedStateTermination(Termination):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
-		self.use_diff = kwargs['use_diff'] # compare the parameter with the diff, or with the outcome
 		self.use_both = kwargs['use_both'] # supercedes use_diff
 		self.epsilon = kwargs['epsilon']
 		self.name = kwargs['name']
@@ -43,51 +42,51 @@ class ParameterizedStateTermination(Termination):
 			self.discrete_parameters, self.counts = assign_dict(dataset_model.observed_outcomes[self.name], dataset_model.outcome_counts[self.name])
 			dataset_model.observed_outcomes[self.name], dataset_model.outcome_counts[self.name] = self.discrete_parameters, self.counts 
 
-	def check(self, state, diff, param):
+	def check(self, input_state, state, param): # handling diff/both outside
 		# param = self.convert_param(param)
-		if self.use_both:
-			if len(diff.shape) == 1:
-				s = torch.cat((state, diff), dim=0)
-				return (s - param).norm(p=1) <= self.epsilon
-			else:
-				s = torch.cat((state, diff), dim=1)
-				return (s - param).norm(p=1, dim=1) <= self.epsilon
-		elif self.use_diff:
-			if len(diff.shape) == 1:
-				return (diff - param).norm(p=1) <= self.epsilon
-			else:
-				return (diff - param).norm(p=1, dim=1) <= self.epsilon
+		# if self.use_both:
+			# if len(diff.shape) == 1:
+			# 	s = torch.cat((state, diff), dim=0)
+			# 	return (s - param).norm(p=1) <= self.epsilon
+			# else:
+				# s = torch.cat((state, diff), dim=1)
+				# return (s - param).norm(p=1, dim=1) <= self.epsilon
+		# elif self.use_diff:
+		# 	if len(diff.shape) == 1:
+		# 		return (diff - param).norm(p=1) <= self.epsilon
+		# 	else:
+		# 		return (diff - param).norm(p=1, dim=1) <= self.epsilon
+		# else:
+		if len(state.shape) == 1:
+			return (state - param).norm(p=1) <= self.epsilon
 		else:
-			if len(state.shape) == 1:
-				return (state - param).norm(p=1) <= self.epsilon
-			else:
-				return (state - param).norm(p=1, dim=1) <= self.epsilon
+			return (state - param).norm(p=1, dim=1) <= self.epsilon
 
 class InteractionTermination(Termination):
 	def __init__(self, **kwargs):
-		super().__init__()
+		super().__init__(**kwargs)
 		self.interaction_model = kwargs["dataset_model"]
 		self.epsilon = kwargs["epsilon"]
 
-	def check(self, state, diff, param):
-		interaction_pred = self.interaction_model(state)
+	def check(self, input_state, state, param):
+		interaction_pred = self.interaction_model(input_state)
 		return interaction_pred > 1 - self.epsilon
 
 class CombinedTermination(Termination):
 	def __init__(self, **kwargs):
-		super().__init__()
+		super().__init__(**kwargs)
 		self.dataset_model = kwargs["dataset_model"]
 		self.interaction_model = self.dataset_model.interaction_model
 		self.parameterized_termination = ParameterizedStateTermination(**kwargs)
 		self.interaction_probability = kwargs["interaction_probability"]
 
-	def check(self, state, diff, param):
+	def check(self, input_state, state, param):
 		# terminates if the parameter matches and interaction is true
 		# has some probability of terminating if interaction is true
-		interaction_pred = self.interaction_model(state)
+		interaction_pred = self.interaction_model(input_state)
 		if np.random.rand() < interaction_pred:
-			param_term = self.parameterized_termination.check(state, diff, param)
-			if param_term == 1 or (param_term == 0 and np.random.rand() < interaction_pred * self.interaction_probability):
+			param_term = self.parameterized_termination.check(input_state, state, param)
+			if param_term == 1 or (param_term == 0 and np.random.rand() < interaction_pred and interaction_pred > self.interaction_probability):
 				return 1
 		return 0
 

@@ -32,19 +32,21 @@ class FeatureExplorer():
 							comb_passed, combined = self.pass_criteria(model, test, train_args.model_error_significance)
 							gamma_comb = gamma_new
 							delta_comb = delta_new
-							entity_selection = self.em.create_entity_selector([controllable_entity])
-							model, test, gamma_new, delta_new = self.train(cfs, rollouts, train_args, entity_selection, name)
-							sep_passed, sep = self.pass_criteria(model, test, train_args.model_error_significance)
-							if sep_passed or comb_passed:
+							# must include the delta as an input
+							# entity_selection = self.em.create_entity_selector([controllable_entity])
+							# model, test, gamma_new, delta_new = self.train(cfs, rollouts, train_args, entity_selection, name)
+							# sep_passed, sep = self.pass_criteria(model, test, train_args.model_error_significance)
+							# if sep_passed or comb_passed:
+							if comb_passed:
 								train_args.separation_difference = 1e-1# Change this line later
-								if sep >= combined - train_args.separation_difference:
-									print("selected combined")
-									gamma = gamma_comb
-									delta = delta_comb
-								else:
-									print("selected separate")
-									gamma = gamma_new
-									delta = delta_new
+								# if sep >= combined - train_args.separation_difference:
+								print("selected combined")
+								gamma = gamma_comb
+								delta = delta_comb
+								# else:
+								# 	print("selected separate")
+								# 	gamma = gamma_new
+								# 	delta = delta_new
 								found = True
 								break
 							delta_tested.add(name)

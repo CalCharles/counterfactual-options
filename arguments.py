@@ -21,7 +21,7 @@ def get_args():
     parser.add_argument('--lr', type=float, default=7e-4,
                         help='learning rate (default: 1e-6)')
     parser.add_argument('--eps', type=float, default=1e-5,
-                        help='RMSprop/Adam optimizer epsilon (definedfault: 1e-5)')
+                        help='RMSprop/Adam optimizer epsilon (default: 1e-5)')
     parser.add_argument('--alpha', type=float, default=0.99,
                         help='RMSprop optimizer apha (default: 0.99)')
     parser.add_argument('--betas', type=float, nargs=2, default=(0.9, 0.999),
@@ -52,7 +52,7 @@ def get_args():
                         help='optimizer to use: Adam, RMSprop, Evol')
     parser.add_argument('--activation', default="relu",
                         help='activation function for hidden layers: relu, sin, tanh, sigmoid')
-    parser.add_argument('--init-form', default="uni",
+    parser.add_argument('--init-form', default="xnorm",
                     help='initialization to use: uni, xnorm, xuni, eye')
     parser.add_argument('--last-param', action='store_true', default=False,
                     help='use the parameter at the last layer, otherwise, does it at the first layer')
@@ -73,7 +73,7 @@ def get_args():
                         help='choose the way the option is defined, in Option.option')
     parser.add_argument('--behavior-type', default="prob",
                         help='choose the way the behavior policy is defined, in ReinforcementLearning.behavior_policy')
-    parser.add_argument('--learning-type', default='ppo',
+    parser.add_argument('--learning-type', default='a2c',
                         help='defines the algorithm used for learning')
     # Behavior policy parameters
     parser.add_argument('--continuous', action='store_true', default=False,
@@ -103,14 +103,6 @@ def get_args():
                         help='steps between a check for reward, (default 1)')
     parser.add_argument('--num-iters', type=int, default=int(2e5),
                         help='number of iterations for training (default: 2e5)')
-    parser.add_argument('--interaction-iters', type=int, default=0,
-                        help='number of iterations for training the interaction network with true values (default: 0)')
-    parser.add_argument('--interaction-binary', type=float, nargs='+', default=list(),
-                        help='the minimum values for the binaries  (default: empty list)')
-    parser.add_argument('--interaction-probability', type=float, default=1,
-                        help='the minimum probability needed to use interaction as reward  (default: 1)')
-    parser.add_argument('--interaction-prediction', type=float, default=0.3,
-                        help='the minimum distance to define the active set  (default: 0.3)')
     parser.add_argument('--pretrain-iters', type=int, default=int(2e4),
                         help='number of iterations for training (default: 2e4)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -123,6 +115,21 @@ def get_args():
                     help='ratio of training samples to testing ones')
     parser.add_argument('--model-error-significance', type=float, default=1,
                     help='amount of difference in l2 norm to determine that prediction is happening')
+
+    #interaction parameters
+    parser.add_argument('--interaction-iters', type=int, default=0,
+                        help='number of iterations for training the interaction network with true values (default: 0)')
+    parser.add_argument('--interaction-binary', type=float, nargs='+', default=list(),
+                        help='the minimum values for the binaries  (default: empty list)')
+    parser.add_argument('--interaction-probability', type=float, default=1,
+                        help='the minimum probability needed to use interaction as reward  (default: 1)')
+    parser.add_argument('--interaction-prediction', type=float, default=0.3,
+                        help='the minimum distance to define the active set  (default: 0.3)')
+
+    # reward settings
+    parser.add_argument('--parameterized-lambda', type=float, default=.5,
+                        help='the value given to interactions  (default: .5)')
+
 
     # PPO settings
     parser.add_argument('--clip-param', type=float, default=0.2,
@@ -191,6 +198,8 @@ def get_args():
                         help='trains the algorithm if set to true')
     parser.add_argument('--set-time-cutoff', action ='store_true', default=False,
                         help='runs the algorithm without time cutoff to set it')
+    parser.add_argument('--time-cutoff', type=int, default=10,
+                        help='sets the duration to switch to the next option')
 
     # load variables
     parser.add_argument('--load-weights', action ='store_true', default=False,

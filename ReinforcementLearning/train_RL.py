@@ -10,6 +10,7 @@ from collections import deque
 
 from Environments.environment_specification import ProxyEnvironment
 from ReinforcementLearning.Policy.policy import pytorch_model
+from ReinforcementLearning.rollouts import RLRollouts
 from file_management import save_to_pickle
 
 class PolicyLoss():
@@ -44,22 +45,25 @@ def true_action_prob(actions, num_actions):
     return total, len(actions)
 
 class Logger:
-    def __init__(self, args):
+    def __init__(self, args, option):
         self.args = args
         self.num_steps = args.num_steps
         self.start = time.time()
         self.total = torch.zeros(4)
         self.length = 0
+        self.logger_rollout = RLRollouts(args.log_interval * args.num_steps, option.rollouts.shapes)
+
 
     def log(self, i, interval, steps, policy_loss, rollouts, true_rewards, true_dones):
         true_rewards = np.array(true_rewards)
         total_elapsed = i * self.num_steps
         end = time.time()
         addtotal, length = true_action_prob(rollouts.get_values('true_action')[-steps:], 4) # disable this if actions not corresponding
+        self.logger_rollout.insert_rollout(rollouts, a=1, add=True)
         self.total += addtotal
         self.length += length
         if i % interval == 0:
-            final_rewards = rollouts.get_values('reward')
+            final_rewards = self.logger_rollout.get_values('reward')
             el, vl, al = policy_loss.entropy_loss, policy_loss.value_loss, policy_loss.action_loss
             logvals = "Updates {}, num timesteps {}, FPS {}, mean/median reward {:.3f}/{:.3f}, min/max reward {:.1f}/{:.1f}, entropy {}, value loss {}, policy loss {}, true_reward median: {}, mean: {}, episode: {}".format(
                 i,
@@ -91,6 +95,7 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
     diff_state = pytorch_model.wrap(environment_model.get_flattened_state(names=[names[0]]), cuda=args.cuda)
     full_state = environment_model.get_factored_state()
     last_full_state = environment_model.get_factored_state()
+
 
     # refactor this into the option section
     if option.object_name == 'Raw':
@@ -131,30 +136,34 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
             action_chain, rl_outputs = option.sample_action_chain(full_state, param)
 
             # step the environment
+            option.step(full_state, action_chain)
             frame, factored, true_done = environment.step(action_chain[0].cpu().numpy())
             # Record information about next state
             next_full_state = environment_model.get_factored_state()
             true_rewards.append(environment.reward), true_dones.append(true_done)
 
             # progress the option and then calculate if terminated
-            option.step(state, chain)
             dones, rewards = option.terminate_reward(next_full_state, param, action_chain)
             done, last_done = dones[-1], dones[-2]
 
             # done count measures number of terminations
+            option.step_timer(done)
             done_count += 1
             if done:
                 done_lengths.append(done_count)
                 done_count = 0
 
             # refactor this into the option part
-            option.record_state(state, next_state, action_chain, rl_outputs, param, rewards, dones)
-
+            option.record_state(full_state, next_full_state, action_chain, rl_outputs, param, rewards, dones)
             full_state = next_full_state
+
+
         if args.return_form != "none":
-            input_state = option.get_state(full_state, form=0, inp=0)
+            input_state = option.get_state(full_state, form=1, inp=0)
             next_value = option.forward(input_state.unsqueeze(0), param.unsqueeze(0)).values
             option.compute_return(args.gamma, return_update, args.num_steps, next_value, return_max = 128, return_form=args.return_form)
+        if option.rollouts.get_values("reward").sum() > 0:
+            print("located reward: ", option.timer)
 
         if i >= args.warm_up:
             if args.epsilon_schedule > 0 and i % args.epsilon_schedule == 0:

@@ -10,7 +10,7 @@ def get_RL_shapes(option, environment_model):
         state_size = [4,84,84]
         shapes["state_diff"], shapes["object_state"], shapes["next_object_state"] = ([environment_model.object_sizes["Action"]], [environment_model.object_sizes["Action"]], [environment_model.object_sizes["Action"]])
     else:
-        state_size = [environment_model.object_sizes[option.object_name] + environment_model.object_sizes[option.next_option.object_name]]
+        state_size = [option.dataset_model.gamma.output_size()] #[environment_model.object_sizes[option.object_name] + environment_model.object_sizes[option.next_option.object_name]]
         obj_size = environment_model.object_sizes[option.object_name]
         obj_size = option.get_state(form=1,inp=1).size(0)
         diff_size = option.get_state(form=2,inp=1).size(0)
@@ -34,7 +34,7 @@ class RLRollouts(Rollouts):
         '''
         super().__init__(length, shapes_dict)
         self.names = ["state", "next_state", "object_state", "next_object_state", "state_diff", "action", 'true_action', 'probs', 'Q_vals', 'std', 'value', 'param', 'mask', 'reward', "max_reward", "returns", "done"]
-        print({n: self.shapes[n] for n in self.names})
+        # print({n: self.shapes[n] for n in self.names})
         self.values = ObjDict({n: self.init_or_none(self.shapes[n]) for n in self.names})
         self.wrap = False
 

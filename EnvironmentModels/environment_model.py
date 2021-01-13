@@ -132,20 +132,19 @@ def get_selection_list(cfss): # TODO: put this inside ControllableFeature as a s
 
     possibility_lists = list()
     for cfs in cfss: # order of cfs matter
-        print( cfs.feature_range, cfs.feature_step)
         fr, s = list(), cfs.feature_range[0]
         while s <= cfs.feature_range[1]: # allows for single value controllable features to avoid bugs
             fr.append(s)
             s += cfs.feature_step
         possibility_lists.append(fr)
+    print( cfs.feature_range, cfs.feature_step)
     return itertools.product(*possibility_lists)
-
-            
 
 class ControllableFeature():
     def __init__(self, feature_selector, feature_range, feature_step, feature_model=None):
         self.feature_selector = feature_selector
         self.feature_range = feature_range # two element list
+        print("cf", feature_range)
         self.feature_step = feature_step
         self.feature_model = feature_model # if the control of this feature can be captured by a model (i.e. an interaction model or combination of models)
 
@@ -162,6 +161,7 @@ class ControllableFeature():
         all_states = []
         for f in range(*self.feature_range, self.feature_step):
             assigned_states = states.clone()
+            self.assign_feature(assigned_states, f)
             assign_feature(assigned_states, (self.feature_selector.flat_features[0], f))
             all_states.append(assigned_states)
         if len(states.shape) == 1: # a single flattened state
@@ -173,6 +173,11 @@ class ControllableFeature():
 
     def get_steps(self):
         return [i * self.feature_step + self.feature_range[0] for i in range(self.get_num_steps())]
+
+    def assign_feature(self, states, f, factored=False):
+        if factored:
+            assign_feature(states, (list(self.feature_selector.factored_features.items())[0], f))
+        return assign_feature(states, (self.feature_selector.flat_features[0], f))
 
 class FeatureSelector():
     def __init__(self, flat_features, factored_features):

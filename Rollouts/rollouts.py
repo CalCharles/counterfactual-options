@@ -90,6 +90,27 @@ class Rollouts():
         self.insert(self.at, kwargs)
         self.at = (self.at + 1) % self.length
 
+    def insert_rollout(self, other, i=-1, j=-1, a=-1, add=False):
+        # insert the other rollout at location i starting from location j in the other rollout with amount a
+        # if a is negative use the filled amount of other
+        if a < 1:
+            a = other.filled
+        if i < 0:
+            i = self.at
+        if j < 0: # used the last one, invalid if at is 0
+            j = other.at - 1 if other.at != 0 else other.filled - 1
+        for n in self.names:
+            # append as much as fits
+            space = min(self.length-i, a)
+            self.values[n][i:i+space] = other.get_values(n)[j:j+space]
+        if add:
+            self.at = (self.at + a) % self.length
+            self.filled = min(self.filled + a, self.length)
+
+    def append_rollout(self, other):
+        self.insert_rollout(other, j=0)
+        self.at = (self.at + other.filled) % self.length
+
     def split_range(self, i, j):
         rollout = type(self)(self.length, self.shapes)
         if self.iscuda:

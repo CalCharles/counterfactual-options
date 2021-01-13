@@ -28,9 +28,11 @@ class Option():
         self.object_name = object_name
         self.action_shape = (1,) # should be set in subclass
         self.action_prob_shape = (1,) # should be set in subclass
+        self.output_prob_shape = (1,) # set in subclass
         self.discrete = False
         self.iscuda = False
         self.last_factor = self.get_state(form=1, inp=1)
+        self.param, self.mask = self.dataset_model.sample(self.get_state(form=0))
         print("last_factor", self.last_factor)
         # parameters for temporal extension TODO: move this to a single function
         self.temp_ext = temp_ext 
@@ -93,16 +95,21 @@ class Option():
         if last_done:
             # print("resample")
             if self.object_name == 'Raw':
-                param, mask = torch.tensor([1]), torch.tensor([1])
+                self.param, self.mask = torch.tensor([1]), torch.tensor([1])
             else: # commented out is old version
                 # param, mask = self.dataset_model.sample(full_state, 1, both=self.use_both==2, diff=self.use_both==1, name=self.object_name)
-                param, mask = self.dataset_model.sample(self.get_state(full_state, form=0))
-            param, mask = param.squeeze(), mask.squeeze()
-
+                if self.timer == 0:
+                    self.param, self.mask = self.dataset_model.sample(self.get_state(full_state, form=0))  
+            self.param, self.mask = self.param.squeeze(), self.mask.squeeze()
             if self.cuda:
-                param, mask = param.cuda(), mask.cuda()
-        return param, mask
+                self.param, self.mask = self.param.cuda(), self.mask.cuda()
+        # print(self.timer, self.time_cutoff, self.param, self.get_state(full_state, form=FEATURIZED, inp=OUTPUT_STATE))
+        return self.param, self.mask
 
+    def convert_param(self, param):
+        if self.discrete:
+            return self.get_possible_parameters()[param.squeeze().long()][0]
+        return param
 
     def sample_action_chain(self, state, param):
         '''
@@ -130,13 +137,18 @@ class Option():
             rl_outputs = rem_rl_outputs + rl_outputs
         return chain, rl_outputs
 
-    def step(self, state, chain):
+    def step(self, last_state, chain):
         # This can only be called once per time step because the state diffs are managed here
         if self.next_option is not None:
-            self.step_option.step_option(state, chain[:len(chain)-1])
+            self.next_option.step(last_state, chain[:len(chain)-1])
         self.last_action = chain[-1]
-        self.last_factor = self.get_state(state, form=FEATURIZED, inp=OUTPUT_STATE)
+        self.last_factor = self.get_state(last_state, form=FEATURIZED, inp=OUTPUT_STATE)
+    
+    def step_timer(self, done):
         self.timer += 1
+        if self.time_cutoff > 0:
+            if done or self.timer == self.time_cutoff:
+                self.timer = 0
 
     def terminate_reward(self, state, param, chain, needs_reward=True):
         # recursively get all of the dones and rewards
@@ -144,33 +156,35 @@ class Option():
         if self.next_option is not None:
             last_dones, last_rewards = self.next_option.terminate_reward(state, self.next_option.convert_param(chain[-1]), chain[:len(chain)-1], needs_reward=False)
         # get the state to be entered into the termination check
-        object_state = self.get_state(state, form = DIFF if self.dataset_model.predict_dynamics else FEATURIZED, inp=OUTPUT_STATE)
+        input_state = self.get_state(state, form=FEATURIZED, inp=INPUT_STATE)
+        # object_state = self.get_state(state, form = FEATURIZED, inp=OUTPUT_STATE)
+        object_state = self.get_state(state, form = DIFF if self.reward.use_diff else FEATURIZED, inp=OUTPUT_STATE)
         mask = self.dataset_model.get_active_mask()
 
         # assign done and reward
-        done = self.termination.check(object_state * mask, param)
+        done = self.termination.check(input_state, object_state * mask, param * mask)
         if needs_reward:
-            reward = self.reward.get_reward(object_state * mask, param)
+            reward = self.reward.get_reward(input_state, object_state * mask, param * mask)
         else:
             reward = 0
         self.terminated = done
 
+
         # manage a maximum time duration to run an option
         if self.time_cutoff > 0:
-            if self.timer == self.time_cutoff:
+            if self.timer == self.time_cutoff - 1:
                 done = True
-            if done or self.timer == self.time_cutoff:
-                self.timer = 0
-
+        if done:
+            print("Terminated: ", self.timer)
         dones = last_dones + [done]
-        rewards = last_rewards + [rewards]
+        rewards = last_rewards + [reward]
         return dones, rewards
 
     def record_state(self, state, next_state, action_chain, rl_outputs, param, rewards, dones):
         if self.next_option is not None:
             self.next_option.record_state(state, next_state, action_chain[:-1], rl_outputs[:-1], action_chain[-1], rewards[:-1], dones[:-1])
-        self.rollouts.append(**{'state': self.get_state(state, form=FEATURIZED, inp=INPUT),
-                'next_state': self.get_state(next_state, form=FEATURIZED, inp=INPUT),
+        self.rollouts.append(**{'state': self.get_state(state, form=FEATURIZED, inp=INPUT_STATE),
+                'next_state': self.get_state(next_state, form=FEATURIZED, inp=INPUT_STATE),
                 'object_state': self.get_state(state, form=FEATURIZED, inp=OUTPUT_STATE),
                 'next_object_state': self.get_state(next_state, form=FEATURIZED, inp=OUTPUT_STATE),
                 'state_diff': self.get_state(state, form=DIFF, inp=OUTPUT_STATE), 
@@ -194,6 +208,13 @@ class Option():
     def forward(self, state, param): # runs the policy and gets the RL output
         return self.policy(state, param)
 
+    def compute_return(self, gamma, start_at, num_update, next_value, return_max = 20, return_form="value"):
+        return self.rollouts.compute_return(gamma, start_at, num_update, next_value, return_max = 20, return_form="value")
+
+    def set_behavior_epsilon(self, epsilon):
+        self.behavior_policy.epsilon = epsilon
+
+
     def save(self, save_dir):
         if len(save_dir) > 0:
             try:
@@ -213,13 +234,16 @@ class Option():
             print(self.policy)
 
 
+
 class PrimitiveOption(Option): # primative discrete actions
     def __init__(self, policy_reward, models, object_name, temp_ext=False):
         self.num_params = models[1].environment.num_actions
         self.object_name = "Action"
         self.action_shape = (1,)
         self.action_prob_shape = (1,)
+        self.output_prob_shape = (models[1].environment.num_actions, )
         self.discrete = True
+        self.next_option = None
         self.iscuda = False
         self.policy = None
         self.dataset_model = None
@@ -232,6 +256,12 @@ class PrimitiveOption(Option): # primative discrete actions
         pass
 
     def set_behavior_epsilon(self, epsilon):
+        pass
+
+    def step(self, last_state, chain):
+        pass
+
+    def record_state(self, state, next_state, action_chain, rl_outputs, param, rewards, dones):
         pass
 
     def cpu(self):
@@ -248,15 +278,11 @@ class PrimitiveOption(Option): # primative discrete actions
     def sample_action_chain(self, state, param): # param is an int denoting the primitive action, not protected (could send a faulty param)
         done = True
         chain = [param.squeeze().long()]
-        return chain, None
+        return chain, list()
 
     def terminate_reward(self, state, param, chain, needs_reward=False):
-        return 1, 0, torch.tensor([0]), None, 1
+        return [1], [0]
 
-    # def convert_param(self, param):
-    #     if self.discrete:
-    #         return self.get_possible_parameters()[param.squeeze().long()][0]
-    #     return param
 
 class RawOption(Option):
     def __init__(self, policy_reward, models, object_name, temp_ext=False):
@@ -299,7 +325,7 @@ class RawOption(Option):
         return chain, rl_output
 
     def terminate_reward(self, state, param, chain, needs_reward=False):
-        return self.environment_model.environment.done, self.environment_model.environment.reward, torch.tensor([self.environment_model.environment.reward]), None, 1
+        return [self.environment_model.environment.done], [self.environment_model.environment.reward]#, torch.tensor([self.environment_model.environment.reward]), None, 1
 
     # The definition of this function has changed
     def get_action(self, action, mean, variance):
@@ -310,7 +336,8 @@ class DiscreteCounterfactualOption(Option):
     def __init__(self, policy_reward, models, object_name, temp_ext=False):
         super().__init__(self, policy_reward, models, object_name, temp_ext=temp_ext)
         self.action_shape = (1,)
-        self.action_prob_shape = (len(self.next_option.get_possible_parameters()),)
+        self.action_prob_shape = self.next_option.output_prob_shape()
+        self.output_prob_shape = (len(self.get_possible_parameters()),)
 
     def set_parameters(self, dataset_model):
         '''
@@ -357,6 +384,13 @@ class DiscreteCounterfactualOption(Option):
 class ModelCounterfactualOption(Option):
     def __init__(self, policy_reward, models, object_name, temp_ext=False):
         super().__init__(policy_reward, models, object_name, temp_ext=temp_ext)
+        self.action_prob_shape = self.next_option.output_prob_shape
+        if self.discrete_actions:
+            self.action_shape = (1,)
+        else:
+            self.action_shape = self.next_option.output_prob_shape
+        self.output_prob_shape = (self.dataset_model.gamma.output_size, ) # continuous, so the size will match
+
 
     def get_action(self, action, mean, variance):
         if self.discrete_actions:

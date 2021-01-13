@@ -40,3 +40,5 @@ python construct_hypothesis_model.py --dataset-dir data/random/ --log-interval 5
 python construct_hypothesis_model.py --dataset-dir data/random/ --log-interval 500 --factor 8 --num-layers 2 --predict-dynamics --action-shift --batch-size 10 --pretrain-iters 0 --epsilon-schedule 4000 --num-iters 16000 --interaction-binary -1 -8 --save-dir data/interaction_ln > train_hypothesis.txt
 
 python add_option.py --dataset-dir data/random/ --object Paddle --option-type model --buffer-steps 5 --num-steps 5 --gamma .1 --batch-size 5 --record-rollouts data/paddle --num-iters 1000
+
+python add_option.py --dataset-dir data/interaction_ln/ --object Paddle --option-type model --buffer-steps 10 --num-steps 10 --gamma .99 --batch-size 10 --record-rollouts data/paddle --num-iters 100000 --terminal-type comb --reward-type comb --parameterized-lambda 0.1 --epsilon-close 1 --time-cutoff 100 --set-time-cutoff --init-form xnorm --train --normalize --num-layers 2 --factor 8 > train2.txt

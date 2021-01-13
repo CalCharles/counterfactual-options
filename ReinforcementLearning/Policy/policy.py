@@ -193,7 +193,7 @@ class Policy(nn.Module):
                         # print(layer.weight[10:,10:])
                     if self.init_form == "uni":
                         # print("div", layer.weight.data.shape[0], layer.weight.data.shape)
-                         nn.init.uniform_(layer.weight.data, 0.0, 3 / layer.weight.data.shape[0])
+                         nn.init.uniform_(layer.weight.data, 0.0, 1.5 / layer.weight.data.shape[0])
                     if self.init_form == "smalluni":
                         # print("div", layer.weight.data.shape[0], layer.weight.data.shape)
                         nn.init.uniform_(layer.weight.data, -.0001 / layer.weight.data.shape[0], .0001 / layer.weight.data.shape[0])
@@ -231,6 +231,7 @@ class Policy(nn.Module):
             probs = F.softmax(action_values, dim=1) 
             log_probs = F.log_softmax(action_values, dim=1)
             dist_entropy = action_values - action_values.logsumexp(dim=-1, keepdim=True)
+            # print("act", action_values,"prob", probs, "logp", log_probs,"de", dist_entropy)
         if self.Q_critic:
             values = Q_vals.max(dim=1)[0]
         else:

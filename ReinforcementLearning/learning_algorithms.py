@@ -69,7 +69,7 @@ class DQN_optimizer(LearningOptimizer):
         next_output = self.option.forward(batch.values.next_state, batch.values.param)
         # print(time.time() - start)
         # start = time.time()
-        q_values = self.option.get_action(batch.values.action, output.Q_vals)
+        q_values = self.option.get_action(batch.values.action, output.Q_vals, output.std)
         # print(time.time() - start)
         # start = time.time()
         next_value = next_output.values
@@ -209,13 +209,14 @@ class A2C_optimizer(LearningOptimizer):
     def step(self, rollouts, use_range=None):
         idxes, batch = rollouts.get_batch(self.args.batch_size, ordered=True)
         output = self.option.forward(batch.values.state, batch.values.param)
-        log_probs, probs = self.option.get_action(batch.values.action, output.log_probs, output.probs)
+        log_probs, probs = self.option.get_action(batch.values.action, output.probs, output.std)
         values = output.values
         advantages = batch.values.returns.detach() - values
         value_loss = advantages.pow(2).mean()
         action_loss = -(advantages.detach() * log_probs.unsqueeze(1)).mean()
         dist_entropy = -(log_probs * probs).sum(-1).mean()
         entropy_loss = -dist_entropy * self.args.entropy_coef
+        # print(value_loss, action_loss, "lp", output.log_probs,"p", output.probs)
         # print(output.values, output.probs, batch.values.returns.detach() - values, advantages.detach() * log_probs.unsqueeze(1), batch.values.returns, batch.values.reward, batch.values.action)
         # print(output.values, output.probs, dist_entropy, advantages, batch.values.returns, batch.values.reward, batch.values.action, action_loss, batch.values.param, batch.values.state)
         self.step_optimizer(value_loss * self.args.value_loss_coef + action_loss + entropy_loss, RL=0)

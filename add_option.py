@@ -42,7 +42,7 @@ if __name__ == '__main__':
         nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}
         graph = OptionGraph(nodes, dict())
     termination = terminal_forms[args.terminal_type](use_diff=args.use_both==1, use_both=args.use_both==2, name=args.object, min_use=args.min_use, dataset_model=dataset_model, epsilon=args.epsilon_close, interaction_probability=args.interaction_probability)
-    reward = reward_forms[args.reward_type](use_diff=args.use_both==1, use_both=args.use_both==2, epsilon=args.epsilon_close) # using the same epsilon for now, but that could change
+    reward = reward_forms[args.reward_type](use_diff=args.use_both==1, epsilon=args.epsilon_close, parameterized_lambda=args.parameterized_lambda, interaction_model=dataset_model.interaction_model, interaction_minimum=dataset_model.interaction_minimum) # using the same epsilon for now, but that could change
     print (dataset_model.name)
     option_name = dataset_model.name.split("->")[0]
     names = [args.object, option_name]
@@ -54,6 +54,7 @@ if __name__ == '__main__':
     else:
         option = graph.nodes[args.object].option
         self.assign_models(models)
+    option.time_cutoff = args.time_cutoff
     rl_shape_dict = get_RL_shapes(option, environment_model)
     rollouts = RLRollouts(args.buffer_steps, rl_shape_dict)
     print(rl_shape_dict["state"], rl_shape_dict["probs"], rl_shape_dict["param"])
@@ -74,10 +75,10 @@ if __name__ == '__main__':
     else:
         graph.load_environment_model(environment_model)
     print(load_option, option.policy)
-    logger = Logger(args)
+    logger = Logger(args, option)
     learning_algorithm = learning_algorithms[args.learning_type](args, option)
-    if args.set_time_cutoff:
-        option.time_cutoff = -1
+    # if args.set_time_cutoff:
+    #     option.time_cutoff = -1
     done_lengths = trainRL(args, rollouts, logger, environment, environment_model, option, learning_algorithm, names, graph)
     done_lengths = np.array(done_lengths)
     time_cutoff = 100

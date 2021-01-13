@@ -545,7 +545,7 @@ class NeuralInteractionForwardModel(nn.Module):
         self.interaction_prediction = kwargs['interaction_prediction']
         self.active_epsilon = kwargs['active_epsilon'] # minimum l2 deviation to use the active values
         self.iscuda = kwargs["cuda"]
-        self.sample_continuous = True
+        self.selection_binary = pytorch_model.wrap(torch.zeros((self.delta.output_size(),)), cuda=self.iscuda)
         if self.iscuda:
             self.cuda()
         self.reset_parameters()
@@ -584,6 +584,7 @@ class NeuralInteractionForwardModel(nn.Module):
         super().cuda()
         self.network_args.normalization_function.cuda()
         self.network_args.output_normalization_function.cuda()
+        self.selection_binary = self.selection_binary.cuda()
         self.iscuda = True
 
     def reset_parameters(self):
@@ -745,7 +746,7 @@ class NeuralInteractionForwardModel(nn.Module):
         inter = self.interaction_model(self.gamma(state))
         intera = inter.clone()
         intera[inter > self.interaction_minimum] = 1
-        intera[inter < self.interaction_minimum] = 0
+        intera[inter <= self.interaction_minimum] = 0
         if self.predict_dynamics:
             fpred, ppred = self.delta(state) + rv(self.forward_model(self.gamma(state))[0]), self.delta(state) + rv(self.passive_model(self.delta(state))[0])
         else:
@@ -754,10 +755,12 @@ class NeuralInteractionForwardModel(nn.Module):
             return (inter, fpred) if pytorch_model.unwrap(inter) > self.interaction_minimum else (inter, ppred)
         else:
             # inter_assign = torch.cat((torch.arange(state.shape[0]).unsqueeze(1), intera), dim=1).long()
-            pred = torch.stack((fpred, ppred), dim=1)
+            pred = torch.stack((ppred, fpred), dim=1)
             # print(inter_assign.shape, pred.shape)
             intera = pytorch_model.wrap(intera.squeeze().long(), cuda=self.iscuda)
+            # print(intera, self.interaction_minimum)
             pred = pytorch_model.wrap(pred[torch.arange(pred.shape[0]).long(), intera], cuda=self.iscuda)
+        # print(pred, inter, self.predict_dynamics, rv(self.forward_model(self.gamma(state))[0]))
         return inter, pred
 
     def get_targets(self, rollouts):
@@ -768,7 +771,7 @@ class NeuralInteractionForwardModel(nn.Module):
             targets = rollouts.get_values('next_state')
         return targets
 
-    def test_forward(self, states, targets, interact=True):
+    def test_forward(self, states, next_state, interact=True):
         # gives back the difference between the prediction mean and the actual next state for different sampled feature values
         rv = self.network_args.output_normalization_function.reverse
         batch_pred, inters = list(), list()
@@ -777,7 +780,7 @@ class NeuralInteractionForwardModel(nn.Module):
             inter, pred_states = self.predict_next_state(self.control_feature.sample_feature(state))
             batch_pred.append(pred_states), inters.append(inter)
         batch_pred, inters = torch.stack(batch_pred, dim=0), torch.stack(inters, dim=0) # batch x samples x state, batch x samples x 1
-        next_state_broadcast = pytorch_model.wrap(torch.stack([self.delta(targets).clone() for _ in range(batch_pred.size(1))], dim=1), cuda=self.iscuda)
+        next_state_broadcast = pytorch_model.wrap(torch.stack([self.delta(next_state).clone() for _ in range(batch_pred.size(1))], dim=1), cuda=self.iscuda)
         # compare predictions with the actual next state to make sure there are differences
         state_check = (next_state_broadcast - batch_pred).abs()
         # should be able to predict at least one of the next states accurately
@@ -793,30 +796,36 @@ class NeuralInteractionForwardModel(nn.Module):
 
     def determine_active_set(self, rollouts):
         states = rollouts.get_values('state')
+        next_states = rollouts.get_values('state')
         targets = self.get_targets(rollouts)
-        sample_diffs = torch.max(self.test_forward(states, targets), dim=1)[0]
+        sample_diffs = torch.max(self.test_forward(states, next_states), dim=1)[0]
         test_diff = torch.max(sample_diffs, dim=0)[0]
         v = torch.zeros(test_diff.shape)
         v[test_diff > self.active_epsilon] = 1
-        print(sample_diffs, v)
-        self.selection_binary = v
+        self.selection_binary = pytorch_model.wrap(v, cuda=self.iscuda)
         self.feature_selector = self.environment_model.get_subset(self.delta, v)
         self.cfselectors = list()
         for ff in self.feature_selector.flat_features:
             factored = self.environment_model.flat_to_factored(ff)
             single_selector = FeatureSelector([ff], {factored[0]: factored[1]})
             rng = self.determine_range(rollouts, single_selector)
+            print(rng)
             self.cfselectors.append(ControllableFeature(single_selector, rng, 1, self))
         self.selection_list = get_selection_list(self.cfselectors)
         return self.feature_selector, self.cfselectors
 
+    def get_active_mask(self):
+        return self.selection_binary.clone()
+
     def determine_range(self, rollouts, active_delta):
-        if self.predict_dynamics:
-            state_diffs = rollouts.get_values('state_diff')
-            return active_delta(state_diffs).min(dim=0)[0], active_delta(state_diffs).max(dim=0)[0]
-        else:
-            states = rollouts.get_values('state')
-            return active_delta(states).min(dim=0)[0], active_delta(states).max(dim=0)[0]
+        # Even if we are predicting the dynamics, we determine the active range with the states
+        # TODO: However, using the dynamics to predict possible state range ??
+        # if self.predict_dynamics:
+        #     state_diffs = rollouts.get_values('state_diff')
+        #     return active_delta(state_diffs).min(dim=0)[0], active_delta(state_diffs).max(dim=0)[0]
+        # else:
+        states = rollouts.get_values('state')
+        return float(pytorch_model.unwrap(active_delta(states).min(dim=0)[0].squeeze())), float(pytorch_model.unwrap(active_delta(states).max(dim=0)[0].squeeze()))
 
     def hypothesize(self, state): # at present hypothesize only looks at the means of the distributions
         rv = self.network_args.output_normalization_function.reverse
@@ -826,12 +835,14 @@ class NeuralInteractionForwardModel(nn.Module):
         if self.sample_continuous:
             weights = np.random.random((len(self.cfselectors,))) # random weight vector
             lower_cfs = np.array([i for i in [cfs.feature_range[0] for cfs in self.cfselectors]])
-            len_cfs = np.array([i-j for i,j in [tuple(cfs.feature_range) for cfs in self.cfselectors]])
+            len_cfs = np.array([j-i for i,j in [tuple(cfs.feature_range) for cfs in self.cfselectors]])
             edited_features = lower_cfs + len_cfs * weights
             new_states = states.clone()
             for f, cfs in zip(edited_features, self.cfselectors):
                 cfs.assign_feature(new_states, f)
-            return self.delta(new_states), 
+            if len(new_states.shape) > 1: # if a stack, duplicate mask for all
+                return self.delta(new_states), pytorch_model.wrap(torch.stack([self.selection_binary.clone() for _ in range(new_states.size(0))], dim=0), cuda=self.iscuda)
+            return self.delta(new_states), self.selection_binary.clone()
         else: # sample discrete with weights
             return
 
