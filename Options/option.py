@@ -44,7 +44,7 @@ class Option():
         self.reward_freq = 13
 
     def assign_models(self, models):
-        self.dataset_model, self.environment_model = models
+        self.dataset_model, self.environment_model, self.sampler = models
 
     def assign_policy_reward(self, policy_reward):
         self.policy = policy_reward.policy
@@ -99,7 +99,8 @@ class Option():
             else: # commented out is old version
                 # param, mask = self.dataset_model.sample(full_state, 1, both=self.use_both==2, diff=self.use_both==1, name=self.object_name)
                 if self.timer == 0:
-                    self.param, self.mask = self.dataset_model.sample(self.get_state(full_state, form=0))  
+                    self.param, self.mask = self.sampler.sample(self.get_state(full_state, form=0))  
+                    print(self.param, self.get_state(full_state, form=FEATURIZED, inp=OUTPUT_STATE))
             self.param, self.mask = self.param.squeeze(), self.mask.squeeze()
             if self.cuda:
                 self.param, self.mask = self.param.cuda(), self.mask.cuda()

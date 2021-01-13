@@ -174,10 +174,11 @@ class ControllableFeature():
     def get_steps(self):
         return [i * self.feature_step + self.feature_range[0] for i in range(self.get_num_steps())]
 
-    def assign_feature(self, states, f, factored=False):
+    def assign_feature(self, states, f, factored=False, edit=False, clipped=False):
+        clip = self.feature_range if clipped else None
         if factored:
-            assign_feature(states, (list(self.feature_selector.factored_features.items())[0], f))
-        return assign_feature(states, (self.feature_selector.flat_features[0], f))
+            assign_feature(states, (list(self.feature_selector.factored_features.items())[0], f), edit=edit, clipped=clip)
+        return assign_feature(states, (self.feature_selector.flat_features[0], f), edit=edit, clipped=clip)
 
 class FeatureSelector():
     def __init__(self, flat_features, factored_features):
@@ -217,15 +218,25 @@ class FeatureSelector():
         elif len(states.shape) == 3: # a batch of stacks of flattened state
             return states[:, :, self.flat_features]
 
-def assign_feature(states, assignment): # assignment is a tuple assignment keys (tuples or indexes), and assignment values
+def assign_feature(states, assignment, edit=False, clipped=None): # assignment is a tuple assignment keys (tuples or indexes), and assignment values
     if type(states) is dict: # factored features
-        states[assignment[0][0]][assignment[0][1]] = assignment[1]
+        states[assignment[0][0]][assignment[0][1]] = assignment[1] if not edit else states[assignment[0][0]][assignment[0][1]] + assignment[1]
+        if clipped is not None:
+            states[assignment[0][0]][assignment[0][1]] = states[assignment[0][0]][assignment[0][1]].clamp(clipped[0], clipped[1])
     elif len(states.shape) == 1: # a single flattened state
-        states[assignment[0]] = assignment[1]
+        states[assignment[0]] = assignment[1] if not edit else states[assignment[0]] + assignment[1]
+        if clipped is not None:
+            states[assignment[0]] = states[assignment[0]].clamp(clipped[0], clipped[1])
     elif len(states.shape) == 2: # a batch of flattened state
-        states[:, assignment[0]] = assignment[1]
+        states[:, assignment[0]] = assignment[1] if not edit else states[:, assignment[0]] + assignment[1]
+        if clipped is not None:
+            cstates = states[:, assignment[0]].clamp(clipped[0], clipped[1])
+            states[:, assignment[0]] = cstates
     elif len(states.shape) == 3: # a batch of stacks of flattened state
-        states[:, :, assignment[0]] = assignment[1]
+        states[:, :, assignment[0]] = assignment[1] if not edit else states[:, :, assignment[0]] + assignment[1]
+        if clipped is not None:
+            cstates = states[:, :, assignment[0]].clamp(clipped[0], clipped[1])
+            states[:, :, assignment[0]] = cstates
 
 class ModelRollouts(Rollouts):
     def __init__(self, length, shapes_dict):

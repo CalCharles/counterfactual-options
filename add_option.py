@@ -16,6 +16,7 @@ from Options.Reward.reward import reward_forms
 from DistributionalModels.DatasetModels.dataset_model import FactoredDatasetModel
 from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model
 from DistributionalModels.distributional_model import load_factored_model
+from DistributionalModels.InteractionModels.samplers import samplers
 import torch
 import numpy as np
 
@@ -30,7 +31,8 @@ if __name__ == '__main__':
 
     print(dataset_model.selection_binary)
     # dataset_model = load_factored_model(args.dataset_dir)
-    pr, models = ObjDict(), (dataset_model, environment_model) # policy_reward, featurizers
+    sampler = samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule)
+    pr, models = ObjDict(), (dataset_model, environment_model, sampler) # policy_reward, featurizers
     if args.cuda:
         dataset_model.cuda()
     # print(dataset_model.observed_outcomes)

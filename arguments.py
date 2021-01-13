@@ -75,6 +75,8 @@ def get_args():
                         help='choose the way the behavior policy is defined, in ReinforcementLearning.behavior_policy')
     parser.add_argument('--learning-type', default='a2c',
                         help='defines the algorithm used for learning')
+    parser.add_argument('--sampler-type', default='uni',
+                        help='defines the function used to sample param targets')
     # Behavior policy parameters
     parser.add_argument('--continuous', action='store_true', default=False,
                         help='When the policy outputs a continuous distribution')
@@ -125,6 +127,8 @@ def get_args():
                         help='the minimum probability needed to use interaction as reward  (default: 1)')
     parser.add_argument('--interaction-prediction', type=float, default=0.3,
                         help='the minimum distance to define the active set  (default: 0.3)')
+    parser.add_argument('--sample-schedule', type=int, default=-1,
+                    help='changes sampling after a certain number of calls')
 
     # reward settings
     parser.add_argument('--parameterized-lambda', type=float, default=.5,
