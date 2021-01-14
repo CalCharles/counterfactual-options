@@ -157,8 +157,8 @@ class HER_optimizer(DQN_optimizer):
         total_loss = 0
         for _ in range(self.args.grad_epoch):
             idxes, batch = rollouts.get_batch(self.args.batch_size)
-            rewards = []
-            params = []
+            rewards = list()
+            params = list()
             # params, masks = self.option.dataset_model.sample(batch.values.state, batch.length, both = self.args.use_both == 2, diff=self.args.use_both == 1, name=self.option.object_name)
             # if self.args.cuda:
             #     params, masks = params.cuda(), masks.cuda()
