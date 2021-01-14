@@ -60,4 +60,29 @@ class GaussianCenteredSampling(Sampler):
         else: # sample discrete with weights
             return
 
+class GaussianOffCenteredSampling(Sampler):
+    def __init__(self, **kwargs):
+        # samples to the sides, which does favor the edges of the map
+        super().__init__(**kwargs)
+        self.distance = .05 # normalized
+        self.variance = .1
+        self.schedule = kwargs["sample_schedule"]
+        self.schedule_counter = 0
+
+    def sample(self, states):
+        if self.schedule > 0 and self.schedule_counter % self.schedule == 0:
+            self.distance = min(self.distance * 2, .4)
+        self.schedule_counter += 1
+        if self.dataset_model.sample_continuous:
+            cfselectors = self.dataset_model.cfselectors
+            posweights = np.random.normal(loc=self.distance, scale=self.variance, size=(len(cfselectors,))) # random weight vector
+            negweights = np.random.normal(loc=-self.distance, scale=self.variance, size=(len(cfselectors,))) # random weight vector
+            weights = posweights if np.random.random() > .5 else negweights
+            return self.weighted_samples(states, weights, centered=True)
+        else: # sample discrete with weights
+            return
+
+class ReachedSampling
+
+
 samplers = {"uni": LinearUniformSampling, "gau": GaussianCenteredSampling}
