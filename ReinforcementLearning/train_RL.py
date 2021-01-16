@@ -155,6 +155,8 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
 
             # refactor this into the option part
             option.record_state(full_state, next_full_state, action_chain, rl_outputs, param, rewards, dones)
+            if args.train: # it may be necessary for the learning algorithm to in parallel store state information
+                learning_algorithm.record_state(full_state, next_full_state, action_chain, rl_outputs, param, rewards, dones)
             full_state = next_full_state
 
 
