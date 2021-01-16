@@ -184,7 +184,10 @@ class Option():
     def record_state(self, state, next_state, action_chain, rl_outputs, param, rewards, dones):
         if self.next_option is not None:
             self.next_option.record_state(state, next_state, action_chain[:-1], rl_outputs[:-1], action_chain[-1], rewards[:-1], dones[:-1])
-        self.rollouts.append(**{'state': self.get_state(state, form=FEATURIZED, inp=INPUT_STATE),
+        self.rollouts.append(**self.get_state_dict(state, next_state, action_chain, rl_outputs, param, rewards, dones))
+
+    def get_state_dict(self, state, next_state, action_chain, rl_outputs, param, rewards, dones): # also used in HER
+            return {'state': self.get_state(state, form=FEATURIZED, inp=INPUT_STATE),
                 'next_state': self.get_state(next_state, form=FEATURIZED, inp=INPUT_STATE),
                 'object_state': self.get_state(state, form=FEATURIZED, inp=OUTPUT_STATE),
                 'next_object_state': self.get_state(next_state, form=FEATURIZED, inp=OUTPUT_STATE),
@@ -196,7 +199,7 @@ class Option():
                 'param': param, 
                 'mask': self.dataset_model.get_active_mask(), 
                 'reward': rewards[-1], 
-                'done': dones[-1]})
+                'done': dones[-1]}
 
 
     def get_input_state(self, state = None): # gets the state used for the forward model/policy

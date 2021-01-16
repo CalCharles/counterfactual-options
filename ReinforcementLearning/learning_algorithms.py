@@ -57,7 +57,10 @@ class LearningOptimizer():
         returns Value loss, policy loss, distribution entropy, output entropy, entropy loss, action log probabilities
         '''
         # raise NotImplementedError("step should be overriden")
-        pass        
+        pass
+
+    def record_state(self, state, next_state, action_chain, rl_outputs, param, rewards, dones):
+        pass
 
 
 class DQN_optimizer(LearningOptimizer):
@@ -153,30 +156,57 @@ class GSR_optimizer(DQN_optimizer): # goal search replay
         return PolicyLoss(total_loss/self.args.grad_epoch, None, q_loss, None, None, None)
 
 class HER_optimizer(DQN_optimizer):
+    def __init__(self, args, option):
+        super().__init__(args, option)
+        # only sample one other goal (the successful one)
+        self.resampling_rollouts = RLRollouts(option.rollouts.length, option.rollouts.shapes_dict)
+        self.last_done = 0
+
+    def record_state(self, state, next_state, action_chain, rl_outputs, param, rewards, dones):
+        self.resampling_rollouts.append(**self.option.get_state_dict(state, next_state, action_chain, rl_outputs, param, rewards, dones))
+        if dones[-1] == 1: # option terminated, resample
+
+            interact = self.option.dataset_model.interaction_model(self.option.get_state(state))
+            if self.option.dataset_model.check_interaction(interact):
+                object_state = self.option.get_state(state, inp=1)
+                num_vals = (self.resampling_rollouts.at - self.last_done) % self.resampling_rollouts.length
+                broadcast_object_state = torch.stack([object_state.clone() for _ in range(num_vals)], dim=0)
+                self.resampling_rollouts.assign_value(self.last_done, 0, num_vals, "param", broadcast_object_state)
+                param = self.resampling_rollouts.param[self.last_done:self.resampling_rollouts.at]
+                input_state = self.resampling_rollouts.get_values("states")[self.last_done:self.resampling_rollouts.at]
+                object_state = self.resampling_rollouts.get_values("object_state")[self.last_done:self.resampling_rollouts.at]
+                self.resampling_rollouts.assign_value(self.last_done, 0, num_vals, "done", self.option.termination.check(input_state, broadcast_object_state, param))
+                self.resampling_rollouts.assign_value(self.last_done, 0, num_vals, "reward", self.option.reward.get_reward(input_state, broadcast_object_state, param))
+                self.resampling_rollouts.compute_return(self.args.gamma, self.last_done, num_vals, None, return_form = "none")
+
+
     def step(self, rollouts, use_range=None):
         total_loss = 0
         for _ in range(self.args.grad_epoch):
-            idxes, batch = rollouts.get_batch(self.args.batch_size)
-            rewards = list()
-            params = list()
-            # params, masks = self.option.dataset_model.sample(batch.values.state, batch.length, both = self.args.use_both == 2, diff=self.args.use_both == 1, name=self.option.object_name)
+            if np.random.random() > self.select_positive:
+                idxes, batch = rollouts.get_batch(self.args.batch_size)
+            else:
+                idxes, batch = self.resampling_rollouts.get_batch(self.args.batch_size)
+            # rewards = list()
+            # params = list()
+            # # params, masks = self.option.dataset_model.sample(batch.values.state, batch.length, both = self.args.use_both == 2, diff=self.args.use_both == 1, name=self.option.object_name)
+            # # if self.args.cuda:
+            # #     params, masks = params.cuda(), masks.cuda()
+            # # when using the actual reward function and not all_rewards
+            # # for last_state, object_state, diff, param_idx, mask in zip(batch.values.state, batch.values.next_object_state, batch.values.state_diff, params, masks):
+            # #     # rewards.append(self.option.reward.get_reward(object_state*mask, diff*mask, param)) # when all_reward not used
+            # #     print(object_state*mask, diff*mask, param)
+            # possible_params = self.option.get_possible_parameters()
+            # for all_reward, param_idx in zip( batch.values.all_reward, [np.random.randint(len(possible_params)) for i in range(self.args.batch_size)]):
+            #     rewards.append(float(all_reward[param_idx].squeeze().clone().cpu().numpy()))
+            #     params.append(possible_params[param_idx][0])
+            # params = torch.stack(params, dim=0)
             # if self.args.cuda:
-            #     params, masks = params.cuda(), masks.cuda()
-            # when using the actual reward function and not all_rewards
-            # for last_state, object_state, diff, param_idx, mask in zip(batch.values.state, batch.values.next_object_state, batch.values.state_diff, params, masks):
-            #     # rewards.append(self.option.reward.get_reward(object_state*mask, diff*mask, param)) # when all_reward not used
-            #     print(object_state*mask, diff*mask, param)
-            possible_params = self.option.get_possible_parameters()
-            for all_reward, param_idx in zip( batch.values.all_reward, [np.random.randint(len(possible_params)) for i in range(self.args.batch_size)]):
-                rewards.append(float(all_reward[param_idx].squeeze().clone().cpu().numpy()))
-                params.append(possible_params[param_idx][0])
-            params = torch.stack(params, dim=0)
-            if self.args.cuda:
-                params = params.cuda()
-                # print(rewards)
-                rewards = pytorch_model.wrap(rewards, cuda=self.args.cuda)
-            batch.values.param = params
-            batch.values.reward = rewards
+            #     params = params.cuda()
+            #     # print(rewards)
+            #     rewards = pytorch_model.wrap(rewards, cuda=self.args.cuda)
+            # batch.values.param = params
+            # batch.values.reward = rewards
             q_loss = self.DQN_loss(batch)
             self.step_optimizer(q_loss, RL=0)
             total_loss += q_loss

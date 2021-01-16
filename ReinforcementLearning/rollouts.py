@@ -46,6 +46,9 @@ class RLRollouts(Rollouts):
     def compute_return(self, gamma, start_at, num_update, next_value, return_max = 20, return_form="value"):
         '''
         Computes the return for the rollout
+        num_update is number of returns to update starting at start_at
+        return_max is the maximum number of returns to update backward
+        TODO: handle dones.
         '''
         indexes = [(start_at + i) % self.length for i in range(num_update)]
         if self.wrap:
