@@ -82,8 +82,8 @@ def get_args():
                         help='When the policy outputs a continuous distribution')
     parser.add_argument('--epsilon', type=float, default=0.1,
                     help='percentage of random actions in epsilon greedy')
-    parser.add_argument('--epsilon-schedule', type=int, default=-1,
-                    help='halves the percentage of epsilon after this many time steps')
+    parser.add_argument('--epsilon-schedule', type=float, default=-1,
+                    help='uses exp (-steps/epsilon-schedule) to compute epsilon at a given step, -1 for no schedule')
     # termination set parameters
     parser.add_argument('--epsilon-close', type=float, default=0.1,
                     help='minimum distance for states to be considered the same')
@@ -113,10 +113,19 @@ def get_args():
                         help='use the q function to compute the state value')
     parser.add_argument('--warm-up', type=int, default=0,
                         help='warm up updates to fill buffer (default: 0)')
+    parser.add_argument('--warm-updates', type=int, default=0,
+                        help='number of update steps after warm up (default: 0)')
     parser.add_argument('--ratio', type=float, default=0.9,
                     help='ratio of training samples to testing ones')
     parser.add_argument('--model-error-significance', type=float, default=1,
                     help='amount of difference in l2 norm to determine that prediction is happening')
+    # HER/DQN parameters
+    parser.add_argument('--double-Q', type=float, default=-1,
+                        help='weight given to the new parameters between 0-1, or greater than 1 is a schedule (default: -1 (not used))')
+    parser.add_argument('--select-positive', type=float, default=0.5,
+                    help='For hindsight experience replay, selects the positive reward x percent of the time (default .5)')
+    parser.add_argument('--resample-timer', type=int, default=10,
+                        help='how often to resample a goal (default: 10)')
 
     #interaction parameters
     parser.add_argument('--interaction-iters', type=int, default=0,
@@ -197,7 +206,7 @@ def get_args():
     parser.add_argument('--num-frames', type=int, default=10e4,
                         help='number of frames to use for the training set (default: 10e6)')
     parser.add_argument('--env', default='SelfBreakout',
-                        help='environment to train on (default: SelfBreakout)')
+                        help='environment to train on (Nav2D, SelfBreakout) (default: SelfBreakout)')
     parser.add_argument('--train', action ='store_true', default=False,
                         help='trains the algorithm if set to true')
     parser.add_argument('--set-time-cutoff', action ='store_true', default=False,

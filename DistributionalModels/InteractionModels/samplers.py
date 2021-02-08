@@ -31,6 +31,10 @@ class Sampler():
             return self.delta(new_states), pytorch_model.wrap(torch.stack([selection_binary.clone() for _ in range(new_states.size(0))], dim=0), cuda=self.iscuda)
         return self.delta(new_states), selection_binary.clone()
 
+class RawSampler(Sampler):
+    # never actually samples
+    def sample(self, states):
+        return self.dataset_model.sample(states)
 
 class LinearUniformSampling(Sampler):
     def sample(self, states):
@@ -82,7 +86,7 @@ class GaussianOffCenteredSampling(Sampler):
         else: # sample discrete with weights
             return
 
-class ReachedSampling
+# class ReachedSampling
 
 
 samplers = {"uni": LinearUniformSampling, "gau": GaussianCenteredSampling}

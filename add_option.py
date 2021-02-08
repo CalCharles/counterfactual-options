@@ -3,18 +3,22 @@ from arguments import get_args
 from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
 from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEnvironmentModel
 from Environments.SelfBreakout.breakout_screen import Screen
+from EnvironmentModels.Nav2D.Nav2D_environment_model import Nav2DEnvironmentModel
+from Environments.Nav2D.Nav2D import Nav2D
+
 from Rollouts.rollouts import ObjDict
 from ReinforcementLearning.rollouts import RLRollouts, get_RL_shapes
 from ReinforcementLearning.train_RL import trainRL, Logger
 from ReinforcementLearning.Policy.policy import policy_forms
 from ReinforcementLearning.behavior_policy import behavior_forms
 from ReinforcementLearning.learning_algorithms import learning_algorithms
+from EnvironmentModels.environment_model import FeatureSelector
 from Options.Termination.termination import terminal_forms
 from Options.option_graph import OptionGraph, OptionNode, load_graph
 from Options.option import Option, PrimitiveOption, option_forms
 from Options.Reward.reward import reward_forms
 from DistributionalModels.DatasetModels.dataset_model import FactoredDatasetModel
-from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model
+from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model, interaction_models
 from DistributionalModels.distributional_model import load_factored_model
 from DistributionalModels.InteractionModels.samplers import samplers
 import torch
@@ -23,21 +27,33 @@ import numpy as np
 if __name__ == '__main__':
     args = get_args()
     torch.cuda.set_device(args.gpu)
-    environment = Screen()
+    if args.env == "SelfBreakout":
+        environment = Screen()
+        environment_model = BreakoutEnvironmentModel(environment)
+    elif args.env == "Nav2D":
+        environment = Nav2D()
+        environment_model = Nav2DEnvironmentModel(environment)
     environment.set_save(0, args.record_rollouts, args.save_recycle, save_raw=args.save_raw)
-    environment_model = BreakoutEnvironmentModel(environment)
-    dataset_model = load_hypothesis_model(args.dataset_dir)
-    dataset_model.environment_model = environment_model
+    if args.true_environment:
+        dataset_model = interaction_models["dummy"](environment_model=environment_model)
+    else:
+        dataset_model = load_hypothesis_model(args.dataset_dir)
+        dataset_model.environment_model = environment_model
+
+    # reduced state
+    # dataset_model.gamma = FeatureSelector([6], {"Paddle": 1})
+    # dataset_model.delta = FeatureSelector([6], {"Paddle": 1})
+    # dataset_model.selection_binary = torch.ones((1)).cuda()
 
     print(dataset_model.selection_binary)
     # dataset_model = load_factored_model(args.dataset_dir)
-    sampler = samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule)
+    sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule)
     pr, models = ObjDict(), (dataset_model, environment_model, sampler) # policy_reward, featurizers
     if args.cuda:
         dataset_model.cuda()
     # print(dataset_model.observed_outcomes)
     try:
-        graph = load_graph(args.graph_dir)
+        graph = load_graph(args.graph_dir, args.buffer_steps)
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
         actions = PrimitiveOption(None, models, "Action")
@@ -51,7 +67,7 @@ if __name__ == '__main__':
     load_option = not args.train and args.object in graph.nodes
     print(load_option, args.object)
     if not load_option:
-        pr.policy, pr.behavior_policy, pr.rollouts, pr.termination, pr.reward, pr.next_option = None, None, None, termination, reward, graph.nodes[option_name].option 
+        pr.policy, pr.behavior_policy, pr.rollouts, pr.termination, pr.reward, pr.next_option = None, None, None, termination, reward, (None if args.true_environment else graph.nodes[option_name].option)
         option = option_forms[args.option_type](pr, models, args.object, temp_ext=False)
     else:
         option = graph.nodes[args.object].option
@@ -60,7 +76,7 @@ if __name__ == '__main__':
     rl_shape_dict = get_RL_shapes(option, environment_model)
     rollouts = RLRollouts(args.buffer_steps, rl_shape_dict)
     print(rl_shape_dict["state"], rl_shape_dict["probs"], rl_shape_dict["param"])
-    args.num_inputs, args.num_outputs, args.param_size = rl_shape_dict["state"][0], rl_shape_dict["probs"][0], rl_shape_dict["param"][0]
+    args.num_inputs, args.num_outputs, args.param_size, args.reshape = rl_shape_dict["state"][0], rl_shape_dict["probs"][0], rl_shape_dict["param"][0], environment.reshape
     if not load_option:
         policy = policy_forms[args.policy_type](**vars(args)) # default args?
     else:
@@ -73,6 +89,8 @@ if __name__ == '__main__':
     behavior_policy = behavior_forms[args.behavior_type](args)
     if not load_option:
         option.policy, option.behavior_policy, option.rollouts = policy, behavior_policy, rollouts
+        option.rollout_params = (rollouts.length, rollouts.shapes)
+
         graph.nodes[args.object] = OptionNode(args.object, option, action_shape = option.action_shape)
     else:
         graph.load_environment_model(environment_model)
@@ -93,5 +111,5 @@ if __name__ == '__main__':
         option.time_cutoff = time_cutoff
     if len(args.save_graph) > 0:
         print(args.object, graph.nodes[args.object].option.time_cutoff)
-        graph.save_graph(args.save_graph, [args.object])
+        graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
     print (time_cutoff)

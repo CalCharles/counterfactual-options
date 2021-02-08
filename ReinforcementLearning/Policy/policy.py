@@ -17,18 +17,19 @@ def dummy_RLoutput(n, num_actions, cuda):
     return RLoutput(one.clone(), )
 
 class RLoutput():
-    def __init__(self, values, dist_entropy, probs, log_probs, action_values, std, Q_vals, dist):
+    def __init__(self, values, dist_entropy, probs, log_probs, action_values, std, Q_vals, Q_best, dist):
         self.values = values 
         self.dist_entropy = dist_entropy 
         self.probs = probs 
         self.log_probs = log_probs 
         self.action_values = action_values 
         self.std = std 
-        self.Q_vals = Q_vals 
+        self.Q_vals = Q_vals
+        self.Q_best = Q_best
         self.dist = dist
 
     def values(self):
-        return self.values, self.dist_entropy, self.probs, self.log_probs, self.action_values, self.std, self.Q_vals, self.dist
+        return self.values, self.dist_entropy, self.probs, self.log_probs, self.action_values, self.std, self.Q_vals, self.Q_best, self.dist
 
 
 class pytorch_model():
@@ -41,12 +42,13 @@ class pytorch_model():
     def wrap(data, dtype=torch.float, cuda=True):
         # print(Variable(torch.Tensor(data).cuda()))
         if type(data) == torch.Tensor:
-            return data.clone().detach() 
+            v = data.clone().detach()
         else:
-            if cuda:
-                return Variable(torch.tensor(data, dtype=dtype).cuda())
-            else:
-                return Variable(torch.tensor(data, dtype=dtype))
+            v = torch.tensor(data, dtype=dtype)
+        if cuda:
+            return v.cuda()
+        return v
+
 
     @staticmethod
     def unwrap(data):
@@ -117,6 +119,7 @@ class Policy(nn.Module):
         super(Policy, self).__init__()
         self.num_inputs = default_value_arg(kwargs, 'num_inputs', 10)
         print("num_inputs", self.num_inputs)
+        self.no_preamble = default_value_arg(kwargs, 'no_preamble', False)
         self.param_size = default_value_arg(kwargs, 'param_size', 10)
         self.num_outputs = default_value_arg(kwargs, 'num_outputs', 1)
         self.factor = default_value_arg(kwargs, 'factor', None)
@@ -124,6 +127,7 @@ class Policy(nn.Module):
         # self.use_normalize = self.minmax is not None
         self.name = default_value_arg(kwargs, 'name', 'option')
         self.iscuda = default_value_arg(kwargs, 'cuda', True) # TODO: don't just set this to true
+        self.mean = pytorch_model.wrap(np.zeros(self.num_inputs), cuda=self.iscuda)
         self.init_form = default_value_arg(kwargs, 'init_form', 'xnorm') 
         self.scale = default_value_arg(kwargs, 'scale', 1) 
         self.activation = default_value_arg(kwargs, 'activation', 'relu') 
@@ -138,6 +142,7 @@ class Policy(nn.Module):
         self.num_layers = default_value_arg(kwargs, 'num_layers', 1)
         if self.num_layers == 0:
             self.insize = self.num_inputs + self.param_size
+            # self.insize = self.num_inputs
         else:
             self.insize = self.factor * self.factor * self.factor // min(self.factor, 8)
         if self.last_param:
@@ -152,6 +157,7 @@ class Policy(nn.Module):
             self.acti = torch.sigmoid
         elif self.activation == "tanh":
             self.acti = torch.tanh
+        self.parameter_count = -1
         print("activation", self.acti)
         print("current insize", self.insize)
             
@@ -167,9 +173,15 @@ class Policy(nn.Module):
             self.layers = self.layers[5:]
         self.layers = [self.critic_linear, self.sigma, self.QFunction, self.action_eval] + self.layers
 
+    def set_mean(self, rollouts):
+        s = rollouts.get_values("state")
+        self.mean = pytorch_model.wrap(s.mean(dim=0), cuda=self.iscuda)
+
     def reset_parameters(self):
         relu_gain = nn.init.calculate_gain('relu')
         for layer in self.layers:
+            if self.init_form == "none":
+                continue
             if type(layer) == nn.Conv2d:
                 print("layer", layer, self.init_form)
                 if self.init_form == "orth":
@@ -226,33 +238,44 @@ class Policy(nn.Module):
             log_probs = dist.log_probs(actions)
             dist_entropy = dist.entropy().mean()
             probs = torch.exp(log_probs)
+            Q_best = action_values # Doesn't actually optimize the Q space for best action
         else:
             Q_vals = self.QFunction(x)
             probs = F.softmax(action_values, dim=1) 
             log_probs = F.log_softmax(action_values, dim=1)
             dist_entropy = action_values - action_values.logsumexp(dim=-1, keepdim=True)
+            Q_best = Q_vals.max(dim=1)[1]
             # print("act", action_values,"prob", probs, "logp", log_probs,"de", dist_entropy)
         if self.Q_critic:
             values = Q_vals.max(dim=1)[0]
         else:
             values = self.critic_linear(x)
-        return values, dist_entropy, probs, log_probs, action_values, std, Q_vals, dist
+        return values, dist_entropy, probs, log_probs, action_values, std, Q_vals, Q_best, dist
 
     def preamble(self, x, p):
+        if not self.last_param:
+            # x = torch.cat((x,p), dim=1)
+            y = x - p
+            x = torch.cat((x,y), dim=1)
         if self.normalize:
-            return (x / 84) * self.scale, p
-        return x,p
+            # x = x - self.mean
+            return (x / 84 - .5) * self.scale # normalizes the parameter for better or worse
+        return x
 
     def compute_Q(self, state, action):
         x, p = self.preamble(state, p) # TODO: if necessary, a preamble can be added back in
         x = self.hidden(x, p)
         return self.Qfunction(x, action)
 
+    def hidden(self, x):
+        pass # defined in subclass classes
+
     def forward(self, x, p):
-        x, p = self.preamble(x, p) # TODO: if necessary, a preamble can be added back in
+        if not self.no_preamble:
+            x = self.preamble(x, p) # TODO: if necessary, a preamble can be added back in
         x = self.hidden(x, p)
-        values, dist_entropy, probs, log_probs, action_values, std, Q_vals, dist = self.last_layer(x, p)
-        return RLoutput(values, dist_entropy, probs, log_probs, action_values, std, Q_vals, dist)
+        values, dist_entropy, probs, log_probs, action_values, std, Q_vals, Q_best, dist = self.last_layer(x, p)
+        return RLoutput(values, dist_entropy, probs, log_probs, action_values, std, Q_vals, Q_best, dist)
 
     def save(self, pth, name):
         torch.save(self, os.path.join(pth, name + ".pt"))
@@ -308,8 +331,10 @@ class BasicPolicy(Policy):
         self.hidden_size = self.factor*self.factor*self.factor // min(4,self.factor)
         print("Network Sizes: ", self.num_inputs, self.insize, self.hidden_size)
         # self.l1 = nn.Linear(self.num_inputs, self.num_inputs*factor*factor)
+        
         if not self.last_param:
             self.num_inputs += self.param_size
+        
         # self.num_inputs = self.param_size # Turn this on to only input the parameter (also line in hidden)
         print(self.last_param, self.num_inputs)
         if self.num_layers == 1:
@@ -332,8 +357,6 @@ class BasicPolicy(Policy):
 
     def hidden(self, x, p):
         # print(x.shape, p.shape, x, p)
-        if not self.last_param:
-            x = torch.cat((x,p), dim=1)
         # x = p # turn this on to only input the parameter
         if self.num_layers > 0:
             x = self.l1(x)
@@ -372,6 +395,7 @@ class ImagePolicy(Policy):
         self.conv2 = nn.Conv2d(2 * factor, 4 * factor, 4, stride=2)
         self.conv3 = nn.Conv2d(4 * factor, 2 * factor, 3, stride=1)
         self.viewsize = 7
+        self.reshape = kwargs["reshape"]
         # if self.args.post_transform_form == 'none':
         #     self.linear1 = None
         #     self.insize = 2 * self.factor * self.viewsize * self.viewsize
@@ -385,6 +409,8 @@ class ImagePolicy(Policy):
         self.reset_parameters()
 
     def hidden(self, inputs, p):
+        if self.reshape[0] != -1:
+            inputs = inputs.reshape(-1, *self.reshape)
         norm_term = 1.0
         if self.normalize:
             norm_term =  255.0
@@ -403,5 +429,41 @@ class ImagePolicy(Policy):
             x = self.acti(x)
         return x
 
+class GridWorldPolicy(Policy):
+    def __init__(self,**kwargs):
+        super().__init__(**kwargs)
+        N = 20 # hardcoded at the moment
+        H, W = N, N
+        self.H, self.W = H, W
+        self.C = 3
+        self.Chid = 32
+        self.Chid2 = 64
+        self.Chid3 = 64
+        self.no_preamble = True
+        self.reshape = kwargs["reshape"]
+        self.mean = pytorch_model.wrap(np.zeros(self.reshape), cuda=self.iscuda)
 
-policy_forms = {"basic": BasicPolicy, "image": ImagePolicy}
+        self.conv1 = torch.nn.Conv2d(in_channels=self.C,out_channels=self.Chid,kernel_size=3,stride=1,padding=1)
+        self.conv2 = torch.nn.Conv2d(in_channels=self.Chid,out_channels=self.Chid2,kernel_size=3,stride=1,padding=1)
+        self.conv3 = torch.nn.Conv2d(in_channels=self.Chid2,out_channels=self.Chid3,kernel_size=3,stride=1,padding=1)
+        self.fc1 = torch.nn.Linear(int(self.Chid3*H*W/16),self.insize)
+        # self.fc2 = torch.nn.Linear(564,self.insize)
+        self.train()
+        self.reset_parameters()
+        
+    def hidden(self,x, p):
+        # may need some reassignment logic
+        x = x.reshape(-1,*self.reshape)
+        x = x - self.mean.reshape(*self.reshape)
+        x = x.transpose(3,2).transpose(2,1)
+        batch_size = x.shape[0]
+        x = F.max_pool2d(F.relu(self.conv1(x)),2)
+        x = F.relu(self.conv2(x))
+        x = F.max_pool2d(F.relu(self.conv3(x)),2)
+        x = x.reshape(batch_size,(self.Chid3*self.H*self.W)//16)
+        x = F.relu(self.fc1(x))
+        return x
+
+
+
+policy_forms = {"basic": BasicPolicy, "image": ImagePolicy, 'grid': GridWorldPolicy}

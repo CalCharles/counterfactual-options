@@ -113,7 +113,7 @@ class InteractionModel(DistributionalModel):
         '''
         return
 
-    def sample(self, state, length, both=False, diff=True, name=""):
+    def sample(self, state, both=False, diff=True, name=""):
         '''
         takes in a list of states of length, and then 
         takes a random sample of the outcomes or diffs from a particular name (or a random name) and then returns it. This has issues since you don't know which one you are getting,
@@ -169,6 +169,9 @@ class InteractionModel(DistributionalModel):
         return
 
     def backward_model(self, target):
+        return
+
+    def cuda(self):
         return
 
 class ClassificationNetwork(nn.Module):
@@ -337,6 +340,9 @@ class SimpleInteractionModel(InteractionModel):
 
     def forward_model(self, x):
         featurized = self.featurize(x)
+
+    def check_interaction(self, x):
+        return
 
 
 
@@ -831,6 +837,9 @@ class NeuralInteractionForwardModel(nn.Module):
         rv = self.network_args.output_normalization_function.reverse
         return self.interaction_model(self.gamma(state)), rv(self.forward_model(self.gamma(state))[0]), rv(self.passive_model(self.delta(state))[0])
 
+    def check_interaction(self, inter):
+        return inter > self.interaction_minimum
+
     def sample(self, states):
         if self.sample_continuous:
             weights = np.random.random((len(self.cfselectors,))) # random weight vector
@@ -846,5 +855,22 @@ class NeuralInteractionForwardModel(nn.Module):
         else: # sample discrete with weights
             return
 
+class DummyModel(InteractionModel):
+    def __init__(self,**kwargs):
+        self.environment_model = kwargs['environment_model']
+        self.gamma = self.environment_model.get_raw_state
+        self.delta = self.environment_model.get_param
+        self.controllable = None
+        self.name = "RawModel"
+        self.selection_binary = torch.ones([1])
+        self.interaction_model = None
+        self.interaction_minimum = None
 
-interaction_models = {'neural': NeuralInteractionForwardModel}
+    def sample(self, states):
+        return self.environment_model.get_param(states), self.selection_binary
+
+    def get_active_mask(self):
+        return self.selection_binary.clone()
+
+
+interaction_models = {'neural': NeuralInteractionForwardModel, 'dummy': DummyModel}

@@ -69,6 +69,9 @@ class EnvironmentModel():
         '''
         pass
 
+    def get_param(self, factored_state): # define in the subclass function
+        return
+
     def get_done(self, factored_state):
         return factored_state['Done'][-1]
 
@@ -77,6 +80,7 @@ class EnvironmentModel():
 
     def get_action(self, factored_state):
         return factored_state['Action'][-1]
+
 
 
     def step(self, action):

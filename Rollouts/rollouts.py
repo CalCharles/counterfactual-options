@@ -48,6 +48,12 @@ class Rollouts():
             self.values[n] = self.values[n].detach().cuda()
         return self
 
+    def cpu(self):
+        self.iscuda = False
+        for n in self.names:
+            self.values[n] = self.values[n].detach().cpu()
+        return self
+
     def initialize_shape(self, shape_dict, create=False):
         if create:
             self.values = ObjDict({n: self.init_or_none(shape_dict[n]) for n in self.names})
@@ -90,7 +96,21 @@ class Rollouts():
         self.insert(self.at, kwargs)
         self.at = (self.at + 1) % self.length
 
-    def insert_rollout(self, other, i=-1, j=-1, a=-1, add=False):
+    def insert_value(self, i, j, a, name, other):
+        # insert to handle wraparound
+        space = min(self.length-i, a)
+        if len(other.shape) == 1: # put in a dimension to a length n vector to be n x 1
+            other = other.unsqueeze(1)
+        if space > 0:
+            self.values[name][i:i+space] = other[j:j+space]
+        wrap = a - (self.length - i)
+        if self.wrap and wrap > 0 and self.filled == self.length: # only allows single wrap
+            self.values[name][:wrap] = other[j+space:j+space+wrap]
+        # print(i, i + space, wrap, j, j + space, j + space+ wrap)
+        # print("other", other[j:j+space])
+        # print("values",self.values[name][i:i+space] )
+
+    def insert_rollout(self, other, i=-1, j=-1, a=-1, add=False, name=""):
         # insert the other rollout at location i starting from location j in the other rollout with amount a
         # if a is negative use the filled amount of other
         if a < 1:
@@ -99,10 +119,13 @@ class Rollouts():
             i = self.at
         if j < 0: # used the last one, invalid if at is 0
             j = other.at - 1 if other.at != 0 else other.filled - 1
-        for n in self.names:
-            # append as much as fits
-            space = min(self.length-i, a)
-            self.values[n][i:i+space] = other.get_values(n)[j:j+space]
+        if len(name) != 0:
+            self.insert_value(i, j, a, name, other.get_values(name))
+        else:
+            for n in self.names:
+                # append as much as fits
+                space = min(self.length-i, a)
+                self.values[n][i:i+space] = other.get_values(n)[j:j+space]
         if add:
             self.at = (self.at + a) % self.length
             self.filled = min(self.filled + a, self.length)
@@ -144,7 +167,7 @@ class Rollouts():
             rollout.cuda()
         for n in self.names:
             if self.values[n] is not None:
-                rollout.values[n] = self.values[n][idxes.tolist()]
+                rollout.values[n] = self.values[n][idxes.tolist()].clone().detach()
         rollout.filled = len(idxes)
         return rollout
 

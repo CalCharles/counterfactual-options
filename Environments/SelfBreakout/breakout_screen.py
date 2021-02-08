@@ -131,7 +131,7 @@ class Screen(RawEnvironment):
                 self.render_frame()
         self.itr += 1
         frame, extracted_state = self.get_state()
-        if len(self.save_path) != 0 and i == 0:
+        if len(self.save_path) != 0:
             if self.itr == 0:
                 object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
                 object_dumps.close()

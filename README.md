@@ -42,3 +42,15 @@ python construct_hypothesis_model.py --dataset-dir data/random/ --log-interval 5
 python add_option.py --dataset-dir data/random/ --object Paddle --option-type model --buffer-steps 5 --num-steps 5 --gamma .1 --batch-size 5 --record-rollouts data/paddle --num-iters 1000
 
 python add_option.py --dataset-dir data/interaction_ln/ --object Paddle --option-type model --buffer-steps 10 --num-steps 10 --gamma .99 --batch-size 10 --record-rollouts data/paddle --num-iters 100000 --terminal-type comb --reward-type comb --parameterized-lambda 0.1 --epsilon-close 1 --time-cutoff 100 --set-time-cutoff --init-form xnorm --train --normalize --num-layers 2 --factor 8 > train2.txt
+
+python add_option.py --dataset-dir data/interaction_ln/ --object Paddle --option-type model --buffer-steps 10000 --num-steps 10 --gamma .99 --batch-size 10 --record-rollouts data/paddle --num-iters 100000 --terminal-type comb --reward-type comb --parameterized-lambda 0.1 --epsilon-close 1 --time-cutoff 20 --set-time-cutoff --init-form xnorm --train --normalize  --num-layers 2 --factor 8 --learning-type her --grad-epochs 5 --warm-up 100
+
+python add_option.py --dataset-dir data/interaction_ln/ --object Paddle --option-type model --buffer-steps 100000 --num-steps 15 --gamma .99 --batch-size 5 --record-rollouts data/paddle --num-iters 1001 --terminal-type comb --reward-type comb --parameterized-lambda 100 --epsilon-close 1 --time-cutoff 15 --set-time-cutoff --init-form xnorm --train --normalize  --num-layers 3 --factor 8 --learning-type her --grad-epoch 4 --warm-up 1000 --warm-update 10000 --lr 1e-5 --epsilon .2 --behavior-type greedyQ --return-form none --Q-critic --select-positive .5 --gpu 1 --save-graph data/diff_small/ --save-interval 1001 --save-dir data/small_option
+
+Nav2D:
+python add_option.py --object Raw --option-type raw --true-environment --env Nav2D --buffer-steps 100000 --num-steps 50 --gamma .99 --batch-size 16 --record-rollouts data/paddle --num-iters 1000 --terminal-type true --reward-type true --epsilon-close 1 --time-cutoff 50 --set-time-cutoff --init-form xnorm --train --normalize --policy-type grid --learning-type her --grad-epoch 20 --warm-up 10 --warm-update 100 --lr 1e-5 --epsilon .2 --behavior-type greedyQ --return-form none --Q-critic --select-positive .5 --gpu 1 --epsilon-schedule 2000 --double_Q
+
+conda create -n cv python=3.7.9
+conda install pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch
+conda install imageio
+pip install opencv-python

@@ -54,7 +54,7 @@ class Logger:
         self.logger_rollout = RLRollouts(args.log_interval * args.num_steps, option.rollouts.shapes)
 
 
-    def log(self, i, interval, steps, policy_loss, rollouts, true_rewards, true_dones):
+    def log(self, i, epsilon, interval, steps, policy_loss, rollouts, true_rewards, true_dones, true_success):
         true_rewards = np.array(true_rewards)
         total_elapsed = i * self.num_steps
         end = time.time()
@@ -64,8 +64,11 @@ class Logger:
         self.length += length
         if i % interval == 0:
             final_rewards = self.logger_rollout.get_values('reward')
-            el, vl, al = policy_loss.entropy_loss, policy_loss.value_loss, policy_loss.action_loss
-            logvals = "Updates {}, num timesteps {}, FPS {}, mean/median reward {:.3f}/{:.3f}, min/max reward {:.1f}/{:.1f}, entropy {}, value loss {}, policy loss {}, true_reward median: {}, mean: {}, episode: {}".format(
+            if policy_loss is not None:
+                el, vl, al = policy_loss.entropy_loss, policy_loss.value_loss, policy_loss.action_loss
+            else:
+                el, vl, al = None, None, None
+            logvals = "Updates {}, num timesteps {}, FPS {}, mean/median reward {:.3f}/{:.3f}, min/max reward {:.1f}/{:.1f}, entropy {}, value loss {}, policy loss {}, true_reward median: {}, mean: {}, episode: {}, success: {}, epsilon: {}".format(
                 i,
                 total_elapsed,
                 int(self.args.num_steps*interval / (end - self.start)),
@@ -78,7 +81,9 @@ class Logger:
                 al,
                 np.median(true_rewards),
                 np.mean(true_rewards),
-                np.sum(true_rewards) / np.sum(true_dones)
+                np.sum(true_rewards) / np.sum(true_dones),
+                np.sum(true_success) / 100,
+                epsilon
             )
             self.start = end
             print(logvals)
@@ -91,14 +96,13 @@ class Logger:
 def trainRL(args, rollouts, logger, environment, environment_model, option, learning_algorithm, names, graph):
     # initialize states. input state/stack goes to the policy, diff state keeps last two states
     # full state, last full state goes into the ground truth forward model
-    input_state = pytorch_model.wrap(environment_model.get_flattened_state(names=names), cuda=args.cuda)
-    diff_state = pytorch_model.wrap(environment_model.get_flattened_state(names=[names[0]]), cuda=args.cuda)
+    # input_state = pytorch_model.wrap(environment_model.get_flattened_state(names=names), cuda=args.cuda)
+    # diff_state = pytorch_model.wrap(environment_model.get_flattened_state(names=[names[0]]), cuda=args.cuda)
     full_state = environment_model.get_factored_state()
     last_full_state = environment_model.get_factored_state()
 
-
     # refactor this into the option section
-    if option.object_name == 'Raw':
+    if option.object_name == 'Stack':
         stack = torch.zeros([4,84,84]).detach()
         if args.cuda:
             stack = stack.cuda()
@@ -109,12 +113,13 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
     true_rewards = deque(maxlen=1000)
     true_dones = deque(maxlen=1000)
     done_lengths = deque(maxlen=1000)
+    success = deque(maxlen=100)
     done_count = 0
 
-    # 
-    object_state, next_object_state = None, None
+    # set some base values
     last_done = True
     done = True
+    ep = args.epsilon
 
     # policy loss is for logging purposes only
     policy_loss = PolicyLoss(None, None, None, None, None, None)
@@ -142,37 +147,71 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
             next_full_state = environment_model.get_factored_state()
             true_rewards.append(environment.reward), true_dones.append(true_done)
 
-            # progress the option and then calculate if terminated
-            dones, rewards = option.terminate_reward(next_full_state, param, action_chain)
-            done, last_done = dones[-1], dones[-2]
-
             # done count measures number of terminations
             option.step_timer(done)
-            done_count += 1
-            if done:
-                done_lengths.append(done_count)
-                done_count = 0
+
+            # progress the option and then calculate if terminated
+            dones, rewards = option.terminate_reward(next_full_state, param, action_chain)
+            done, last_done = dones[-1], 1 if len(dones) < 2 else dones[-2] # use the last option's done if it exists
+
 
             # refactor this into the option part
             option.record_state(full_state, next_full_state, action_chain, rl_outputs, param, rewards, dones)
             if args.train: # it may be necessary for the learning algorithm to in parallel store state information
-                learning_algorithm.record_state(full_state, next_full_state, action_chain, rl_outputs, param, rewards, dones)
+                learning_algorithm.record_state(i, full_state, next_full_state, action_chain, rl_outputs, param, rewards, dones)
+            state = pytorch_model.unwrap(option.rollouts.values.state[option.rollouts.at-1].reshape(20,20,3))
+            # state = pytorch_model.unwrap(full_state["Frame"])
+            # state[0,0,1] = 1
+            # cv2.imshow('Example - Show image in window',state * 255)
+            # cv2.imshow('Example - Show image in window',frame* 255)
+            # cv2.waitKey(1)
+            # print("showing", i)
+            # print(i*args.num_iters + j, option.get_state(full_state), dones, rewards, action_chain)
+            # print("true", option.rollouts.get_values("action")[-5:], option.rollouts.get_values("state")[-5:], option.rollouts.get_values("next_state")[-5:], "obj", option.rollouts.get_values("object_state")[-5:], option.rollouts.get_values("next_object_state")[-5:], "param", option.rollouts.get_values("param")[-5:], option.rollouts.get_values("done")[-5:], option.rollouts.get_values("reward")[-5:])
+            # print("learning", learning_algorithm.rollouts.get_values("action")[-5:], learning_algorithm.rollouts.get_values("state")[-5:], learning_algorithm.rollouts.get_values("next_state")[-5:], "obj", learning_algorithm.rollouts.get_values("object_state")[-5:], learning_algorithm.rollouts.get_values("next_object_state")[-5:], "param", learning_algorithm.rollouts.get_values("param")[-5:], learning_algorithm.rollouts.get_values("done")[-5:], learning_algorithm.rollouts.get_values("reward")[-5:])
+            done_count += 1
+            if done:
+                done_lengths.append(done_count)
+                # print("r1", option.rollouts.get_values("reward")[-done_count:])
+                # print(option.rollouts.get_values("done")[-done_count:])
+                # print(option.rollouts.get_values("state")[-dx`xone_count:])
+                # print(option.rollouts.get_values("param")[-done_count:])
+                done_count = 0
+                if j == args.num_steps - 1:
+                    success.append(0)
+                else:
+                    success.append(1)
+                    if args.true_environment: # end on done
+                        break
+            
             full_state = next_full_state
-
-
+            # if done:
+            #     print("r2", learning_algorithm.rollouts.get_values("reward")[-done_count:])
+            #     print(learning_algorithm.rollouts.get_values("done")[-done_count:])
+            #     error
         if args.return_form != "none":
             input_state = option.get_state(full_state, form=1, inp=0)
             next_value = option.forward(input_state.unsqueeze(0), param.unsqueeze(0)).values
             option.compute_return(args.gamma, return_update, args.num_steps, next_value, return_max = 128, return_form=args.return_form)
-        if option.rollouts.get_values("reward").sum() > 0:
-            print("located reward: ", option.timer)
+        # if option.rollouts.get_values("done")[-args.num_steps:].sum() > 0:
+        #     print("located reward: ", option.timer)
+        #     print(option.rollouts.get_values("reward"))
+        #     print(learning_algorithm.rollouts.get_values("reward"))
 
         if i >= args.warm_up:
-            if args.epsilon_schedule > 0 and i % args.epsilon_schedule == 0:
-                args.epsilon = args.epsilon * .5
-                print("epsilon", args.epsilon)
+            if i == args.warm_up:
+                args.epsilon = ep
+                print("warm updating", args.epsilon)
+                option.policy.set_mean(option.rollouts)
+                if args.train: # warm updates trains for num steps with the warm-up data
+                    for _ in range(args.warm_updates):
+                        policy_loss = learning_algorithm.step(option.rollouts)
+
+            if args.epsilon_schedule > 0:
+                args.epsilon = ep + (1-ep) * np.exp(-1*(i - args.warm_up)/args.epsilon_schedule)
+                # print("epsilon", args.epsilon)
             option.set_behavior_epsilon(args.epsilon)
-            logger.log(i, args.log_interval, args.num_steps, policy_loss, option.rollouts, true_rewards, true_dones)
+            logger.log(i, args.epsilon, args.log_interval, args.num_steps, policy_loss, option.rollouts, true_rewards, true_dones, success)
             # print("log", time.time() - start)
             # start = time.time()
             if args.train:
@@ -181,6 +220,14 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
                 # start = time.time()
             if args.save_interval > 0 and (i+1) % args.save_interval == 0:
                 option.save(args.save_dir)
-                graph.save_graph(args.save_graph, [args.object])
+                graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
+        elif args.warm_up > 0: # if warming up, take random actions
+            args.epsilon = 1.0
+            option.set_behavior_epsilon(args.epsilon)
+
+        # end episode after num_steps if true_environment
+        if args.true_environment:
+            environment.reset()
+
 
     return done_lengths

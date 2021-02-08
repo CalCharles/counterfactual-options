@@ -1,6 +1,7 @@
 # termination conditions
 import numpy as np
-import os, cv2, time
+import os, cv2, time, torch
+from ReinforcementLearning.Policy.policy import pytorch_model
 
 class Termination():
 	def __init__(self, **kwargs):
@@ -36,13 +37,13 @@ class ParameterizedStateTermination(Termination):
 			dataset_model.observed_both[self.name], dataset_model.both_counts[self.name] = self.discrete_parameters, self.counts 
 		elif self.use_diff:
 			self.discrete_parameters, self.counts = assign_dict(dataset_model.observed_differences[self.name], dataset_model.difference_counts[self.name])
-			print(dataset_model.observed_differences[self.name], dataset_model.difference_counts[self.name], self.discrete_parameters)
+			# print(dataset_model.observed_differences[self.name], dataset_model.difference_counts[self.name], self.discrete_parameters)
 			dataset_model.observed_differences[self.name], dataset_model.difference_counts[self.name] = self.discrete_parameters, self.counts 
 		else:
 			self.discrete_parameters, self.counts = assign_dict(dataset_model.observed_outcomes[self.name], dataset_model.outcome_counts[self.name])
 			dataset_model.observed_outcomes[self.name], dataset_model.outcome_counts[self.name] = self.discrete_parameters, self.counts 
 
-	def check(self, input_state, state, param): # handling diff/both outside
+	def check(self, input_state, state, param, true_done=0): # handling diff/both outside
 		# param = self.convert_param(param)
 		# if self.use_both:
 			# if len(diff.shape) == 1:
@@ -68,7 +69,7 @@ class InteractionTermination(Termination):
 		self.interaction_model = kwargs["dataset_model"]
 		self.epsilon = kwargs["epsilon"]
 
-	def check(self, input_state, state, param):
+	def check(self, input_state, state, param, true_done=0):
 		interaction_pred = self.interaction_model(input_state)
 		return interaction_pred > 1 - self.epsilon
 
@@ -76,18 +77,26 @@ class CombinedTermination(Termination):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 		self.dataset_model = kwargs["dataset_model"]
+		self.epsilon = kwargs["epsilon"]
 		self.interaction_model = self.dataset_model.interaction_model
 		self.parameterized_termination = ParameterizedStateTermination(**kwargs)
 		self.interaction_probability = kwargs["interaction_probability"]
 
-	def check(self, input_state, state, param):
+	def check(self, input_state, state, param, true_done=0):
 		# terminates if the parameter matches and interaction is true
 		# has some probability of terminating if interaction is true
-		interaction_pred = self.interaction_model(input_state)
-		if np.random.rand() < interaction_pred:
-			param_term = self.parameterized_termination.check(input_state, state, param)
-			if param_term == 1 or (param_term == 0 and np.random.rand() < interaction_pred and interaction_pred > self.interaction_probability):
-				return 1
-		return 0
+		interaction_pred = self.interaction_model(input_state).squeeze() 
+		inter = interaction_pred > 1 - self.epsilon
+		param_term = self.parameterized_termination.check(input_state, state, param)
+		if self.interaction_probability > -1:
+			chances = pytorch_model.wrap(torch.rand(interaction_pred.shape) > self.interaction_probability, cuda=self.dataset_model.iscuda)
+			chosen = inter * chances + param_term * inter
+			chosen[chosen > 1] = 1
+			return chosen
+		return inter * param_term
 
-terminal_forms = {'param': ParameterizedStateTermination, 'comb': CombinedTermination}
+class TrueTermination(Termination):
+	def check(self, input_state, state, param, true_done=0):
+		return true_done
+
+terminal_forms = {'param': ParameterizedStateTermination, 'comb': CombinedTermination, 'true': TrueTermination}

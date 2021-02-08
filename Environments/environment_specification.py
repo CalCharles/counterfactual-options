@@ -20,6 +20,7 @@ class RawEnvironment():
         self.recycle = 0 # if we don't want to save all of the data
         self.save_path = "" # save dir also is set using set_save
         self.episode_rewards = deque(maxlen=10) # the episode rewards for the last 10 episodes
+        self.reshape = (-1) # the shape of an observation
 
     def step(self, action):
         '''
