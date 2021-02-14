@@ -13,6 +13,8 @@ from ReinforcementLearning.Policy.policy import pytorch_model
 from ReinforcementLearning.rollouts import RLRollouts
 from file_management import save_to_pickle
 
+forced_actions = [0, 3, 2, 3, 1, 0, 1, 1, 0, 2, 1, 2, 2, 1, 1, 3, 1, 1, 3, 3, 2, 3, 1, 0, 0, 0, 3, 1, 3, 0, 1, 2, 0, 0, 3, 2, 3, 3, 2, 1, 1, 3, 2, 2, 1, 2, 2, 2, 3, 2, 2, 2, 1, 2, 3, 0, 3, 1, 2, 3, 2, 0, 3, 1, 3, 1, 1, 2, 1, 3, 0, 1, 2, 0, 0, 2, 2, 3, 2, 1, 0, 0, 1, 3, 2, 0, 2, 2, 3, 1, 1, 0, 2, 1, 3, 2, 1, 2, 2, 2, 0]
+
 class PolicyLoss():
     def __init__(self, value_loss, action_loss, q_loss, dist_entropy, entropy_loss, action_log_probs):
         self.value_loss, self.action_loss, self.q_loss, self.dist_entropy, self.entropy_loss, self.action_log_probs = value_loss, action_loss, q_loss, dist_entropy, entropy_loss, action_log_probs
@@ -68,7 +70,7 @@ class Logger:
                 el, vl, al = policy_loss.entropy_loss, policy_loss.value_loss, policy_loss.action_loss
             else:
                 el, vl, al = None, None, None
-            logvals = "Updates {}, num timesteps {}, FPS {}, mean/median reward {:.3f}/{:.3f}, min/max reward {:.1f}/{:.1f}, entropy {}, value loss {}, policy loss {}, true_reward median: {}, mean: {}, episode: {}, success: {}, epsilon: {}".format(
+            logvals = "Updates {}, num timesteps {}, FPS {}, mean/median reward {:.3f}/{:.3f}, min/max reward {:.2f}/{:.2f}, entropy {}, value loss {}, policy loss {}, true_reward median: {:.3f}, mean: {:.3f}, episode: {:.2f}, success: {:.2f}, epsilon: {}".format(
                 i,
                 total_elapsed,
                 int(self.args.num_steps*interval / (end - self.start)),
@@ -140,6 +142,11 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
             # use the correct termination for updating the diff (internaly in option?)
             action_chain, rl_outputs = option.sample_action_chain(full_state, param)
 
+            # # REMOVE forced actions
+            # action_chain[-1] = torch.tensor(forced_actions[j + i * args.num_steps]).cuda()
+            # # REMOVE ABOVE
+
+
             # step the environment
             option.step(full_state, action_chain)
             frame, factored, true_done = environment.step(action_chain[0].cpu().numpy())
@@ -157,14 +164,14 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
 
             # refactor this into the option part
             option.record_state(full_state, next_full_state, action_chain, rl_outputs, param, rewards, dones)
-            if args.train: # it may be necessary for the learning algorithm to in parallel store state information
+            if args.train and i >= args.warm_up: # it may be necessary for the learning algorithm to in parallel store state information
                 learning_algorithm.record_state(i, full_state, next_full_state, action_chain, rl_outputs, param, rewards, dones)
-            state = pytorch_model.unwrap(option.rollouts.values.state[option.rollouts.at-1].reshape(20,20,3))
+            # state = pytorch_model.unwrap(option.rollouts.values.state[option.rollouts.at-1].reshape(20,20,3))
             # state = pytorch_model.unwrap(full_state["Frame"])
             # state[0,0,1] = 1
             # cv2.imshow('Example - Show image in window',state * 255)
             # cv2.imshow('Example - Show image in window',frame* 255)
-            # cv2.waitKey(1)
+            # cv2.waitKey(100)
             # print("showing", i)
             # print(i*args.num_iters + j, option.get_state(full_state), dones, rewards, action_chain)
             # print("true", option.rollouts.get_values("action")[-5:], option.rollouts.get_values("state")[-5:], option.rollouts.get_values("next_state")[-5:], "obj", option.rollouts.get_values("object_state")[-5:], option.rollouts.get_values("next_object_state")[-5:], "param", option.rollouts.get_values("param")[-5:], option.rollouts.get_values("done")[-5:], option.rollouts.get_values("reward")[-5:])
@@ -177,6 +184,7 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
                 # print(option.rollouts.get_values("state")[-dx`xone_count:])
                 # print(option.rollouts.get_values("param")[-done_count:])
                 done_count = 0
+                # print(dones, j, environment.done)
                 if j == args.num_steps - 1:
                     success.append(0)
                 else:
@@ -199,6 +207,11 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
         #     print(learning_algorithm.rollouts.get_values("reward"))
 
         if i >= args.warm_up:
+            # batch = option.rollouts.get_values("state").reshape(-1,20,20,3)
+            # for i in range(100):
+            #     print(i)
+            #     cv2.imshow("buffer states", pytorch_model.unwrap(batch[i]))
+            #     cv2.waitKey(200)
             if i == args.warm_up:
                 args.epsilon = ep
                 print("warm updating", args.epsilon)

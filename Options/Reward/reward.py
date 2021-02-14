@@ -49,14 +49,17 @@ class CombinedReward(Reward):
 		self.interaction_reward = InteractionReward(**kwargs)
 		self.parameterized_reward = BinaryParameterizedReward(**kwargs)
 		self.lmbda = kwargs["parameterized_lambda"]
-		self.interaction_probability = kwargs["interaction_minimum"]
+		self.reward_constant = kwargs["reward_constant"]
 
 	def get_reward(self, input_state, state, param, true_reward=0):
 		ireward = self.interaction_reward.get_reward(input_state, state, param)
 		preward = self.parameterized_reward.get_reward(input_state, state, param)
-		interaction_reward = ireward > self.interaction_probability - 1 # only give parameterized reward at interactions
-		# print(ireward * self.lmbda, preward, interaction_reward, self.interaction_probability, state, param)
-		return ireward * self.lmbda + preward * interaction_reward
+		interacting = self.interaction_reward.interaction_model(input_state)
+		# interaction_reward = (ireward > self.interaction_probability).float() - 1 # only give parameterized reward at interactions
+		
+		# print(ireward * self.lmbda, preward, interaction_reward, )
+		# print(ireward, preward, interacting)
+		return ireward * self.lmbda + preward * interacting.squeeze() + self.reward_constant
 
 class TrueReward(Reward):
 	def __init__(self, **kwargs):

@@ -16,9 +16,10 @@ class OptionEdge():
         self.tail = tail
 
 class OptionGraph():
-    def __init__(self, nodes, edges):
+    def __init__(self, nodes, edges, cfs):
         self.nodes = nodes
         self.edges = edges
+        self.cfs = cfs
 
     def add_node(self, node):
         self.nodes[node.name] = node

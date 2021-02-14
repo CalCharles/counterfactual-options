@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-import time, copy
+import time, copy, cv2
 
 class ObjDict(dict):
     def __init__(self, ins_dict=None):
@@ -201,8 +201,10 @@ class Rollouts():
             return torch.cat([self.values[name][self.at:], self.values[name][:self.at]], dim=0)
         return self.values[name][:self.filled]
 
-    def get_batch(self, n, weights=None, ordered=False):
-        if ordered:
+    def get_batch(self, n, weights=None, ordered=False, idxes=[]):
+        if len(idxes) > 0:
+            pass
+        elif ordered:
             # idxes = np.arange(self.filled)[self.filled-n:]
             # if self.filled==self.length:
             idxes = np.flip((self.at - np.arange(n) - 1) % self.filled) 

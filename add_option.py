@@ -58,9 +58,9 @@ if __name__ == '__main__':
     except OSError as e:
         actions = PrimitiveOption(None, models, "Action")
         nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}
-        graph = OptionGraph(nodes, dict())
+        graph = OptionGraph(nodes, dict(), dataset_model.controllable)
     termination = terminal_forms[args.terminal_type](use_diff=args.use_both==1, use_both=args.use_both==2, name=args.object, min_use=args.min_use, dataset_model=dataset_model, epsilon=args.epsilon_close, interaction_probability=args.interaction_probability)
-    reward = reward_forms[args.reward_type](use_diff=args.use_both==1, epsilon=args.epsilon_close, parameterized_lambda=args.parameterized_lambda, interaction_model=dataset_model.interaction_model, interaction_minimum=dataset_model.interaction_minimum) # using the same epsilon for now, but that could change
+    reward = reward_forms[args.reward_type](use_diff=args.use_both==1, epsilon=args.epsilon_close, parameterized_lambda=args.parameterized_lambda, reward_constant= args.reward_constant, interaction_model=dataset_model.interaction_model, interaction_minimum=dataset_model.interaction_minimum) # using the same epsilon for now, but that could change
     print (dataset_model.name)
     option_name = dataset_model.name.split("->")[0]
     names = [args.object, option_name]
@@ -72,6 +72,8 @@ if __name__ == '__main__':
     else:
         option = graph.nodes[args.object].option
         self.assign_models(models)
+
+
     option.time_cutoff = args.time_cutoff
     rl_shape_dict = get_RL_shapes(option, environment_model)
     rollouts = RLRollouts(args.buffer_steps, rl_shape_dict)
@@ -81,6 +83,8 @@ if __name__ == '__main__':
         policy = policy_forms[args.policy_type](**vars(args)) # default args?
     else:
         policy = option.policy
+
+
     if args.cuda:
         policy.cuda()
         rollouts = rollouts.cuda()
@@ -94,6 +98,7 @@ if __name__ == '__main__':
         graph.nodes[args.object] = OptionNode(args.object, option, action_shape = option.action_shape)
     else:
         graph.load_environment_model(environment_model)
+    
     print(load_option, option.policy)
     logger = Logger(args, option)
     learning_algorithm = learning_algorithms[args.learning_type](args, option)

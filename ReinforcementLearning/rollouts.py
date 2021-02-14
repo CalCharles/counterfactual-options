@@ -9,7 +9,7 @@ def get_RL_shapes(option, environment_model):
     if option.object_name == "Raw":
         # state_size = [4,84,84]
         state_size = [environment_model.state_size]
-        shapes["state_diff"], shapes["object_state"], shapes["next_object_state"] = ([environment_model.object_sizes["Action"]], [environment_model.object_sizes["Action"]], [environment_model.object_sizes["Action"]])
+        shapes["state_diff"], shapes["object_state"], shapes["next_object_state"] = ([environment_model.object_sizes["Action"]], [environment_model.object_sizes["Object"]], [environment_model.object_sizes["Object"]])
         param_shape = [environment_model.param_size]
     else:
         state_size = [option.dataset_model.gamma.output_size()] #[environment_model.object_sizes[option.object_name] + environment_model.object_sizes[option.next_option.object_name]]
@@ -75,9 +75,8 @@ class RLRollouts(Rollouts):
                 add_idxes = [(i - j) for j in range(min(i+1, return_max))]
             # stop computing returns at first dones
             nearest_done = torch.nonzero(self.values.done[add_idxes].squeeze())
-            if nearest_done.shape[0] > 0:
-                # print(nearest_done)
-                add_idxes = add_idxes[:nearest_done[0]]
+            if nearest_done.shape[0] > 0 and nearest_done.shape[1] > 0:
+                add_idxes = add_idxes[:nearest_done[0].squeeze()]
             # print(cutoff, self.at, self.filled, start_at, num_update, indexes, add_idxes, last_values[:len(add_idxes)], self.wrap)
             # self.values.returns[start_at:start_at + i + 1] += (torch.pow(gamma,last_values[-i-1:]) * rew).unsqueeze(1).detach()
             
@@ -92,6 +91,9 @@ class RLRollouts(Rollouts):
                 add_idxes = [(start_at + num_update - j - 1) % self.length for j in range(return_max)] # count backwards, but loop to the beginning
             else:
                 add_idxes = [(start_at + num_update - j - 1) for j in range(min(i+1, return_max))]
+                # if (start_at + num_update - 1) > self.length: # edge case where updating last value
+                #     add_idxes.pop(0)
+                #     add_idxes = [0] + add_idxes
 
             # print(self.wrap, add_idxes, cutoff, return_max, self.length)
             # self.values.returns[add_idxes] += (torch.pow(gamma,last_values[-len(add_idxes):]) * next_value.squeeze()).detach().unsqueeze(1)

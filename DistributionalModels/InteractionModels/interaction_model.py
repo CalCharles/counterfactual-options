@@ -526,7 +526,7 @@ class NeuralInteractionForwardModel(nn.Module):
         super().__init__()
         self.gamma = kwargs['gamma']
         self.delta = kwargs['delta']
-        self.controllable = kwargs['controllable']
+        self.controllable = kwargs['controllable'] # controllable features USED FOR (BEFORE) training
         self.environment_model = kwargs['environment_model']
         self.forward_model = forward_nets[kwargs['forward_class']](**kwargs)
         norm_fn, num_inputs = kwargs['normalization_function'], kwargs['num_inputs']
@@ -551,6 +551,7 @@ class NeuralInteractionForwardModel(nn.Module):
         self.interaction_prediction = kwargs['interaction_prediction']
         self.active_epsilon = kwargs['active_epsilon'] # minimum l2 deviation to use the active values
         self.iscuda = kwargs["cuda"]
+        self.sample_continuous = True
         self.selection_binary = pytorch_model.wrap(torch.zeros((self.delta.output_size(),)), cuda=self.iscuda)
         if self.iscuda:
             self.cuda()
@@ -559,7 +560,7 @@ class NeuralInteractionForwardModel(nn.Module):
         self.predict_dynamics = False
         self.name = ""
         self.control_feature = None
-        self.cfselectors = list() # control feature selectors which the model captures the control of these selectors after training
+        self.cfselectors = list() # control feature selectors which the model captures the control of these selectors AFTER training
         self.feature_selector = None
         self.selection_binary = None
 
@@ -859,8 +860,8 @@ class DummyModel(InteractionModel):
     def __init__(self,**kwargs):
         self.environment_model = kwargs['environment_model']
         self.gamma = self.environment_model.get_raw_state
-        self.delta = self.environment_model.get_param
-        self.controllable = None
+        self.delta = self.environment_model.get_object
+        self.controllable = list()
         self.name = "RawModel"
         self.selection_binary = torch.ones([1])
         self.interaction_model = None

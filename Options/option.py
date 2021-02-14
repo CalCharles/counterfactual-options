@@ -180,8 +180,6 @@ class Option():
         if self.time_cutoff > 0:
             if self.timer == self.time_cutoff - 1:
                 done = 1
-        if done:
-            print("Terminated: ", self.timer)
         dones = last_dones + [done]
         rewards = last_rewards + [reward]
         return dones, rewards
@@ -318,15 +316,15 @@ class RawOption(Option):
     def get_state_dict(self, state, next_state, action_chain, rl_outputs, param, rewards, dones): # also used in HER
             return {'state': self.get_state(state, form=FEATURIZED, inp=INPUT_STATE),
                 'next_state': self.get_state(next_state, form=FEATURIZED, inp=INPUT_STATE),
-                'object_state': state["Action"],
-                'next_object_state': next_state["Action"],
+                'object_state': state["Object"],
+                'next_object_state': next_state["Object"],
                 'state_diff': state["Action"], # storing some dummy information
                 'true_action': action_chain[0],
                 'true_reward': rewards[0],
                 'true_done': dones[0],
                 'action': action_chain[-1],
-                'probs': rl_outputs[-1].probs[0],
-                'Q_vals': rl_outputs[-1].Q_vals[0],
+                'probs': None if rl_outputs[-1].probs is None else rl_outputs[-1].probs[0],
+                'Q_vals': None if rl_outputs[-1].Q_vals is None else rl_outputs[-1].Q_vals[0],
                 'param': param, 
                 'mask': self.dataset_model.get_active_mask(), 
                 'reward': rewards[-1], 
@@ -336,7 +334,7 @@ class RawOption(Option):
     def get_param(self, full_state, done):
         if done:
             self.param = self.environment_model.get_param(full_state)
-            return self.param, pytorch_model.wrap([1,], cuda=self.iscuda)
+            return pytorch_model.wrap(self.param, cuda=self.iscuda), pytorch_model.wrap([1,], cuda=self.iscuda)
 
     def get_possible_parameters(self):
         if self.iscuda:
@@ -377,7 +375,7 @@ class RawOption(Option):
     # The definition of this function has changed
     def get_action(self, action, mean, variance):
         idx = action
-        return mean[torch.arange(mean.size(0)), idx.squeeze().long()], torch.log(mean[torch.arange(mean.size(0)), idx.squeeze().long()])
+        return mean[torch.arange(mean.size(0)), idx.squeeze().long()], None#torch.log(mean[torch.arange(mean.size(0)), idx.squeeze().long()])
 
 class DiscreteCounterfactualOption(Option):
     def __init__(self, policy_reward, models, object_name, temp_ext=False):

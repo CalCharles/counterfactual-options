@@ -86,13 +86,14 @@ class CombinedTermination(Termination):
 		# terminates if the parameter matches and interaction is true
 		# has some probability of terminating if interaction is true
 		interaction_pred = self.interaction_model(input_state).squeeze() 
-		inter = interaction_pred > 1 - self.epsilon
+		inter = interaction_pred > (1 - self.epsilon)
 		param_term = self.parameterized_termination.check(input_state, state, param)
-		if self.interaction_probability > -1:
+		if self.interaction_probability > 0:
 			chances = pytorch_model.wrap(torch.rand(interaction_pred.shape) > self.interaction_probability, cuda=self.dataset_model.iscuda)
 			chosen = inter * chances + param_term * inter
 			chosen[chosen > 1] = 1
 			return chosen
+		print(inter, param_term, state, (state - param), self.parameterized_termination.epsilon)
 		return inter * param_term
 
 class TrueTermination(Termination):

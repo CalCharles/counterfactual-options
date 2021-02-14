@@ -26,6 +26,7 @@ def testRL(args, rollouts, logger, environment, environment_model, option, names
     true_dones = deque(maxlen=1000)
     last_done = True
     done = True
+    success = [1]
     for i in range(args.num_iters):
         param, mask = option.get_param(full_state, last_done)
         
@@ -37,16 +38,17 @@ def testRL(args, rollouts, logger, environment, environment_model, option, names
         true_rewards.append(environment.reward), true_dones.append(true_done)
         dones, rewards = option.terminate_reward(next_full_state, param, action_chain)
         done, last_done = dones[-1], dones[-2]
-        print(param, option.get_state(full_state), action_chain[-1], last_done)
         option.step_timer(done)
 
         # refactor this into the option part
         option.record_state(full_state, next_full_state, action_chain, rl_outputs, param, rewards, dones)
+        print(param, option.timer, option.time_cutoff, option.get_state(full_state), action_chain[-1], last_done)
+        # print(option.rollouts.get_values("done")[-1], option.rollouts.get_values("next_state")[-1], option.rollouts.get_values("param")[-1])
 
         full_state = next_full_state
         if args.return_form != "none":
             input_state = option.get_state(full_state, form=1, inp=0)
             next_value = option.forward(input_state.unsqueeze(0), param.unsqueeze(0)).values
-            option.compute_return(args.gamma, option.rollouts.at-1, args.num_steps, next_value, return_max = 128, return_form=args.return_form)
-        logger.log(i, args.log_interval, 1, None, option.rollouts, true_rewards, true_dones)
+            option.compute_return(args.gamma, option.rollouts.at-1, 1, next_value, return_max = 128, return_form=args.return_form)
+        logger.log(i, option.behavior_policy.epsilon, args.log_interval, 1, None, option.rollouts, true_rewards, true_dones, success)
 

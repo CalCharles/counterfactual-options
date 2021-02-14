@@ -7,7 +7,7 @@ class Nav2DEnvironmentModel(EnvironmentModel):
     def __init__(self, nav2d):
         super().__init__(nav2d)
         self.object_names = ["Action", "Pos", "Target", 'Frame', 'Done', "Reward"] # TODO: Reward missing from the objects
-        self.object_sizes = {"Action": 3, "Pos": 3, "Target": 3, 'Frame': (self.environment.N**2)*3, 'Done': 1, "Reward": 1}
+        self.object_sizes = {"Action": 3, "Pos": 3, "Target": 3, 'Frame': (self.environment.N**2)*3, 'Object': self.environment.N**2, 'Done': 1, "Reward": 1}
         self.object_num = {"Action": 1, "Pos": 1, "Target": 1, 'Frame': 1, 'Done': 1, "Reward": 1}
         self.state_size = (self.environment.N**2)*3# sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])
         self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [1], "done": [1]}
@@ -32,6 +32,17 @@ class Nav2DEnvironmentModel(EnvironmentModel):
         else:
             return state[self.enumeration['Frame'][0]*3:self.object_sizes['Frame'] + (self.enumeration['Frame'][0]*3)]
 
+    def get_object(self, factored_state):
+        raw_state = self.get_raw_state(factored_state)
+        if len(raw_state.shape) == 1:
+            raw_state = raw_state.reshape(*self.environment.reshape)
+        elif len(raw_state.shape) == 2:
+            raw_state = raw_state.reshape(-1,*self.environment.reshape)
+        if len(raw_state.shape) == 2:
+            return raw_state[:,:,:,1].flatten()
+        else:
+            return raw_state[:,:,1].flatten()
+
     def get_param(self, factored_state):
         raw_state = self.get_raw_state(factored_state)
         if len(raw_state.shape) == 1:
@@ -49,6 +60,7 @@ class Nav2DEnvironmentModel(EnvironmentModel):
         factored_state["Pos"] = self.environment.pos.tolist() + [1]
         factored_state["Target"] = self.environment.target.tolist() + [1]
         factored_state["Frame"] = self.environment.frame.flatten()
+        factored_state["Object"] = self.environment.frame[:,:,1].flatten()
         factored_state["Done"] = [float(self.environment.done)]
         factored_state["Reward"] = [float(self.environment.reward)]
         return factored_state

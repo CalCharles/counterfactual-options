@@ -10,6 +10,7 @@ from ReinforcementLearning.rollouts import RLRollouts
 import cv2
 import time
 
+b = [[(1, 44), (1, 45), (1, 46), (1, 47)], [(1, 27), (1, 30), (1, 44), (1, 11)], [(0, 22), (0, 90), (0, 52), (0, 62)], [(1, 6), (1, 37), (1, 5), (1, 41)], [(0, 3), (0, 28), (0, 71), (0, 6)], [(1, 9), (1, 16), (1, 28), (1, 21)], [(0, 64), (0, 60), (0, 39), (0, 47)], [(1, 29), (1, 2), (1, 25), (1, 45)], [(0, 68), (0, 4), (0, 82), (0, 23)], [(0, 81), (0, 71), (0, 17), (0, 77)], [(0, 45), (0, 72), (0, 49), (0, 96)], [(1, 36), (1, 30), (1, 19), (1, 1)], [(0, 63), (0, 21), (0, 93), (0, 72)], [(0, 99), (0, 66), (0, 73), (0, 11)], [(0, 25), (0, 18), (0, 26), (0, 25)], [(0, 64), (0, 77), (0, 95), (0, 70)], [(0, 13), (0, 97), (0, 92), (0, 58)], [(0, 49), (0, 37), (0, 42), (0, 19)], [(1, 10), (1, 0), (1, 31), (1, 36)], [(1, 30), (1, 40), (1, 17), (1, 30)], [(0, 0), (0, 57), (0, 62), (0, 70)], [(1, 27), (1, 47), (1, 2), (1, 34)], [(0, 0), (0, 67), (0, 62), (0, 1)], [(1, 18), (1, 24), (1, 37), (1, 11)], [(1, 28), (1, 32), (1, 25), (1, 15)], [(1, 20), (1, 8), (1, 48), (1, 41)], [(0, 6), (0, 31), (0, 89), (0, 52)], [(1, 1), (1, 43), (1, 10), (1, 0)], [(1, 35), (1, 46), (1, 6), (1, 21)], [(1, 4), (1, 16), (1, 22), (1, 26)], [(0, 51), (0, 70), (0, 27), (0, 7)], [(0, 71), (0, 10), (0, 68), (0, 41)], [(1, 28), (1, 40), (1, 15), (1, 10)], [(0, 75), (0, 19), (0, 17), (0, 62)], [(0, 41), (0, 96), (0, 88), (0, 47)], [(1, 12), (1, 29), (1, 29), (1, 49)], [(1, 40), (1, 49), (1, 19), (1, 18)], [(0, 48), (0, 68), (0, 20), (0, 5)], [(0, 43), (0, 39), (0, 61), (0, 38)], [(0, 1), (0, 98), (0, 69), (0, 46)], [(0, 37), (0, 79), (0, 38), (0, 38)], [(1, 2), (1, 5), (1, 7), (1, 23)], [(0, 70), (0, 91), (0, 87), (0, 67)], [(1, 34), (1, 21), (1, 17), (1, 34)], [(0, 94), (0, 24), (0, 90), (0, 35)], [(0, 66), (0, 67), (0, 61), (0, 39)], [(1, 48), (1, 8), (1, 43), (1, 31)], [(1, 31), (1, 32), (1, 31), (1, 34)], [(0, 81), (0, 98), (0, 63), (0, 94)], [(0, 91), (0, 33), (0, 38), (0, 95)]]
 
 class LearningOptimizer():
     def __init__(self, args, option):
@@ -18,6 +19,7 @@ class LearningOptimizer():
         self.optimizer = self.initialize_optimizer(args, self.option.policy)
         self.args = args
         self.i = 0
+        self.updated = 0
 
     def initialize_optimizer(self, args, policy):
         # if args.model_form == "population":
@@ -28,32 +30,34 @@ class LearningOptimizer():
             print("optimparams", args.lr, args.eps, args.alpha)
             return optim.RMSprop(policy.parameters(), args.lr, eps=args.eps, alpha=args.alpha)
         elif args.optim == "Adam":
-            return optim.Adam(policy.parameters(), args.lr)
+            print("using ADAM")
+            # return optim.Adam(policy.parameters(), args.lr)
+            return optim.Adam(policy.parameters(), .0001)
             # return optim.Adam(policy.parameters(), args.lr, eps=args.eps, betas=args.betas, weight_decay=args.weight_decay)
         else:
             raise NotImplementedError("Unimplemented optimization")
 
-    def step_optim(self, loss, q_values):
-        # print("maxgrad", self.args.max_grad_norm)
+    def step_optim(self, loss):
         self.optimizer.zero_grad()
         (loss).backward()
-        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.args.max_grad_norm)
-        # print("Q-values", q_values.grad)
+        # torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.args.max_grad_norm)
         self.optimizer.step()
 
-    def step_optimizer(self, loss, q_values, RL=0):
+    def step_optimizer(self, loss, RL=0):
         '''
         steps the optimizer. This is shared between RL algorithms
         '''
         if RL == 0:
-            self.step_optim(loss, q_values)
+            self.step_optim(loss)
         else:
             raise NotImplementedError("Check that Optimization is appropriate")
         if self.args.double_Q > 0: # double Q learning targets
             if self.args.double_Q > 1: # double Q is a schedule
-                if self.i % self.args.double_Q == 0 and self.i != 0:
+                if self.i % self.args.double_Q == 0 and self.i != 0 and self.updated != self.i:
+                    print("update policy params")
                     new_params = self.policy.state_dict().copy()
                     self.option.policy.load_state_dict(new_params)
+                    self.updated = self.i
             else:
                 old_params = pytorch_model.unwrap(self.option.policy.get_parameters())
                 new_params = pytorch_model.unwrap(self.policy.get_parameters())
@@ -91,41 +95,53 @@ class DQN_optimizer(LearningOptimizer):
 
     def DQN_loss(self, batch):
         # start = time.time()
-        output = self.policy.forward(batch.values.state, batch.values.param)
         # print(time.time() - start)
         # start = time.time()
         next_output = self.option.policy.forward(batch.values.next_state, batch.values.param)
+        next_value = next_output.values
+
+        output = self.policy.forward(batch.values.state, batch.values.param)
         # next_output = self.policy.forward(batch.values.next_state, batch.values.param)
         # print(time.time() - start)
         # start = time.time()
         q_values, _ = self.option.get_action(batch.values.action, output.Q_vals, output.std)
         # print(time.time() - start)
         # start = time.time()
-        q_values.retain_grad()
-        if self.args.double_Q > 0:
-            double_output = self.policy.forward(batch.values.next_state, batch.values.param)
-            next_value, _ = self.option.get_action(double_output.Q_best, next_output.Q_vals, next_output.std)
-        else:
-            next_value = next_output.values
-        # print(double_output.Q_best[0], next_value[0], next_output.values[0])
-        value_estimate = (next_value.detach().squeeze() * self.args.gamma) * (1-batch.values.done.squeeze()) + batch.values.reward.squeeze()
+        # q_values.retain_grad()
+
+        # if self.args.double_Q > 0:
+        #     double_output = self.policy.forward(batch.values.next_state, batch.values.param)
+        #     next_value, _ = self.option.get_action(double_output.Q_best, next_output.Q_vals, next_output.std)
+        # else:
         
+        # print(double_output.Q_best[0], next_value[0], next_output.values[0])
+        value_estimate = (next_value.detach().squeeze() * self.args.gamma) * (1-batch.values.done.squeeze().detach()) + batch.values.reward.squeeze().detach()
+        # np.set_printoptions(threshold=np.inf, precision=3)
+        # print(pytorch_model.unwrap(self.policy.mean.reshape(20,20,3).transpose(2,1).transpose(1,0)))
+        # error
+        # for v in batch.values.state:
+        #     cv2.imshow("mystate", pytorch_model.unwrap(v.reshape(20,20,3)))
+        #     cv2.waitKey(4000)
+        # print(pytorch_model.unwrap(q_values), pytorch_model.unwrap(next_value), pytorch_model.unwrap(value_estimate))
         # print(time.time() - start)
         # start = time.time()
         # print(value_estimate, q_values)
-        q_loss = F.smooth_l1_loss(value_estimate, q_values)#.norm(p=2) / self.args.batch_size
+        q_loss = F.smooth_l1_loss(q_values, value_estimate)#.norm(p=2) / self.args.batch_size
+
         # print(torch.stack((batch.values.object_state.squeeze(), batch.values.next_object_state.squeeze(), batch.values.param.squeeze(), batch.values.action.squeeze(), next_value.squeeze(), value_estimate), dim=1))
         # print("before", torch.cat((output.Q_vals, next_value.unsqueeze(1)), dim=1))
         # print(batch.values.reward.squeeze(), (next_value.detach().squeeze() * self.args.gamma + batch.values.reward.squeeze() - q_values[0].squeeze()).pow(2))
         # print("loss", q_loss, "reward", batch.values.reward.squeeze(), "q_values", q_values, "next_value", next_value.detach() * self.args.gamma)
         # print(time.time() - start)
         # start = time.time()
-        return q_loss, q_values
+        return q_loss
 
     # def record_state(self, state, next_state, action_chain, rl_outputs, param, rewards, dones):
     #     # use record state to measure number of time steps for double-Q updates
-    #     if self.double_Q_counter == self.args.double_Q:
+    #     if self.args.double_Q > 0 self.double_Q_counter == self.args.double_Q:
     #         params = pytorch_model.upwrap(self.policy.get_parameters())
+    #         self.double_Q_counter = 0
+    #     self.double_Q_counter += 1
 
 
     def step(self, rollouts, use_range=None):
@@ -217,7 +233,7 @@ class HER_optimizer(DQN_optimizer):
         self.rollouts.append(**self.option.get_state_dict(state, next_state, action_chain, rl_outputs, param, rewards, dones))
         self.last_done += 1
         # if dones[-1] == 1: # option terminated, resample
-        if self.last_done == self.resample_timer or dones[-1] == 1: # either end of episode or end of timer
+        if (self.last_done == self.resample_timer and self.resample_timer > 0) or dones[-1] == 1: # either end of episode or end of timer
             interacting = True
             if self.use_interact:
                 interact = self.option.dataset_model.interaction_model(self.option.get_state(next_state))
@@ -236,16 +252,97 @@ class HER_optimizer(DQN_optimizer):
                 # print(self.rollouts.at, input_state.shape, object_state.shape, param.shape)
                 self.rollouts.insert_value(last_done_at, 0, num_vals, "done", self.option.termination.check(input_state, object_state, param, true_done))
                 self.rollouts.insert_value(last_done_at, 0, num_vals, "reward", self.option.reward.get_reward(input_state, object_state, param, true_reward))
+                # print(pytorch_model.unwrap(self.rollouts.get_values("reward")[-self.last_done:]))
+                # for i in range(self.last_done):
+                #     # print(self.rollouts.at - self.last_done + i)
+                #     state = new_states[self.rollouts.at - self.last_done + i]
+                #     state[:,:,2] = new_params[self.rollouts.at - self.last_done + i]
+                #     cv2.imshow('Example - Show image in window',pytorch_model.unwrap(state))
+                #     cv2.waitKey(100)
                 # print("inserting", self.option.reward.get_reward(input_state, object_state, param))
                 self.last_done = 0 # resamples as long 
 
     def step(self, rollouts, use_range=None):
         total_loss = 0
-        for _ in range(self.args.grad_epoch):
+        for i in range(self.args.grad_epoch):
+            # loss = self.step_fn(rollouts, i)
             if np.random.random() > self.select_positive:
                 idxes, batch = rollouts.get_batch(self.args.batch_size)
             else:
                 idxes, batch = self.rollouts.get_batch(self.args.batch_size)
+            # vals = np.array([v[1] for v in b[i]])
+            # if b[i][0][0] == 0:
+            #     idxes, batch = rollouts.get_batch(self.args.batch_size, idxes = np.array(vals))
+            # else:
+            #     idxes, batch = self.rollouts.get_batch(self.args.batch_size, idxes = np.array(vals))
+
+            loss = self.DQN_loss(batch)
+            self.step_optimizer(loss, RL=0)
+            total_loss += loss.clone().detach()
+            # print(q_values[0], q_values.grad[0])
+        return PolicyLoss(total_loss/self.args.grad_epoch, None, loss, None, None, None)
+
+    def step_fn(self, rollouts, i):
+            self.optimizer.zero_grad()
+            # if self.policy.QFunction.weight is not None:
+            #     print("before", pytorch_model.unwrap(self.policy.QFunction.weight[:,:9]))
+            # if i == 2:
+            #     error
+            vals = np.array([v[1] for v in b[i]])
+            if b[i][0][0] == 0:
+                idxes, batch = rollouts.get_batch(self.args.batch_size, idxes = np.array(vals))
+            else:
+                idxes, batch = self.rollouts.get_batch(self.args.batch_size, idxes = np.array(vals))
+            
+            S0 = pytorch_model.wrap(pytorch_model.unwrap(batch.values.state), cuda=self.args.cuda)
+            S1 = pytorch_model.wrap(pytorch_model.unwrap(batch.values.next_state), cuda=self.args.cuda)
+            P = pytorch_model.wrap(pytorch_model.unwrap(batch.values.param), cuda=self.args.cuda)
+
+            # next_maxq = self.policy(batch.values.next_state, batch.values.param).Q_vals.max(dim=1)[0]
+
+            next_output = self.option.policy.forward(S1, P)
+            # if self.args.double_Q > 0: 
+            #     double_output = self.policy.forward(batch.values.next_state, batch.values.param)
+            #     next_value, _ = self.option.get_action(double_output.Q_best, next_output.Q_vals, next_output.std)
+            # else:
+            next_value = next_output.Q_vals.max(dim=1)[0]
+
+            value_estimate = (next_value.detach().squeeze() * self.args.gamma) * (1-batch.values.done.squeeze().detach()) + batch.values.reward.squeeze().detach()
+            
+            output = self.policy.forward(S0, P)
+            q_values, _ = self.option.get_action(batch.values.action, output.Q_vals, output.std)
+            q_values.retain_grad()
+            
+            q_loss = F.smooth_l1_loss(q_values.squeeze(), value_estimate.squeeze())#.norm(p=2) / self.args.batch_size
+            (q_loss).backward()
+            # print("before")
+            self.optimizer.step()
+            print(rollouts.filled, b[i][0], vals, 
+                np.argwhere(pytorch_model.unwrap(batch.values.state[0].reshape(20,20,3)[:,:,1]) > 0), 
+                np.argwhere(pytorch_model.unwrap(batch.values.next_state[0].reshape(20,20,3)[:,:,1]) > 0), 
+                np.argwhere(pytorch_model.unwrap(batch.values.param[0].reshape(20,20,1)[:,:,0]) > 0), 
+                pytorch_model.unwrap(batch.values.action.squeeze()),
+                pytorch_model.unwrap(batch.values.reward.squeeze()), pytorch_model.unwrap(batch.values.done.squeeze()),
+                "ve", pytorch_model.unwrap(value_estimate.squeeze()[0]), pytorch_model.unwrap(q_values.squeeze()[0]), 
+                "next", pytorch_model.unwrap(next_value.squeeze()[0]),
+                "grad", pytorch_model.unwrap(q_values.grad[0]), pytorch_model.unwrap(q_loss)) 
+            # print("after", pytorch_model.unwrap(self.policy.QFunction.weight[:,:9]))
+            # print("policy", pytorch_model.unwrap(self.option.policy.QFunction.weight[:,:9]))
+            q_values.detach()
+            return q_loss.detach().item()
+
+
+    def step_fn_old(self, rollouts, i):
+            self.optimizer.zero_grad()
+            # if np.random.random() > self.select_positive:
+            #     idxes, batch = rollouts.get_batch(self.args.batch_size)
+            # else:
+            #     idxes, batch = self.rollouts.get_batch(self.args.batch_size)
+            vals = np.array([v[1] for v in b[i]])
+            if b[i][0][0] == 0:
+                idxes, batch = rollouts.get_batch(self.args.batch_size, idxes = np.array(vals))
+            else:
+                idxes, batch = self.rollouts.get_batch(self.args.batch_size, idxes = np.array(vals))
             # rewards = list()
             # params = list()
             # # params, masks = self.option.dataset_model.sample(batch.values.state, batch.length, both = self.args.use_both == 2, diff=self.args.use_both == 1, name=self.option.object_name)
@@ -266,13 +363,73 @@ class HER_optimizer(DQN_optimizer):
             #     rewards = pytorch_model.wrap(rewards, cuda=self.args.cuda)
             # batch.values.param = params
             # batch.values.reward = rewards
-            q_loss, q_values = self.DQN_loss(batch)
-            self.step_optimizer(q_loss, q_values, RL=0)
-            rloutnext = self.policy.forward(batch.values.state, batch.values.param)
+            # q_loss, q_values = self.DQN_loss(batch)
+
+
+            output = self.policy.forward(batch.values.state, batch.values.param)
+            # print(time.time() - start)
+            # start = time.time()
+            next_output = self.option.policy.forward(batch.values.next_state, batch.values.param)
+            # next_output = self.policy.forward(batch.values.next_state, batch.values.param)
+            # print(time.time() - start)
+            # start = time.time()
+            q_values, _ = self.option.get_action(batch.values.action, output.Q_vals, output.std)
+            # print(time.time() - start)
+            # start = time.time()
+            q_values.retain_grad()
+            if self.args.double_Q > 0:
+                double_output = self.policy.forward(batch.values.next_state, batch.values.param)
+                next_value, _ = self.option.get_action(double_output.Q_best, next_output.Q_vals, next_output.std)
+            else:
+                next_value = next_output.values
+            # print(double_output.Q_best[0], next_value[0], next_output.values[0])
+            value_estimate = (next_value.detach().squeeze() * self.args.gamma) * (1-batch.values.done.squeeze().detach()) + batch.values.reward.squeeze().detach()
+            # np.set_printoptions(threshold=np.inf, precision=3)
+            # print(pytorch_model.unwrap(self.policy.mean.reshape(20,20,3).transpose(2,1).transpose(1,0)))
+            # error
+            # for v in batch.values.state:
+            #     cv2.imshow("mystate", pytorch_model.unwrap(v.reshape(20,20,3)))
+            #     cv2.waitKey(4000)
+            # print(pytorch_model.unwrap(q_values), pytorch_model.unwrap(next_value), pytorch_model.unwrap(value_estimate))
+            # print(time.time() - start)
+            # start = time.time()
+            # print(value_estimate, q_values)
+            q_loss = F.smooth_l1_loss(q_values, value_estimate)#.norm(p=2) / self.args.batch_size
+
+            
+            (q_loss).backward()
+            # torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.args.max_grad_norm)
+            self.optimizer.step()
+            # output = self.policy.forward(batch.values.state, batch.values.param)
+            # next_output = self.option.policy.forward(batch.values.next_state, batch.values.param)
+            # q_values, _ = self.option.get_action(batch.values.action, output.Q_vals, output.std)
+            # print("input", pytorch_model.unwrap(batch.values.state[0].reshape(20,20,3).transpose(2,1).transpose(1,0)))
+            # print(pytorch_model.unwrap(rollouts.get_values("action")).tolist() + pytorch_model.unwrap(self.rollouts.get_values("action")).tolist())
+            # print("before", pytorch_model.unwrap(batch.values.action), 
+            #     pytorch_model.unwrap(output.Q_vals),
+            #     pytorch_model.unwrap(q_values),
+            #     "next", pytorch_model.unwrap(batch.values.reward), pytorch_model.unwrap(batch.values.done),
+            #     pytorch_model.unwrap(next_output.values),
+            #     pytorch_model.unwrap(q_values), pytorch_model.unwrap(q_loss))        
+            # error
+            # self.step_optimizer(q_loss, q_values, RL=0)
+            print(rollouts.filled, b[i][0], vals, 
+                np.argwhere(pytorch_model.unwrap(batch.values.state[0].reshape(20,20,3)[:,:,1]) > 0), 
+                np.argwhere(pytorch_model.unwrap(batch.values.next_state[0].reshape(20,20,3)[:,:,1]) > 0), 
+                np.argwhere(pytorch_model.unwrap(batch.values.param[0].reshape(20,20,1)[:,:,0]) > 0), 
+                pytorch_model.unwrap(batch.values.reward[0]), pytorch_model.unwrap(batch.values.done[0]),
+                pytorch_model.unwrap(q_values[0]), pytorch_model.unwrap(q_values.grad[0]), pytorch_model.unwrap(q_loss))        
+            # batch = rollouts.get_values("state").reshape(-1,20,20,3)
+            # for i in range(100):
+            #     print(i)
+            #     cv2.imshow("buffer states", pytorch_model.unwrap(batch[i]))
+            #     cv2.waitKey(200)
+
+            # cv2.imshow("learn", pytorch_model.unwrap(batch.values.state[0].reshape(20,20,3)))
+            # cv2.waitKey(1000)
+            # rloutnext = self.policy.forward(batch.values.state, batch.values.param)
             # print("after", rloutnext.Q_vals)
-            # total_loss += q_loss
-        print(q_values[0], q_values.grad[0])
-        return PolicyLoss(total_loss/self.args.grad_epoch, None, q_loss, None, None, None)
+            return q_loss.detach()
 
 
 class PPO_optimizer(LearningOptimizer):

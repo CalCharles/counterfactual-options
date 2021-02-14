@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import torch.optim as optim
-import copy, os
+import copy, os, cv2
 from file_management import default_value_arg
 from Networks.network import Network
 
@@ -145,6 +145,10 @@ class Policy(nn.Module):
             # self.insize = self.num_inputs
         else:
             self.insize = self.factor * self.factor * self.factor // min(self.factor, 8)
+        
+        self.insize = 564
+
+
         if self.last_param:
             self.insize += self.param_size
         self.layers = []
@@ -229,7 +233,6 @@ class Policy(nn.Module):
         if self.last_param:
             x = torch.cat((x,param), dim=1)
         std = self.sigma(x)
-        # print("Qvals", Q_vals, values)
         dist = None
         action_values = self.action_eval(x)
         if self.continuous:
@@ -245,18 +248,20 @@ class Policy(nn.Module):
             log_probs = F.log_softmax(action_values, dim=1)
             dist_entropy = action_values - action_values.logsumexp(dim=-1, keepdim=True)
             Q_best = Q_vals.max(dim=1)[1]
+
             # print("act", action_values,"prob", probs, "logp", log_probs,"de", dist_entropy)
         if self.Q_critic:
             values = Q_vals.max(dim=1)[0]
         else:
             values = self.critic_linear(x)
+        # return values, None, None, None, None, None, Q_vals, None, None
         return values, dist_entropy, probs, log_probs, action_values, std, Q_vals, Q_best, dist
 
     def preamble(self, x, p):
         if not self.last_param:
-            # x = torch.cat((x,p), dim=1)
-            y = x - p
-            x = torch.cat((x,y), dim=1)
+            x = torch.cat((x,p), dim=1)
+            # y = x - p
+            # x = torch.cat((x,y), dim=1)
         if self.normalize:
             # x = x - self.mean
             return (x / 84 - .5) * self.scale # normalizes the parameter for better or worse
@@ -265,14 +270,14 @@ class Policy(nn.Module):
     def compute_Q(self, state, action):
         x, p = self.preamble(state, p) # TODO: if necessary, a preamble can be added back in
         x = self.hidden(x, p)
-        return self.Qfunction(x, action)
+        return self.QFunction(x, action)
 
     def hidden(self, x):
         pass # defined in subclass classes
 
     def forward(self, x, p):
         if not self.no_preamble:
-            x = self.preamble(x, p) # TODO: if necessary, a preamble can be added back in
+            x = self.preamble(x, p)
         x = self.hidden(x, p)
         values, dist_entropy, probs, log_probs, action_values, std, Q_vals, Q_best, dist = self.last_layer(x, p)
         return RLoutput(values, dist_entropy, probs, log_probs, action_values, std, Q_vals, Q_best, dist)
@@ -454,14 +459,38 @@ class GridWorldPolicy(Policy):
     def hidden(self,x, p):
         # may need some reassignment logic
         x = x.reshape(-1,*self.reshape)
-        x = x - self.mean.reshape(*self.reshape)
+        np.set_printoptions(threshold=np.inf, precision=4)
+        # print("input")
+        # print(pytorch_model.unwrap(x))
+        x[:,:,:,2] = p.reshape(-1,*self.reshape[:-1])
+        # print("assign parameter")
+        # print(pytorch_model.unwrap(x))
+
+        # x = x - self.mean.reshape(*self.reshape)
+        
+        # state = x.detach().cpu().numpy()[0]
+        # print(np.argwhere(pytorch_model.unwrap(self.mean.reshape(*self.reshape)) != 0))
+        # cv2.imshow("state", pytorch_model.unwrap(x[0].reshape(*self.reshape)) * 255)
+        # cv2.waitKey(200)
+        
         x = x.transpose(3,2).transpose(2,1)
+        
+        # print("transposed")
+        # print(pytorch_model.unwrap(x))
         batch_size = x.shape[0]
         x = F.max_pool2d(F.relu(self.conv1(x)),2)
+        # print("layer 1")
+        # print(pytorch_model.unwrap(x))
         x = F.relu(self.conv2(x))
+        # print("layer 2")
+        # print(pytorch_model.unwrap(x))
         x = F.max_pool2d(F.relu(self.conv3(x)),2)
+        # print("layer 3")
+        # print(pytorch_model.unwrap(x))
         x = x.reshape(batch_size,(self.Chid3*self.H*self.W)//16)
         x = F.relu(self.fc1(x))
+        # print("last linear")
+        # print(pytorch_model.unwrap(x))
         return x
 
 

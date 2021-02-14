@@ -30,10 +30,6 @@ if __name__ == '__main__':
     dataset_model = load_hypothesis_model(args.dataset_dir)
     dataset_model.environment_model = environment_model
 
-    dataset_model.gamma = FeatureSelector([6], {"Paddle": 1})
-    dataset_model.delta = FeatureSelector([6], {"Paddle": 1})
-    dataset_model.selection_binary = torch.ones((1)).cuda()
-
     print(dataset_model.selection_binary)
     # dataset_model = load_factored_model(args.dataset_dir)
     sampler = samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule)
@@ -43,7 +39,7 @@ if __name__ == '__main__':
     # print(dataset_model.observed_outcomes)
     graph = load_graph(args.graph_dir, args.buffer_steps)
     termination = terminal_forms[args.terminal_type](use_diff=args.use_both==1, use_both=args.use_both==2, name=args.object, min_use=args.min_use, dataset_model=dataset_model, epsilon=args.epsilon_close, interaction_probability=args.interaction_probability)
-    reward = reward_forms[args.reward_type](use_diff=args.use_both==1, epsilon=args.epsilon_close, parameterized_lambda=args.parameterized_lambda, interaction_model=dataset_model.interaction_model, interaction_minimum=dataset_model.interaction_minimum) # using the same epsilon for now, but that could change
+    reward = reward_forms[args.reward_type](use_diff=args.use_both==1, epsilon=args.epsilon_close, parameterized_lambda=args.parameterized_lambda, reward_constant = args.reward_constant, interaction_model=dataset_model.interaction_model, interaction_minimum=dataset_model.interaction_minimum) # using the same epsilon for now, but that could change
     print (dataset_model.name)
     option_name = dataset_model.name.split("->")[0]
     names = [args.object, option_name]
@@ -51,6 +47,9 @@ if __name__ == '__main__':
     print(load_option, args.object)
     option = graph.nodes[args.object].option
     option.assign_models(models)
+    option.termination = termination
+    option.reward = reward # the reward function for this option
+
 
     rl_shape_dict = get_RL_shapes(option, environment_model)
     rollouts = RLRollouts(args.buffer_steps, rl_shape_dict)

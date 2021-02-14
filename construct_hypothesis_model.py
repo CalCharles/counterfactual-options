@@ -17,7 +17,7 @@ if __name__ == '__main__':
     environment = Screen(frameskip=args.frameskip)
     environment_model = BreakoutEnvironmentModel(environment)
     try:
-        graph, controllable_feature_selectors = load_graph(args.graph_dir)
+        graph, controllable_feature_selectors = load_graph(args.graph_dir, args.num_frames)
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
         actions = PrimitiveOption(None, (None, environment_model), "Action")
