@@ -93,7 +93,7 @@ class CombinedTermination(Termination):
 			chosen = inter * chances + param_term * inter
 			chosen[chosen > 1] = 1
 			return chosen
-		print(inter, param_term, state, (state - param), self.parameterized_termination.epsilon)
+		# print(inter, param_term, state, (state - param), self.parameterized_termination.epsilon)
 		return inter * param_term
 
 class TrueTermination(Termination):

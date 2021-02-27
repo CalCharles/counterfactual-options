@@ -161,8 +161,11 @@ class Rollouts():
             a += 1
         return self.split_indexes(np.array(train)), self.split_indexes(np.array(test))
 
-    def split_indexes(self, idxes):
-        rollout = type(self)(len(idxes), self.shapes)
+    def split_indexes(self, idxes,existing=None):
+        if existing is None: # existing saves compute by using a pre-generated rollout object
+            rollout = type(self)(len(idxes), self.shapes)
+        else:
+            rollout = existing
         if self.iscuda:
             rollout.cuda()
         for n in self.names:
@@ -201,7 +204,7 @@ class Rollouts():
             return torch.cat([self.values[name][self.at:], self.values[name][:self.at]], dim=0)
         return self.values[name][:self.filled]
 
-    def get_batch(self, n, weights=None, ordered=False, idxes=[]):
+    def get_batch(self, n, weights=None, ordered=False, idxes=[], existing=None):
         if len(idxes) > 0:
             pass
         elif ordered:
@@ -211,7 +214,7 @@ class Rollouts():
         else:
             idxes = np.random.choice(np.arange(self.filled), size=n, p=weights)
         # print(idxes, self.values.action[:100])
-        return idxes, self.split_indexes(idxes)
+        return idxes, self.split_indexes(idxes, existing=existing)
 
 
 def merge_rollouts(rols, set_dones=False):

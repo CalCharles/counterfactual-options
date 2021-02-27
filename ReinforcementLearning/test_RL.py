@@ -1,4 +1,4 @@
-import os, collections, time
+import os, collections, time, copy
 import gc, cv2
 import numpy as np
 import torch
@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import torch.optim as optim
 from collections import deque
+import imageio as imio
 
 from Environments.environment_specification import ProxyEnvironment
 from ReinforcementLearning.Policy.policy import pytorch_model
@@ -29,7 +30,6 @@ def testRL(args, rollouts, logger, environment, environment_model, option, names
     success = [1]
     for i in range(args.num_iters):
         param, mask = option.get_param(full_state, last_done)
-        
         action_chain, rl_outputs = option.sample_action_chain(full_state, param)
         option.step(full_state, action_chain)
         frame, factored, true_done = environment.step(action_chain[0].cpu().numpy())
@@ -44,7 +44,18 @@ def testRL(args, rollouts, logger, environment, environment_model, option, names
         option.record_state(full_state, next_full_state, action_chain, rl_outputs, param, rewards, dones)
         print(param, option.timer, option.time_cutoff, option.get_state(full_state), action_chain[-1], last_done)
         # print(option.rollouts.get_values("done")[-1], option.rollouts.get_values("next_state")[-1], option.rollouts.get_values("param")[-1])
-
+        
+        # # visualization, but only paddle
+        # frame = copy.deepcopy(environment.frame)
+        # frame1 = copy.deepcopy(environment.frame)
+        # frame2 = copy.deepcopy(environment.frame)
+        # paddle = environment.paddle
+        # frame1[71:71+paddle.height, int(param[1] + 1.5):int(param[1] + 1.5)+paddle.width] = 255
+        # frame = np.stack([frame, frame1, frame2], axis = 2)
+        # # imio.imsave(os.path.join("data", "target_frames", "state" + str(i) + ".png"), frame)
+        # cv2.imshow("window", frame)
+        # cv2.waitKey(50)
+        
         full_state = next_full_state
         if args.return_form != "none":
             input_state = option.get_state(full_state, form=1, inp=0)

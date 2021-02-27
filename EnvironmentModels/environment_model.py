@@ -163,7 +163,8 @@ class ControllableFeature():
 
     def sample_feature(self, states):
         all_states = []
-        for f in range(*self.feature_range, self.feature_step):
+        num = int((self.feature_range[1] - self.feature_range[0] ) / self.feature_step)
+        for f in np.linspace(*self.feature_range, num):
             assigned_states = states.clone()
             self.assign_feature(assigned_states, f)
             assign_feature(assigned_states, (self.feature_selector.flat_features[0], f))

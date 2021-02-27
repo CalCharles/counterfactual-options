@@ -1,4 +1,4 @@
-import os
+import os, torch
 from arguments import get_args
 from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
 from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEnvironmentModel
@@ -10,14 +10,17 @@ from Options.option_graph import OptionGraph, OptionNode, load_graph, OptionEdge
 from Options.option import Option, PrimitiveOption
 from DistributionalModels.InteractionModels.interaction_model import default_model_args
 from DistributionalModels.InteractionModels.feature_explorer import FeatureExplorer
+from Networks.network import pytorch_model
 
 if __name__ == '__main__':
     args = get_args()
+    torch.cuda.set_device(args.gpu)
     data = read_obj_dumps(args.dataset_dir, i=-1, rng = args.num_frames, filename='object_dumps.txt')
     environment = Screen(frameskip=args.frameskip)
     environment_model = BreakoutEnvironmentModel(environment)
     try:
-        graph, controllable_feature_selectors = load_graph(args.graph_dir, args.num_frames)
+        graph = load_graph(args.graph_dir, args.num_frames)
+        controllable_feature_selectors = graph.cfs
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
         actions = PrimitiveOption(None, (None, environment_model), "Action")
@@ -37,6 +40,7 @@ if __name__ == '__main__':
         rollouts.append(**insert_dict)
     if args.cuda:
         rollouts.cuda()
+    print(len(data), rollouts.filled)
     # cf_state = CounterfactualStateDataset(environment_model)
     # rollouts = cf_state.generate_dataset(rollouts, controllable_feature_selectors)
     
@@ -47,14 +51,18 @@ if __name__ == '__main__':
     model_args.factor, model_args.num_layers, model_args.interaction_binary, model_args.interaction_prediction = args.factor, args.num_layers, args.interaction_binary, args.interaction_prediction
     model_args['controllable'], model_args['environment_model'] = controllable_feature_selectors, environment_model
     feature_explorer = FeatureExplorer(graph, controllable_feature_selectors, environment_model, model_args) # args should contain the model args, might want subspaces for arguments or something since args is now gigantic
-    hypothesis_model, delta, gamma = feature_explorer.search(rollouts, args) # again, args contains the training parameters, but we might want subsets since this is a ton of parameters more 
-
-    # save the cfs
-    afs = FeatureSelector([environment_model.indexes['Action'][1] - 1], {'Action': environment_model.object_sizes['Action'] - 1})
-    controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
-    hypothesis_model.determine_active_set(rollouts)
-    hypothesis_model.save(args.save_dir)
-    print(hypothesis_model.selection_binary)
+    print(rollouts.filled)
+    exploration = feature_explorer.search(rollouts, args) # again, args contains the training parameters, but we might want subsets since this is a ton of parameters more 
+    if exploration is None:
+        print("FAILED TO LOCATE RELATED FEATURES")
+    else:
+        hypothesis_model, delta, gamma = exploration
+        # save the cfs
+        afs = FeatureSelector([environment_model.indexes['Action'][1] - 1], {'Action': environment_model.object_sizes['Action'] - 1})
+        controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
+        hypothesis_model.determine_active_set(rollouts)
+        hypothesis_model.save(args.save_dir)
+        print(hypothesis_model.selection_binary)
     # print("forward", interaction_model.forward_model)
     # print("state", interaction_model.state_model)
     # print("state counts", interaction_model.difference_counts)

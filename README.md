@@ -37,14 +37,14 @@ python add_option.py --dataset-dir data/random/ --object Paddle --option-type ha
 
 New interaction model
 Train paddle model
-python construct_hypothesis_model.py --dataset-dir data/random/ --log-interval 500 --factor 8 --num-layers 2 --predict-dynamics --action-shift --batch-size 10 --pretrain-iters 0 --epsilon-schedule 3000 --num-iters 100000 --interaction-binary -1 -8 --save-dir data/interaction_ln > train_hypothesis.txt
+python construct_hypothesis_model.py --dataset-dir data/random/ --log-interval 500 --factor 8 --num-layers 2 --predict-dynamics --action-shift --batch-size 10 --pretrain-iters 0 --epsilon-schedule 3000 --num-iters 100000 --interaction-binary -1 -8 10 --save-dir data/interaction_ln > train_hypothesis.txt
 
-python add_option.py --dataset-dir data/interaction_ln/ --object Paddle --option-type model --buffer-steps 500000 --num-steps 50 --gamma .99 --batch-size 16 --record-rollouts data/paddle --num-iters 4000 --terminal-type comb --reward-type comb --parameterized-lambda 100 --epsilon-close 1 --time-cutoff 15 --set-time-cutoff --init-form xnorm --train --normalize  --num-layers 3 --factor 8 --learning-type her --grad-epoch 50 --warm-up 100 --warm-update 1000 --lr 1e-4 --epsilon .1 --epsilon-schedule 100 --behavior-type greedyQ --return-form none --Q-critic --select-positive .5 --gpu 1 --resample-timer 50 --double-Q 50 --log-interval 25
+python add_option.py --dataset-dir data/interaction_ln/ --object Paddle --option-type model --buffer-steps 500000 --num-steps 50 --gamma .99 --batch-size 16 --record-rollouts data/paddle --num-iters 4000 --terminal-type comb --reward-type comb --parameterized-lambda 0 --epsilon-close 1 --time-cutoff 50 --set-time-cutoff --init-form none --train --normalize  --num-layers 3 --factor 8 --learning-type her --grad-epoch 50 --warm-up 100 --warm-update 100 --lr 1e-4 --epsilon .1 --epsilon-schedule 100 --behavior-type greedyQ --return-form none --Q-critic --select-positive .5 --gpu 1 --resample-timer 50 --double-Q 50 --log-interval 25 --reward-constant -1 --save-interval 100 --save-graph data/paddle_graph3 > logs/train_paddle_3.txt
 
-python test_option.py --dataset-dir data/interaction_ln/ --object Paddle --option-type model --buffer-steps 1000 --gamma .99 --batch-size 5 --record-rollouts data/paddle --num-iters 1000 --terminal-type comb --reward-type comb --parameterized-lambda 0 --epsilon-close 1 --normalize --lr 1e-5 --behavior-type greedyQ --gpu 1 --graph-dir data/paddle_graph/
+python test_option.py --dataset-dir data/interaction_ln/ --object Paddle --option-type model --buffer-steps 1000 --gamma .99 --batch-size 5 --record-rollouts data/paddle_test --num-iters 1000 --terminal-type comb --reward-type comb --parameterized-lambda 0 --epsilon-close 1 --normalize --lr 1e-5 --behavior-type greedyQ --gpu 1 --graph-dir data/paddle_graph/
 
 Train ball model
-python construct_hypothesis_model.py --dataset-dir data/paddle/ --log-interval 500 --factor 16 --num-layers 2 --predict-dynamics --action-shift --batch-size 32 --pretrain-iters 0 --epsilon-schedule 30000 --num-iters 1000000 --interaction-binary -1 -8 --num-frames 1000000 --graph-dir data/paddle_graph/ --save-dir data/interaction_bp> train_ball_hypothesis.txt
+python construct_hypothesis_model.py --dataset-dir data/paddle/ --log-interval 500 --factor 16 --num-layers 2 --predict-dynamics --action-shift --batch-size 32 --pretrain-iters 0 --epsilon-schedule 30000 --num-iters 1000000 --interaction-binary -1 -8 -10 --num-frames 1000000 --graph-dir data/paddle_graph/ --save-dir data/interaction_bp> train_ball_hypothesis.txt
 
 
 Nav2D:

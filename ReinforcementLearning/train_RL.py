@@ -213,6 +213,8 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
             #     cv2.imshow("buffer states", pytorch_model.unwrap(batch[i]))
             #     cv2.waitKey(200)
             if i == args.warm_up:
+                random_episode_reward = option.rollouts.get_values("reward").sum()/option.rollouts.get_values("done").sum()
+
                 args.epsilon = ep
                 print("warm updating", args.epsilon)
                 option.policy.set_mean(option.rollouts)
@@ -242,5 +244,9 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
         if args.true_environment:
             environment.reset()
 
-
-    return done_lengths
+    # computes success based on the last 2000 time steps
+    trained = False
+    final_episode_reward = option.rollouts.get_values("reward")[max(option.rollouts.filled - 2000, 0):].sum() / option.rollouts.get_values("done")[max(option.rollouts.filled - 2000, 0):].sum()
+    if final_episode_reward - random_episode_reward > args.train_reward_significance:
+        trained = True
+    return done_lengths, trained

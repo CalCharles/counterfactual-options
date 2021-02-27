@@ -104,11 +104,13 @@ if __name__ == '__main__':
     learning_algorithm = learning_algorithms[args.learning_type](args, option)
     # if args.set_time_cutoff:
     #     option.time_cutoff = -1
-    done_lengths = trainRL(args, rollouts, logger, environment, environment_model, option, learning_algorithm, names, graph)
+    done_lengths, trained = trainRL(args, rollouts, logger, environment, environment_model, option, learning_algorithm, names, graph)
     done_lengths = np.array(done_lengths)
     time_cutoff = 100
     if len(done_lengths) > 0:
         time_cutoff = np.round_(np.quantile(done_lengths, .9))
+    if trained: # if trained, add control feature to the graph
+        graph.cfs += dataset_model.cfselectors
 
     if args.train and args.save_interval > 0:
         option.save(args.save_dir)

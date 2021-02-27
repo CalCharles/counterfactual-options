@@ -119,6 +119,8 @@ def get_args():
                     help='ratio of training samples to testing ones')
     parser.add_argument('--model-error-significance', type=float, default=1,
                     help='amount of difference in l2 norm to determine that prediction is happening')
+    parser.add_argument('--train-reward-significance', type=float, default=5,
+                    help='amount of difference in per-episode reward to determine control')
     # HER/DQN parameters
     parser.add_argument('--double-Q', type=float, default=-1,
                         help='weight given to the new parameters between 0-1, or greater than 1 is a schedule (default: -1 (not used))')
@@ -131,7 +133,7 @@ def get_args():
     parser.add_argument('--interaction-iters', type=int, default=0,
                         help='number of iterations for training the interaction network with true values (default: 0)')
     parser.add_argument('--interaction-binary', type=float, nargs='+', default=list(),
-                        help='the minimum values for the binaries  (default: empty list)')
+                        help='difference between P,A, Active greater than, passive less than  (default: empty list)')
     parser.add_argument('--interaction-probability', type=float, default=-1,
                         help='the minimum probability needed to use interaction as termination -1 for not used (default: -1)')
     parser.add_argument('--interaction-prediction', type=float, default=0.3,
