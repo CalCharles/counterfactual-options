@@ -1,6 +1,7 @@
 # reward functions
 import numpy as np
 import os, cv2, time
+from Networks.network import pytorch_model
 
 class Reward():
 	def __init__(self, **kwargs):
@@ -41,7 +42,9 @@ class InteractionReward(Reward):
 		self.interaction_model = kwargs["interaction_model"]
 
 	def get_reward(self, input_state, state, param, true_reward=0):
-		return (self.interaction_model(input_state) - 1).squeeze()
+		# return (self.interaction_model(input_state) - 1).squeeze()
+		print(pytorch_model.unwrap(self.interaction_model(input_state)), pytorch_model.unwrap(input_state))
+		return (self.interaction_model(input_state)).squeeze()
 
 class CombinedReward(Reward):
 	def __init__(self, **kwargs):

@@ -20,6 +20,7 @@ class Screen(RawEnvironment):
         self.frameskip = frameskip
         self.total_score = 0
         self.done = False
+        self.discrete_actions = True
 
     def reset(self):
         if self.seed_counter > 0:
@@ -101,7 +102,7 @@ class Screen(RawEnvironment):
             self.actions.take_action(action)
             for obj1 in self.animate:
                 for obj2 in self.objects:
-                    if obj1.name == obj2.name or (obj1.name == "Ball" and obj2.name == "Paddle"):
+                    if obj1.name == obj2.name:# or (obj1.name == "Ball" and obj2.name == "Paddle"):
                         continue
                     else:
                         preattr = obj2.attribute
@@ -110,11 +111,11 @@ class Screen(RawEnvironment):
                             self.reward += 1
                             self.total_score += 1
                             hit = True
-            self.paddle.move() # ensure the ball moves after the paddle to ease counterfactual
-            self.ball.interact(self.paddle)
-            self.ball.move()
-            # for ani_obj in self.animate:
-            #     ani_obj.move()
+            # self.paddle.move() # ensure the ball moves after the paddle to ease counterfactual
+            # self.ball.interact(self.paddle)
+            # self.ball.move()
+            for ani_obj in self.animate:
+                ani_obj.move()
             if last_loss != self.ball.losses:
                 self.done = True
             if self.ball.losses == 5:

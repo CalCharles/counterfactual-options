@@ -34,6 +34,16 @@ class EnvironmentModel():
         '''
         return
 
+    def get_raw_state(self, state): # get the raw form of the state, assumed to be frame, define in subclass if otherwise
+        if type(state) == dict:
+            return state["Frame"]
+        else:
+            at = 0
+            for n in self.object_names:
+                if n != "Frame":
+                    at += self.object_sizes[n] * self.object_num[n]
+            return state[at:self.object_sizes['Frame'] + at]
+
     def get_factored_zero_state(self, instanced = False): # "instanced" indicates if a single type can have multiple instances (true), or if all of the same type is grouped into a single vector
         # gets a factored state with all zeros
         factored_state = self.get_factored_state()
@@ -48,19 +58,84 @@ class EnvironmentModel():
     def get_flattened_state(self, names=None):
         return self.flatten_factored_state(self.get_factored_state(), names=names)
 
-    def flatten_factored_state(self, factored_state, names=None):
+    def flatten_factored_state(self, factored_state, instanced=False, names=None):
         ''' 
         generates an nxdim state from a list of factored states. Overloaded to accept single factored states as well 
         This is in the environment model because the order shoud follow the order of the object names
         if the input state is not flattened, return
         '''
+        if names is None:
+            names = self.object_names
+        if type(factored_state) == np.ndarray or type(factored_state) == torch.Tensor: # already flattened
+            return factored_state
+        if instanced:
+            if type(factored_state) == list:
+                flattened_state = list()
+                for f in factored_state:
+                    flat = list()
+                    for n in names:
+                        if self.object_num[n] > 1:
+                            for i in range(self.object_num[n]):
+                                flat += f[n+str(i)]
+                    flattened_state += flat
+                flattened_state = np.array(flattened_state)
+            else:
+                flattened_state = list()
+                for n in names:
+                    if self.object_num[n] > 1:
+                        for i in range(self.object_num[n]):
+                            flattened_state += factored_state[n+str(i)]
+                    else:
+                        flattened_state += factored_state[n]
+
+                flattened_state = np.array(flattened_state)
+        else:
+            if type(factored_state) == list:
+                flattened_state = np.array([np.concatenate([factored_state[i][f] for f in names], axis=1) for i in range(factored_state)])
+            else:
+                # print(factored_state)
+                flattened_state = np.array(np.concatenate([factored_state[f] for f in names], axis=0))
+        return flattened_state
+
 
     def unflatten_state(self, flattened_state, vec=False, instanced=False, names=None):
         ''' 
         generates a list of factored states from an nxdim state. Overloaded to accept length dim vector as well 
         This is in the environment model because the order shoud follow the order of the object names
         '''
-
+        if names is None:
+            names = self.object_names
+        def unflatten(flattened):
+            at = 0
+            factored = dict()
+            for name in self.object_names:
+                if instanced: #factor each object, even those of the same type 
+                    for k in range(self.object_num[name]):
+                        usename = name
+                        if self.object_num[name] > 1:
+                            usename = name+str(k)
+                        if vec:
+                            factored[name] = flattened[:, at:at+self.object_sizes[name]]
+                        else: # a single state at a time
+                            factored[name] = flattened[at:at+self.object_sizes[name]]
+                        at += self.object_sizes[name]
+                else: # factor each object, grouping objects of the same type
+                    if vec:
+                        factored[name] = flattened[:, at:at+(self.object_sizes[name]*self.object_num[name])]
+                    else: # a single state at a time
+                        factored[name] = flattened[at:at+(self.object_sizes[name]*self.object_num[name])]
+                    at += (self.object_sizes[name]*self.object_num[name])
+            return factored
+        if len(flattened_state.shape) == 2:
+            if vec:
+                factored = unflatten(flattened_state)
+            else:
+                factored = []
+                for i in range(flattened_state.shape[0]):
+                    factored.append(unflatten(flattened_state[i]))
+        else: # assumes state is a vector
+            factored = unflatten(flattened_state)
+        return factored
 
     def set_from_factored_state(self, factored_state):
         '''
@@ -222,6 +297,17 @@ class FeatureSelector():
             return states[:, self.flat_features]
         elif len(states.shape) == 3: # a batch of stacks of flattened state
             return states[:, :, self.flat_features]
+
+    def reverse(self, delta_state, insert_state):
+        if type(insert_state) == dict: # only works for dict to one object
+            for name, idxes in self.factored_features:
+                insert_state[name][idxes] = delta_state
+        elif len(insert_state.shape) == 1:
+            insert_state[self.flat_features] = delta_state
+        elif len(insert_state.shape) == 2: # a batch of flattened state
+            insert_state[:, self.flat_features] = delta_state
+        elif len(insert_state.shape) == 3: # a batch of flattened state
+            insert_state[:, self.flat_features] = delta_state
 
 def assign_feature(states, assignment, edit=False, clipped=None): # assignment is a tuple assignment keys (tuples or indexes), and assignment values
     if type(states) is dict: # factored features

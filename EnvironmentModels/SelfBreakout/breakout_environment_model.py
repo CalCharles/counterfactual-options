@@ -43,73 +43,73 @@ class BreakoutEnvironmentModel(EnvironmentModel):
         factored_state["Reward"] = np.array([float(self.environment.reward)])
         return factored_state
 
-    def flatten_factored_state(self, factored_state, instanced=False, names=None):
-        if names is None:
-            names = self.object_names
-        if type(factored_state) == np.ndarray or type(factored_state) == torch.Tensor: # already flattened
-            return factored_state
-        if instanced:
-            if type(factored_state) == list:
-                flattened_state = list()
-                for f in factored_state:
-                    flat = list()
-                    for n in names:
-                        if self.object_num[n] > 1:
-                            for i in range(self.object_num[n]):
-                                flat += f[n+str(i)]
-                    flattened_state += flat
-                flattened_state = np.array(flattened_state)
-            else:
-                flattened_state = list()
-                for n in names:
-                    if self.object_num[n] > 1:
-                        for i in range(self.object_num[n]):
-                            flattened_state += factored_state[n+str(i)]
-                    else:
-                        flattened_state += factored_state[n]
+    # def flatten_factored_state(self, factored_state, instanced=False, names=None):
+    #     if names is None:
+    #         names = self.object_names
+    #     if type(factored_state) == np.ndarray or type(factored_state) == torch.Tensor: # already flattened
+    #         return factored_state
+    #     if instanced:
+    #         if type(factored_state) == list:
+    #             flattened_state = list()
+    #             for f in factored_state:
+    #                 flat = list()
+    #                 for n in names:
+    #                     if self.object_num[n] > 1:
+    #                         for i in range(self.object_num[n]):
+    #                             flat += f[n+str(i)]
+    #                 flattened_state += flat
+    #             flattened_state = np.array(flattened_state)
+    #         else:
+    #             flattened_state = list()
+    #             for n in names:
+    #                 if self.object_num[n] > 1:
+    #                     for i in range(self.object_num[n]):
+    #                         flattened_state += factored_state[n+str(i)]
+    #                 else:
+    #                     flattened_state += factored_state[n]
 
-                flattened_state = np.array(flattened_state)
-        else:
-            if type(factored_state) == list:
-                flattened_state = np.array([np.concatenate([factored_state[i][f] for f in names], axis=1) for i in range(factored_state)])
-            else:
-                flattened_state = np.array(np.concatenate([factored_state[f] for f in names], axis=0))
-        return flattened_state
+    #             flattened_state = np.array(flattened_state)
+    #     else:
+    #         if type(factored_state) == list:
+    #             flattened_state = np.array([np.concatenate([factored_state[i][f] for f in names], axis=1) for i in range(factored_state)])
+    #         else:
+    #             flattened_state = np.array(np.concatenate([factored_state[f] for f in names], axis=0))
+    #     return flattened_state
 
-    def unflatten_state(self, flattened_state, vec=False, instanced=False, names=None):
-        if names is None:
-            names = self.object_names
-        def unflatten(flattened):
-            at = 0
-            factored = dict()
-            for name in self.object_names:
-                if instanced: #factor each object, even those of the same type 
-                    for k in range(self.object_num[name]):
-                        usename = name
-                        if self.object_num[name] > 1:
-                            usename = name+str(k)
-                        if vec:
-                            factored[name] = flattened[:, at:at+self.object_sizes[name]]
-                        else: # a single state at a time
-                            factored[name] = flattened[at:at+self.object_sizes[name]]
-                        at += self.object_sizes[name]
-                else: # factor each object, grouping objects of the same type
-                    if vec:
-                        factored[name] = flattened[:, at:at+(self.object_sizes[name]*self.object_num[name])]
-                    else: # a single state at a time
-                        factored[name] = flattened[at:at+(self.object_sizes[name]*self.object_num[name])]
-                    at += (self.object_sizes[name]*self.object_num[name])
-            return factored
-        if len(flattened_state.shape) == 2:
-            if vec:
-                factored = unflatten(flattened_state)
-            else:
-                factored = []
-                for i in range(flattened_state.shape[0]):
-                    factored.append(unflatten(flattened_state[i]))
-        else: # assumes state is a vector
-            factored = unflatten(flattened_state)
-        return factored
+    # def unflatten_state(self, flattened_state, vec=False, instanced=False, names=None):
+    #     if names is None:
+    #         names = self.object_names
+    #     def unflatten(flattened):
+    #         at = 0
+    #         factored = dict()
+    #         for name in self.object_names:
+    #             if instanced: #factor each object, even those of the same type 
+    #                 for k in range(self.object_num[name]):
+    #                     usename = name
+    #                     if self.object_num[name] > 1:
+    #                         usename = name+str(k)
+    #                     if vec:
+    #                         factored[name] = flattened[:, at:at+self.object_sizes[name]]
+    #                     else: # a single state at a time
+    #                         factored[name] = flattened[at:at+self.object_sizes[name]]
+    #                     at += self.object_sizes[name]
+    #             else: # factor each object, grouping objects of the same type
+    #                 if vec:
+    #                     factored[name] = flattened[:, at:at+(self.object_sizes[name]*self.object_num[name])]
+    #                 else: # a single state at a time
+    #                     factored[name] = flattened[at:at+(self.object_sizes[name]*self.object_num[name])]
+    #                 at += (self.object_sizes[name]*self.object_num[name])
+    #         return factored
+    #     if len(flattened_state.shape) == 2:
+    #         if vec:
+    #             factored = unflatten(flattened_state)
+    #         else:
+    #             factored = []
+    #             for i in range(flattened_state.shape[0]):
+    #                 factored.append(unflatten(flattened_state[i]))
+    #     else: # assumes state is a vector
+    #         factored = unflatten(flattened_state)
+    #     return factored
 
     def set_from_factored_state(self, factored_state, instanced = False, seed_counter=-1):
         '''

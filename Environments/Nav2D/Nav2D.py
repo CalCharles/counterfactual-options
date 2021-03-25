@@ -35,6 +35,7 @@ class Nav2D(RawEnvironment):
         self.reward = -1
         self.reshape = [N,N,3]
         self.trajectory_len = 50
+        self.discrete_actions = True
 
 
     def get_dims(self):

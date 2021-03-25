@@ -19,6 +19,8 @@ class BehaviorPolicy():
         self.num_outputs = args.num_outputs
         self.epsilon = args.epsilon
         self.iscuda = args.cuda
+        self.denorm = args.denorm
+        self.normalized_actions = args.normalized_actions
 
     def get_action(self, rl_output):
         return 0
@@ -31,27 +33,41 @@ class Probs(BehaviorPolicy):
             action = sample_actions(rl_output.probs, deterministic =False)
             if np.random.rand() < self.epsilon:
                 action = pytorch_model.wrap(np.random.randint(self.num_outputs, size = rl_output.probs.shape[0]), cuda = self.iscuda)
+        if not self.normalized_actions: # assumes already normalized
+            action = action * self.denorm
         return action
 
 
 class GreedyQ(BehaviorPolicy):
     def get_action(self, rl_output):
         if self.continuous:
-            action = rl_output.probs.dist.sample()
+            action = rl_output.dist.sample()
+            action = action.clamp(-1,1)
+            if np.random.rand() < self.epsilon:
+                action = pytorch_model.wrap((torch.rand(*rl_output.action_values.shape) - .5) * 2, cuda=self.iscuda)
+                # print("rand", action)
+            # else:
+                # print("poli", action)
         else:
             action = sample_actions(F.softmax(rl_output.Q_vals, dim=1), deterministic =True)
-        if np.random.rand() < self.epsilon:
-            action = pytorch_model.wrap(np.random.randint(self.num_outputs, size = rl_output.Q_vals.shape[0]), cuda = self.iscuda)
+            if np.random.rand() < self.epsilon:
+                action = pytorch_model.wrap(np.random.randint(self.num_outputs, size = rl_output.Q_vals.shape[0]), cuda = self.iscuda)
+        if not self.normalized_actions: # assumes already normalized
+            action = action * self.denorm
         return action
 
 class SoftQ(BehaviorPolicy):
     def get_action(self, rl_output):
         if self.continuous:
             action = rl_output.probs.dist.sample()
+            if np.random.rand() < self.epsilon:
+                action = torch.rand(*rl_output.action_values.shape) * self.denorm
         else:
             action = sample_actions(F.softmax(rl_output.Q_vals, dim=1), deterministic =False)
-        if np.random.rand() < self.epsilon:
-            action = pytorch_model.wrap(np.random.randint(self.num_outputs, size = rl_output.Q_vals.shape[0]), cuda = self.iscuda)
+            if np.random.rand() < self.epsilon:
+                action = pytorch_model.wrap(np.random.randint(self.num_outputs, size = rl_output.Q_vals.shape[0]), cuda = self.iscuda)
+        if not self.normalized_actions: # assumes already normalized
+            action = action * self.denorm
         return action
 
 behavior_forms = {"prob": Probs, "greedyQ": GreedyQ, "softQ": SoftQ}

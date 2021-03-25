@@ -48,6 +48,8 @@ def get_args():
                         help='number of layers for network. When using basis functions, defines independence relations (see ReinforcementLearning.basis_models.py)')
     parser.add_argument('--factor', type=int, default=4,
                         help='decides width of the network')
+    parser.add_argument('--use-layer-norm', action='store_true', default=False,
+                        help='uses layer normalization')
     parser.add_argument('--optim', default="RMSprop",
                         help='optimizer to use: Adam, RMSprop, Evol')
     parser.add_argument('--activation', default="relu",
@@ -58,6 +60,8 @@ def get_args():
                     help='use the parameter at the last layer, otherwise, does it at the first layer')
     parser.add_argument('--normalize', action='store_true', default=False,
                     help='normalizes the inputs using 84')
+    parser.add_argument('--normalized_actions', action='store_true', default=False,
+                    help='normalized_actions the actions to -1,1 with tanh')
     parser.add_argument('--predict-dynamics', action='store_true', default=False,
                     help='predict the dynamics instead of the next state')
     parser.add_argument('--action-shift', action='store_true', default=False,
@@ -78,8 +82,8 @@ def get_args():
     parser.add_argument('--sampler-type', default='uni',
                         help='defines the function used to sample param targets')
     # Behavior policy parameters
-    parser.add_argument('--continuous', action='store_true', default=False,
-                        help='When the policy outputs a continuous distribution')
+    # parser.add_argument('--continuous', action='store_true', default=False,
+    #                     help='When the policy outputs a continuous distribution')
     parser.add_argument('--epsilon', type=float, default=0.1,
                     help='percentage of random actions in epsilon greedy')
     parser.add_argument('--epsilon-schedule', type=float, default=-1,
@@ -89,8 +93,8 @@ def get_args():
                     help='minimum distance for states to be considered the same')
 
     # Learning settings
-    parser.add_argument('--seed', type=int, default=1,
-                        help='random seed (default: 1)')
+    parser.add_argument('--seed', type=int, default=4,
+                        help='random seed (default: 4)')
     parser.add_argument('--num-processes', type=int, default=1,
                         help='how many training CPU processes to use (default: 16)')
     parser.add_argument('--lag-num', type=int, default=2,
@@ -107,10 +111,14 @@ def get_args():
                         help='number of iterations for training (default: 2e5)')
     parser.add_argument('--pretrain-iters', type=int, default=int(2e4),
                         help='number of iterations for training (default: 2e4)')
+    parser.add_argument('--posttrain-iters', type=int, default=int(0),
+                        help='number of iterations for training after training(default: 2e5)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
     parser.add_argument('--Q-critic', action='store_true', default=False,
                         help='use the q function to compute the state value')
+    parser.add_argument('--actor-critic-optimizer', action='store_true', default=False,
+                    help='separate optimizers for the actor and critic components')
     parser.add_argument('--warm-up', type=int, default=0,
                         help='warm up updates to fill buffer (default: 0)')
     parser.add_argument('--warm-updates', type=int, default=0,
@@ -126,6 +134,8 @@ def get_args():
                         help='weight given to the new parameters between 0-1, or greater than 1 is a schedule (default: -1 (not used))')
     parser.add_argument('--select-positive', type=float, default=0.5,
                     help='For hindsight experience replay, selects the positive reward x percent of the time (default .5)')
+    parser.add_argument('--Q-updator', default="DQN",
+                    help='For hindsight experience replay, determines the internal optimizer (default DQN)')
     parser.add_argument('--resample-timer', type=int, default=10,
                         help='how often to resample a goal (default: 10)')
 
@@ -215,8 +225,8 @@ def get_args():
                         help='trains the algorithm if set to true')
     parser.add_argument('--set-time-cutoff', action ='store_true', default=False,
                         help='runs the algorithm without time cutoff to set it')
-    parser.add_argument('--time-cutoff', type=int, default=10,
-                        help='sets the duration to switch to the next option')
+    parser.add_argument('--time-cutoff', type=int, default=-1,
+                        help='sets the duration to switch to the next option (default -1 means no time cutoff)')
 
     # load variables
     parser.add_argument('--load-weights', action ='store_true', default=False,

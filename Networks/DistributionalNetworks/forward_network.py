@@ -14,7 +14,16 @@ class DiagGaussianForwardNetwork(Network):
 
         self.train()
         self.reset_parameters()
+
+    def cpu(self):
+        super().cpu()
+        self.normalization.cpu()
     
+    def cuda(self):
+        super().cuda()
+        self.normalization.cuda()
+
+
     def forward(self, x):
         x = self.normalization(x)
         return torch.tanh(self.mean(x)), torch.sigmoid(self.std(x)) + 1e-2

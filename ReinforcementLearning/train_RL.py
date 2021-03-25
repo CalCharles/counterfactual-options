@@ -11,7 +11,7 @@ from collections import deque
 from Environments.environment_specification import ProxyEnvironment
 from ReinforcementLearning.Policy.policy import pytorch_model
 from ReinforcementLearning.rollouts import RLRollouts
-from file_management import save_to_pickle
+from file_management import save_to_pickle, load_from_pickle
 
 forced_actions = [0, 3, 2, 3, 1, 0, 1, 1, 0, 2, 1, 2, 2, 1, 1, 3, 1, 1, 3, 3, 2, 3, 1, 0, 0, 0, 3, 1, 3, 0, 1, 2, 0, 0, 3, 2, 3, 3, 2, 1, 1, 3, 2, 2, 1, 2, 2, 2, 3, 2, 2, 2, 1, 2, 3, 0, 3, 1, 2, 3, 2, 0, 3, 1, 3, 1, 1, 2, 1, 3, 0, 1, 2, 0, 0, 2, 2, 3, 2, 1, 0, 0, 1, 3, 2, 0, 2, 2, 3, 1, 1, 0, 2, 1, 3, 2, 1, 2, 2, 2, 0]
 
@@ -51,16 +51,28 @@ class Logger:
         self.args = args
         self.num_steps = args.num_steps
         self.start = time.time()
-        self.total = torch.zeros(4)
         self.length = 0
+        self.option = option
+        self.action_tensor()
         self.logger_rollout = RLRollouts(args.log_interval * args.num_steps, option.rollouts.shapes)
 
+    def action_tensor(self):
+        if self.option.environment_model.environment.discrete_actions:
+            self.total = pytorch_model.wrap(torch.zeros(self.option.environment_model.environment.num_actions), cuda=self.args.cuda)
+        else:
+            self.total = pytorch_model.wrap(torch.zeros(self.option.environment_model.environment.action_shape), cuda=self.args.cuda)
 
-    def log(self, i, epsilon, interval, steps, policy_loss, rollouts, true_rewards, true_dones, true_success):
+
+    def log(self, i, epsilon, interval, steps, policy_loss, rollouts, true_rewards, true_dones, true_success, continuous_actions = False):
         true_rewards = np.array(true_rewards)
         total_elapsed = i * self.num_steps
         end = time.time()
-        addtotal, length = true_action_prob(rollouts.get_values('true_action')[-steps:], 4) # disable this if actions not corresponding
+        if continuous_actions:
+            actions = rollouts.get_values('true_action')[-steps:]
+            length = len(actions)
+            addtotal = actions.mean(dim=0)
+        else:
+            addtotal, length = true_action_prob(rollouts.get_values('true_action')[-steps:], 4) # disable this if actions not corresponding
         self.logger_rollout.insert_rollout(rollouts, a=1, add=True)
         self.total += addtotal
         self.length += length
@@ -90,9 +102,10 @@ class Logger:
             self.start = end
             print(logvals)
             print("action_probs", self.total / self.length)
-            print("probs", rollouts.get_values('probs')[-1])
+            if not continuous_actions:
+                print("probs", rollouts.get_values('probs')[-1])
             print("Q_vals", rollouts.get_values('Q_vals')[-1])
-            self.total = torch.zeros(4)
+            self.action_tensor()
             self.length = 0
 
 def trainRL(args, rollouts, logger, environment, environment_model, option, learning_algorithm, names, graph):
@@ -125,9 +138,10 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
 
     # policy loss is for logging purposes only
     policy_loss = PolicyLoss(None, None, None, None, None, None)
-    if args.warm_up > 0:
-        option.set_behavior_epsilon(1)
+    # if args.warm_up > 0:
+    #     option.set_behavior_epsilon(1)
 
+    all_sa = load_from_pickle("data/all_sa.pkl")
     # an iteration corresponds to a learning step
     for i in range(args.num_iters):
         return_update = rollouts.at
@@ -140,15 +154,19 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
             # store action, currently not storing action probabilities, might be necessary
             # TODO: include the diffs for each level of the option internally
             # use the correct termination for updating the diff (internaly in option?)
-            action_chain, rl_outputs = option.sample_action_chain(full_state, param)
-
+            action_chain, rl_outputs = option.sample_action_chain(full_state, param) # uncomment this line
+            # action_chain, rl_outputs = option.sample_action_chain(full_state, param, learning_algorithm.policy) # REMOVE THIS LINE LATER
+            # print(full_state)
             # # REMOVE forced actions
             # action_chain[-1] = torch.tensor(forced_actions[j + i * args.num_steps]).cuda()
             # # REMOVE ABOVE
-
+            # print(action_chain)
+            # print(option.policy)
 
             # step the environment
+            # print(action_chain)
             option.step(full_state, action_chain)
+            # print(action_chain[0].cpu().numpy())
             frame, factored, true_done = environment.step(action_chain[0].cpu().numpy())
             # Record information about next state
             next_full_state = environment_model.get_factored_state()
@@ -156,11 +174,18 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
 
             # done count measures number of terminations
             option.step_timer(done)
-
             # progress the option and then calculate if terminated
             dones, rewards = option.terminate_reward(next_full_state, param, action_chain)
             done, last_done = dones[-1], 1 if len(dones) < 2 else dones[-2] # use the last option's done if it exists
 
+            # full_state['State'] = all_sa[i*args.num_steps+j][0]
+            # full_state['Action'] = all_sa[i*args.num_steps+j][1]
+            # full_state['Reward'] = all_sa[i*args.num_steps+j][2]
+            # full_state['Done'] = all_sa[i*args.num_steps+j][3]
+            # dones[0][0] = all_sa[i*args.num_steps+j][3]
+            # done = all_sa[i*args.num_steps+j][3]
+            # rewards[0][0] = all_sa[i*args.num_steps+j][2]
+            # action_chain[0][0] = all_sa[i*args.num_steps+j][1]
 
             # refactor this into the option part
             option.record_state(full_state, next_full_state, action_chain, rl_outputs, param, rewards, dones)
@@ -220,29 +245,37 @@ def trainRL(args, rollouts, logger, environment, environment_model, option, lear
                 option.policy.set_mean(option.rollouts)
                 if args.train: # warm updates trains for num steps with the warm-up data
                     for _ in range(args.warm_updates):
+
                         policy_loss = learning_algorithm.step(option.rollouts)
 
             if args.epsilon_schedule > 0:
                 args.epsilon = ep + (1-ep) * np.exp(-1*(i - args.warm_up)/args.epsilon_schedule)
                 # print("epsilon", args.epsilon)
             option.set_behavior_epsilon(args.epsilon)
-            logger.log(i, args.epsilon, args.log_interval, args.num_steps, policy_loss, option.rollouts, true_rewards, true_dones, success)
+            logger.log(i, args.epsilon, args.log_interval, args.num_steps, policy_loss, option.rollouts, true_rewards, true_dones, success, continuous_actions = args.continuous)
             # print("log", time.time() - start)
             # start = time.time()
             if args.train:
+                # if i == args.warm_up:
+                #     print(learning_algorithm.policy.critic.l1.weight.data)
+                #     print(learning_algorithm.policy.critic.QFunction.l1.weight.data)
+                #     print(learning_algorithm.policy.critic.QFunction.l2.weight.data)
                 policy_loss = learning_algorithm.step(option.rollouts)
+                # error
                 # print("train", time.time() - start)
                 # start = time.time()
             if args.save_interval > 0 and (i+1) % args.save_interval == 0:
                 option.save(args.save_dir)
                 graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
-        elif args.warm_up > 0: # if warming up, take random actions
-            args.epsilon = 1.0
-            option.set_behavior_epsilon(args.epsilon)
-
-        # end episode after num_steps if true_environment
-        if args.true_environment:
-            environment.reset()
+        # elif args.warm_up > 0: # if warming up, take random actions
+            # args.epsilon = 1.0
+            # option.set_behavior_epsilon(args.epsilon)
+        # if i == args.warm_up + 50:
+        #     print(option.policy.critic.QFunction.l2.weight.data)
+        #     error
+        # NO: end episode after num_steps if true_environment, true environment handles its own resets
+        # if args.true_environment:
+        #     environment.reset()
 
     # computes success based on the last 2000 time steps
     trained = False

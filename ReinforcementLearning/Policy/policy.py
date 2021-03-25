@@ -105,14 +105,29 @@ class DiagGaussian(nn.Module):
 
 class QFunction(Network):
     def __init__(self, **kwargs):
-        super().__init__()
-        self.l1 = nn.Linear(self.num_inputs + self.hidden_size, 1)
+        super().__init__(**kwargs)
+        self.hidden_size = kwargs["hidden_size"]
+        self.double_layer = kwargs["double_layer"] # remove double layer support unless important
+        if self.double_layer:
+            self.l1 = nn.Linear(self.num_inputs + self.hidden_size, self.hidden_size)
+            self.l2 = nn.Linear(self.hidden_size, 1)
+        else:
+            self.l1 = nn.Linear(self.num_inputs + self.hidden_size, 1)
+
+    def scale_last(self):
+        self.l1.weight.data.mul_(0.1)
+        self.l1.bias.data.mul_(0.1)
+        if self.double_layer:
+            self.l2.weight.data.mul_(0.1)
+            self.l2.bias.data.mul_(0.1)
 
     def forward(self, hidden, action):
         x = torch.cat([hidden, action], dim=1)
         x = self.l1(x)
+        if self.double_layer:
+            x = F.relu(x)
+            x = self.l2(x)
         return x
-
 
 class Policy(nn.Module):
     def __init__(self, **kwargs):
@@ -136,23 +151,31 @@ class Policy(nn.Module):
         self.continuous = default_value_arg(kwargs, 'continuous', False)
         model_form = default_value_arg(kwargs, 'train', 'basic') 
         self.has_final = default_value_arg(kwargs, 'needs_final', True)
+        self.concatenate_param = default_value_arg(kwargs, 'concatenate_param', True)
         self.last_param = default_value_arg(kwargs, 'last_param', False)
         self.normalize = default_value_arg(kwargs, 'normalize', False)
+        self.normalized_actions = default_value_arg(kwargs, 'normalized_actions', False)
         self.option_values = torch.zeros(1, self.param_size) # changed externally to the parameters
         self.num_layers = default_value_arg(kwargs, 'num_layers', 1)
+
+        # self.double_layer = kwargs['double_layer']
+
         if self.num_layers == 0:
-            self.insize = self.num_inputs + self.param_size
+            self.insize = self.num_inputs
+            if self.concatenate_param:
+                self.insize = self.num_inputs + self.param_size
             # self.insize = self.num_inputs
         else:
-            self.insize = self.factor * self.factor * self.factor // min(self.factor, 8)
+            self.insize = self.factor * self.factor * self.factor // min(self.factor, 4)
         
-        self.insize = 564
+        # self.insize = 564
 
 
         if self.last_param:
             self.insize += self.param_size
         self.layers = []
-        self.init_last(self.num_outputs)
+        if self.has_final:
+            self.init_last(self.num_outputs)
         if self.activation == "relu":
             self.acti = F.relu
         elif self.activation == "sin":
@@ -169,13 +192,25 @@ class Policy(nn.Module):
         self.critic_linear = nn.Linear(self.insize, 1)
         self.sigma = nn.Linear(self.insize, 1)
         if self.continuous:
-            self.QFunction = Qfunction(self.insize + self.num_outputs, 1)
+            self.QFunction = QFunction(hidden_size=self.insize, num_outputs=1, num_inputs=num_outputs, activation=self.activation, init_form=self.init_form, double_layer=False)
         else:
             self.QFunction = nn.Linear(self.insize, num_outputs)
         self.action_eval = nn.Linear(self.insize, num_outputs)
         if len(self.layers) > 0:
             self.layers = self.layers[5:]
         self.layers = [self.critic_linear, self.sigma, self.QFunction, self.action_eval] + self.layers
+
+    def scale_last(self):
+        if type(self.QFunction) == nn.Linear:
+            self.QFunction.weight.data.mul_(0.1)
+            self.QFunction.bias.data.mul_(0.1)
+        else:
+            self.QFunction.scale_last()
+        self.action_eval.weight.data.mul_(0.1)
+        self.action_eval.bias.data.mul_(0.1)
+        self.sigma.weight.data.mul_(0.4)
+        self.sigma.bias.data.mul_(0.4)
+
 
     def set_mean(self, rollouts):
         s = rollouts.get_values("state")
@@ -184,21 +219,23 @@ class Policy(nn.Module):
     def reset_parameters(self):
         relu_gain = nn.init.calculate_gain('relu')
         for layer in self.layers:
-            if self.init_form == "none":
-                continue
-            if type(layer) == nn.Conv2d:
+            if issubclass(type(layer), Policy):
+                layer.reset_parameters()
+            elif type(layer) == nn.Conv2d and self.init_form != 'none':
                 print("layer", layer, self.init_form)
                 if self.init_form == "orth":
                     # print(layer.weight.shape, layer.weight)
                     nn.init.orthogonal_(layer.weight.data, gain=nn.init.calculate_gain('relu'))
                 else:
                     nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu') 
-            elif issubclass(type(layer), Policy):
-                layer.reset_parameters()
-            elif type(layer) == nn.Parameter:
+            elif type(layer) == nn.Parameter and self.init_form != 'none':
                 nn.init.uniform_(layer.data, 0.0, 0.2/np.prod(layer.data.shape))#.01 / layer.data.shape[0])
             else:
                 fulllayer = layer
+                if self.init_form == "none":
+                    print("no initialization", layer)
+                    continue
+                print("did not continue")
                 if type(layer) != nn.ModuleList:
                     fulllayer = [layer]
                 for layer in fulllayer:
@@ -217,6 +254,10 @@ class Policy(nn.Module):
                         torch.nn.init.xavier_normal_(layer.weight.data)
                     elif self.init_form == "xuni":
                         torch.nn.init.xavier_uniform_(layer.weight.data)
+                    elif self.init_form == "knorm":
+                        torch.nn.init.kaiming_normal_(layer.weight.data)
+                    elif self.init_form == "kuni":
+                        torch.nn.init.kaiming_uniform_(layer.weight.data)
                     elif self.init_form == "eye":
                         torch.nn.init.eye_(layer.weight.data)
                     if layer.bias is not None:                
@@ -225,41 +266,52 @@ class Policy(nn.Module):
         #     nn.init.orthogonal_(self.action_probs.weight.data, gain=0.01)
         print("parameter number", self.count_parameters(reuse=False))
 
-    def last_layer(self, x, param):
+    def last_layer(self, x, param, xcritic=None, set_actions=None):
         '''
         input: [batch size, insize]
         output [batch size, 1], [batch size, 1], [batch_size, num_actions], [batch_size, num_actions], [batch_size, num_actions]
         '''
         if self.last_param:
             x = torch.cat((x,param), dim=1)
-        std = self.sigma(x)
+        if xcritic is None:
+            xcritic = x
         dist = None
-        action_values = self.action_eval(x)
+        std = self.sigma(x)
+        if set_actions is None:
+            action_values = self.action_eval(x)
+            if self.normalized_actions:
+                std = torch.tanh(std) # might not want to normalize here
+                action_values = torch.tanh(action_values) # might not want to normalize outputs
+        else:
+            action_values = set_actions
         if self.continuous:
-            Q_vals = self.QFunction(x, action_values)
+            Q_vals = self.QFunction(xcritic, action_values)
             dist = FixedNormal(action_values, std)
-            log_probs = dist.log_probs(actions)
+            # print(action_values, dist, std)
+            log_probs = dist.log_probs(action_values)
             dist_entropy = dist.entropy().mean()
             probs = torch.exp(log_probs)
-            Q_best = action_values # Doesn't actually optimize the Q space for best action
+            Q_best = Q_vals # Doesn't actually optimize the Q space for best action
+            values = Q_vals # again, doesn't optimize
         else:
-            Q_vals = self.QFunction(x)
+            Q_vals = self.QFunction(xcritic)
             probs = F.softmax(action_values, dim=1) 
             log_probs = F.log_softmax(action_values, dim=1)
             dist_entropy = action_values - action_values.logsumexp(dim=-1, keepdim=True)
             Q_best = Q_vals.max(dim=1)[1]
 
             # print("act", action_values,"prob", probs, "logp", log_probs,"de", dist_entropy)
-        if self.Q_critic:
-            values = Q_vals.max(dim=1)[0]
-        else:
-            values = self.critic_linear(x)
+            if self.Q_critic:
+                values = Q_vals.max(dim=1)[0]
+            else:
+                values = self.critic_linear(x)
         # return values, None, None, None, None, None, Q_vals, None, None
         return values, dist_entropy, probs, log_probs, action_values, std, Q_vals, Q_best, dist
 
     def preamble(self, x, p):
         if not self.last_param:
-            x = torch.cat((x,p), dim=1)
+            if self.concatenate_param:
+                x = torch.cat((x,p), dim=1)
             # y = x - p
             # x = torch.cat((x,y), dim=1)
         if self.normalize:
@@ -267,12 +319,12 @@ class Policy(nn.Module):
             return (x / 84 - .5) * self.scale # normalizes the parameter for better or worse
         return x
 
-    def compute_Q(self, state, action):
-        x, p = self.preamble(state, p) # TODO: if necessary, a preamble can be added back in
-        x = self.hidden(x, p)
+    def compute_Q(self, state, param, action):
+        x = self.preamble(state, param) # TODO: if necessary, a preamble can be added back in
+        x = self.hidden(x, param)
         return self.QFunction(x, action)
 
-    def hidden(self, x):
+    def hidden(self, x, p):
         pass # defined in subclass classes
 
     def forward(self, x, p):
@@ -280,6 +332,7 @@ class Policy(nn.Module):
             x = self.preamble(x, p)
         x = self.hidden(x, p)
         values, dist_entropy, probs, log_probs, action_values, std, Q_vals, Q_best, dist = self.last_layer(x, p)
+        # print(action_values)
         return RLoutput(values, dist_entropy, probs, log_probs, action_values, std, Q_vals, Q_best, dist)
 
     def save(self, pth, name):
@@ -322,6 +375,15 @@ class Policy(nn.Module):
             self.parameter_count += np.prod(param.size())
         return self.parameter_count
 
+    def perturb_actor_parameters(self, param_noise):
+        """Apply parameter noise to the model, for exploration"""
+        params = self.state_dict()
+        for name in params:
+            if 'ln' in name: 
+                pass 
+            param = params[name]
+            param += torch.randn(param.shape) * param_noise.current_stddev
+
     # TODO: write code to remove last layer if unnecessary
     def remove_last(self):
         self.critic_linear = None
@@ -334,44 +396,72 @@ class BasicPolicy(Policy):
     def __init__(self, **kwargs):
         super(BasicPolicy, self).__init__(**kwargs)
         self.hidden_size = self.factor*self.factor*self.factor // min(4,self.factor)
+        self.use_layer_norm = default_value_arg(kwargs, "use_layer_norm", False)
         print("Network Sizes: ", self.num_inputs, self.insize, self.hidden_size)
         # self.l1 = nn.Linear(self.num_inputs, self.num_inputs*factor*factor)
         
-        if not self.last_param:
+        # remove this line
+        # self.double_layer = kwargs["double_layer"]
+        # if self.double_layer:
+        #     self.num_layers = self.num_layers - 1
+
+        if not self.last_param and self.concatenate_param:
             self.num_inputs += self.param_size
-        
+        print("num_inputs", self.num_inputs, self.concatenate_param)        
         # self.num_inputs = self.param_size # Turn this on to only input the parameter (also line in hidden)
         print(self.last_param, self.num_inputs)
         if self.num_layers == 1:
             self.l1 = nn.Linear(self.num_inputs,self.insize)
+            if self.use_layer_norm:
+                self.ln1 = nn.LayerNorm(self.insize)
         elif self.num_layers == 2:
             self.l1 = nn.Linear(self.num_inputs,self.hidden_size)
             self.l2 = nn.Linear(self.hidden_size, self.insize)
+            if self.use_layer_norm:
+                self.ln1 = nn.LayerNorm(self.hidden_size)
+                self.ln2 = nn.LayerNorm(self.insize)
         elif self.num_layers == 3:
             self.l1 = nn.Linear(self.num_inputs,self.hidden_size)
             self.l2 = nn.Linear(self.hidden_size,self.hidden_size)
             self.l3 = nn.Linear(self.hidden_size, self.insize)
+            if self.use_layer_norm:
+                self.ln1 = nn.LayerNorm(self.hidden_size)
+                self.ln2 = nn.LayerNorm(self.hidden_size)
+                self.ln3 = nn.LayerNorm(self.insize)
         if self.num_layers > 0:
             self.layers.append(self.l1)
+            if self.use_layer_norm:
+                self.layers.append(self.ln1)
         if self.num_layers > 1:
             self.layers.append(self.l2)
+            if self.use_layer_norm:
+                self.layers.append(self.ln2)
         if self.num_layers > 2:
             self.layers.append(self.l3)
+            if self.use_layer_norm:
+                self.layers.append(self.ln3)
         self.train()
         self.reset_parameters()
+        self.scale_last()
 
     def hidden(self, x, p):
         # print(x.shape, p.shape, x, p)
         # x = p # turn this on to only input the parameter
         if self.num_layers > 0:
             x = self.l1(x)
-            x = self.acti(x)
+            if self.use_layer_norm:
+                x = self.ln1(x)
         if self.num_layers > 1:
+            x = self.acti(x)
             x = self.l2(x)
-            x = self.acti(x)
+            if self.use_layer_norm:
+                x = self.ln2(x)
         if self.num_layers > 2:
-            x = self.l3(x)
             x = self.acti(x)
+            x = self.l3(x)
+            if self.use_layer_norm:
+                x = self.ln3(x)
+        x = self.acti(x)
         return x
 
     def compute_layers(self, x):
@@ -388,6 +478,43 @@ class BasicPolicy(Policy):
             layer_outputs.append(x.clone())
 
         return layer_outputs
+
+class BasicActorCriticPolicy(Policy):
+    def __init__(self, **kwargs):
+        # kwargs["double_layer"] = False
+        kwargs["needs_final"] = False
+        super(BasicActorCriticPolicy, self).__init__(**kwargs)
+        kwargs["needs_final"] = True
+        self.actor = BasicPolicy(**kwargs)
+        # kwargs["double_layer"] = True
+        self.critic = BasicPolicy(**kwargs)
+        self.hidden = self.critic.hidden
+        self.QFunction = self.critic.QFunction
+        # self.compute_Q = self.critic.compute_Q
+        self.actor.train()
+        self.critic.train()
+        # self.set_mean = self.actor.set_mean
+        # self.train()
+        # self.reset_parameters()
+
+    def cuda(self):
+        self.actor.cuda()
+        self.critic.cuda()
+
+    def forward(self, x, p): # almost the same as in Policy
+        if not self.actor.no_preamble:
+            x = self.actor.preamble(x, p)
+        xpolicy = self.actor(x, p)
+        xcritic = self.critic.hidden(x, p)
+        xcritic = RLoutput(*self.critic.last_layer(xcritic,p,set_actions=xpolicy.action_values))
+        values, dist_entropy, probs, log_probs, action_values, std, Q_vals, Q_best, dist = self.last_layer(xpolicy, p, xcritic)
+        # print(action_values)
+        return RLoutput(values, dist_entropy, probs, log_probs, action_values, std, Q_vals, Q_best, dist)
+
+    def last_layer(self, pout, param, cout):
+        return cout.values, pout.dist_entropy, pout.probs, pout.log_probs, pout.action_values, pout.std, cout.Q_vals, cout.Q_best, pout.dist
+
+# TODO: make a network with completely separate channels
 
 class ImagePolicy(Policy):
     def __init__(self, **kwargs):
@@ -495,4 +622,4 @@ class GridWorldPolicy(Policy):
 
 
 
-policy_forms = {"basic": BasicPolicy, "image": ImagePolicy, 'grid': GridWorldPolicy}
+policy_forms = {"basic": BasicPolicy, "image": ImagePolicy, 'grid': GridWorldPolicy, 'actorcritic': BasicActorCriticPolicy}

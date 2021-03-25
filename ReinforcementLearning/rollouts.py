@@ -38,6 +38,7 @@ class RLRollouts(Rollouts):
         super().__init__(length, shapes_dict)
         self.names = ["state", "next_state", "object_state", "next_object_state", "state_diff", "action", 'true_action', 'true_done', 'true_reward', 'probs', 'Q_vals', 'std', 'value', 'param', 'mask', 'reward', "max_reward", "returns", "done"]
         # print({n: self.shapes[n] for n in self.names})
+        # print(self.shapes)
         self.values = ObjDict({n: self.init_or_none(self.shapes[n]) for n in self.names})
         self.wrap = False
 

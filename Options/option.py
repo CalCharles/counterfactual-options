@@ -70,6 +70,8 @@ class Option():
             self.policy.cuda()
         if self.rollouts is not None:
             self.rollouts.cuda()
+        if self.next_option is not None:
+            self.next_option.cuda()
 
     def cpu(self):
         self.iscuda = False
@@ -95,7 +97,8 @@ class Option():
 
     def get_param(self, full_state, last_done):
         # move this into option file
-        if last_done:
+        # print(self.timer, last_done)
+        if last_done or self.timer == 0:
             # print("resample")
             if self.object_name == 'Raw':
                 self.param, self.mask = torch.tensor([1]), torch.tensor([1])
@@ -115,7 +118,7 @@ class Option():
             return self.get_possible_parameters()[param.squeeze().long()][0]
         return param
 
-    def sample_action_chain(self, state, param):
+    def sample_action_chain(self, state, param): 
         '''
         Takes an action in the state, only accepts single states. Since the initiation condition extends to all states, this is always callable
         also returns whether the current state is a termination condition. The option will still return an action in a termination state
@@ -123,7 +126,9 @@ class Option():
         '''
         # compute policy information for next state
         input_state = self.get_state(state, form=FEATURIZED, inp=INPUT_STATE)
-        rl_output = self.policy.forward(input_state.unsqueeze(0), param.unsqueeze(0))
+
+        # rl_output = policy.forward(input_state.unsqueeze(0), param.unsqueeze(0)) # REMOVE THIS LINE LATER
+        rl_output = self.policy.forward(input_state.unsqueeze(0), param.unsqueeze(0)) # uncomment this
 
         # get the action from the behavior policy, baction is integer for discrete
         if self.temp_ext and (self.next_option is not None and not self.next_option.terminated):
@@ -131,6 +136,8 @@ class Option():
         else:
             baction = self.behavior_policy.get_action(rl_output)
         action = self.next_option.convert_param(baction.squeeze())
+
+        # print(self.iscuda, param, baction, action)
         chain = [baction.squeeze()]
         rl_outputs = [rl_output]
         
@@ -259,6 +266,7 @@ class PrimitiveOption(Option): # primative discrete actions
         self.action_prob_shape = (1,)
         self.output_prob_shape = (models[1].environment.num_actions, )
         self.discrete = True
+        self.discrete_actions = models[1].environment.discrete_actions
         self.next_option = None
         self.iscuda = False
         self.policy = None
@@ -307,11 +315,12 @@ class RawOption(Option):
         self.object_name = "Raw"
         self.action_shape = (1,)
         self.action_prob_shape = (self.environment_model.environment.num_actions,)
-        self.discrete = True
+        self.discrete = False # This should not be used, since rawoption is not performing parameterized RL
         self.use_mask = False
         self.stack = torch.zeros((4,84,84))
         print("frame", self.environment_model.environment.get_state()[1]['Frame'].shape)
         self.param = self.environment_model.get_param(self.environment_model.environment.get_state()[1])
+        self.discrete_actions = self.environment_model.environment.discrete_actions
 
     def get_state_dict(self, state, next_state, action_chain, rl_outputs, param, rewards, dones): # also used in HER
             return {'state': self.get_state(state, form=FEATURIZED, inp=INPUT_STATE),
@@ -349,11 +358,13 @@ class RawOption(Option):
         # stack = stack.roll(-1,0)
         # stack[-1] = pytorch_model.wrap(self.environment_model.environment.frame, cuda=self.iscuda)
         # input_state = stack.clone().detach()
+
         input_state = pytorch_model.wrap(self.environment_model.get_raw_state(self.environment_model.get_factored_state()), cuda=self.iscuda)
         return input_state
 
 
-    def sample_action_chain(self, state, param):
+    # def sample_action_chain(self, state, param, policy): # REMOVE POLICY LATER
+    def sample_action_chain(self, state, param): # REMOVE POLICY LATER
         '''
         Takes an action in the state, only accepts single states. Since the initiation condition extends to all states, this is always callable
         also returns whether the current state is a termination condition. The option will still return an action in a termination state
@@ -364,7 +375,12 @@ class RawOption(Option):
         # self.stack[-1] = input_state
         # input_state = self.stack.clone()
         input_state = pytorch_model.wrap(self.environment_model.get_raw_state(state), cuda=self.iscuda)
-        rl_output = self.policy.forward(input_state.unsqueeze(0), param)
+        # print("raw_state", self.environment_model.get_raw_state(state), input_state)
+        if len(param.shape) == 1:
+            param = param.unsqueeze(0)
+        # rl_output = self.policy.forward(input_state.unsqueeze(0), param) # uncomment later
+        rl_output = policy.forward(input_state.unsqueeze(0), param)
+        # print("forwarded")
         baction = self.behavior_policy.get_action(rl_output)
         chain = [baction.squeeze()]
         return chain, [rl_output]
@@ -434,7 +450,7 @@ class ModelCounterfactualOption(Option):
             self.action_shape = (1,)
         else:
             self.action_shape = self.next_option.output_prob_shape
-        self.output_prob_shape = (self.dataset_model.gamma.output_size, ) # continuous, so the size will match
+        self.output_prob_shape = (self.dataset_model.delta.output_size(), ) # continuous, so the size will match
 
 
     def get_action(self, action, mean, variance):

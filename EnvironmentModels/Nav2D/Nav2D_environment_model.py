@@ -82,7 +82,7 @@ class Nav2DEnvironmentModel(EnvironmentModel):
         def unflatten(flattened):
             at = 0
             factored = dict()
-            for name in self.object_names:
+            for name in names:
                 factored[name] = flattened[at:at+(self.object_sizes[name]*self.object_num[name])]
                 at += (self.object_sizes[name]*self.object_num[name])
             return factored

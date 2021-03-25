@@ -9,14 +9,23 @@ from ReinforcementLearning.Policy.policy import pytorch_model
 from ReinforcementLearning.rollouts import RLRollouts
 import cv2
 import time
+from replay_memory import ReplayMemory, Transition
+
+
+
+from file_management import load_from_pickle
 
 b = [[(1, 44), (1, 45), (1, 46), (1, 47)], [(1, 27), (1, 30), (1, 44), (1, 11)], [(0, 22), (0, 90), (0, 52), (0, 62)], [(1, 6), (1, 37), (1, 5), (1, 41)], [(0, 3), (0, 28), (0, 71), (0, 6)], [(1, 9), (1, 16), (1, 28), (1, 21)], [(0, 64), (0, 60), (0, 39), (0, 47)], [(1, 29), (1, 2), (1, 25), (1, 45)], [(0, 68), (0, 4), (0, 82), (0, 23)], [(0, 81), (0, 71), (0, 17), (0, 77)], [(0, 45), (0, 72), (0, 49), (0, 96)], [(1, 36), (1, 30), (1, 19), (1, 1)], [(0, 63), (0, 21), (0, 93), (0, 72)], [(0, 99), (0, 66), (0, 73), (0, 11)], [(0, 25), (0, 18), (0, 26), (0, 25)], [(0, 64), (0, 77), (0, 95), (0, 70)], [(0, 13), (0, 97), (0, 92), (0, 58)], [(0, 49), (0, 37), (0, 42), (0, 19)], [(1, 10), (1, 0), (1, 31), (1, 36)], [(1, 30), (1, 40), (1, 17), (1, 30)], [(0, 0), (0, 57), (0, 62), (0, 70)], [(1, 27), (1, 47), (1, 2), (1, 34)], [(0, 0), (0, 67), (0, 62), (0, 1)], [(1, 18), (1, 24), (1, 37), (1, 11)], [(1, 28), (1, 32), (1, 25), (1, 15)], [(1, 20), (1, 8), (1, 48), (1, 41)], [(0, 6), (0, 31), (0, 89), (0, 52)], [(1, 1), (1, 43), (1, 10), (1, 0)], [(1, 35), (1, 46), (1, 6), (1, 21)], [(1, 4), (1, 16), (1, 22), (1, 26)], [(0, 51), (0, 70), (0, 27), (0, 7)], [(0, 71), (0, 10), (0, 68), (0, 41)], [(1, 28), (1, 40), (1, 15), (1, 10)], [(0, 75), (0, 19), (0, 17), (0, 62)], [(0, 41), (0, 96), (0, 88), (0, 47)], [(1, 12), (1, 29), (1, 29), (1, 49)], [(1, 40), (1, 49), (1, 19), (1, 18)], [(0, 48), (0, 68), (0, 20), (0, 5)], [(0, 43), (0, 39), (0, 61), (0, 38)], [(0, 1), (0, 98), (0, 69), (0, 46)], [(0, 37), (0, 79), (0, 38), (0, 38)], [(1, 2), (1, 5), (1, 7), (1, 23)], [(0, 70), (0, 91), (0, 87), (0, 67)], [(1, 34), (1, 21), (1, 17), (1, 34)], [(0, 94), (0, 24), (0, 90), (0, 35)], [(0, 66), (0, 67), (0, 61), (0, 39)], [(1, 48), (1, 8), (1, 43), (1, 31)], [(1, 31), (1, 32), (1, 31), (1, 34)], [(0, 81), (0, 98), (0, 63), (0, 94)], [(0, 91), (0, 33), (0, 38), (0, 95)]]
+
+
 
 class LearningOptimizer():
     def __init__(self, args, option):
         self.option = option
         self.policy = self.option.policy
-        self.optimizer = self.initialize_optimizer(args, self.option.policy)
+        if not args.actor_critic_optimizer:
+            self.optimizer = self.initialize_optimizer(args, self.option.policy)
+        self.actor_critic_optimizer = args.actor_critic_optimizer
         self.args = args
         self.i = 0
         self.updated = 0
@@ -31,24 +40,30 @@ class LearningOptimizer():
             return optim.RMSprop(policy.parameters(), args.lr, eps=args.eps, alpha=args.alpha)
         elif args.optim == "Adam":
             print("using ADAM")
-            # return optim.Adam(policy.parameters(), args.lr)
-            return optim.Adam(policy.parameters(), .0001)
-            # return optim.Adam(policy.parameters(), args.lr, eps=args.eps, betas=args.betas, weight_decay=args.weight_decay)
+            return optim.Adam(policy.parameters(), args.lr)
+            # return optim.Adam(policy.parameters(), .0001)
+            # print(policy)
+            return optim.Adam(policy.parameters(), args.lr, eps=args.eps, betas=args.betas, weight_decay=args.weight_decay)
         else:
             raise NotImplementedError("Unimplemented optimization")
 
-    def step_optim(self, loss):
-        self.optimizer.zero_grad()
+    def step_optim(self, loss, optimizer):
+        optimizer.zero_grad()
         (loss).backward()
         # torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.args.max_grad_norm)
-        self.optimizer.step()
+        optimizer.step()
 
-    def step_optimizer(self, loss, RL=0):
+    def step_optimizer(self, loss, RL=0, critic_loss=None):
         '''
         steps the optimizer. This is shared between RL algorithms
         '''
         if RL == 0:
-            self.step_optim(loss)
+            if self.actor_critic_optimizer:
+                # print("optimizing_critic")
+                self.step_optim(loss, self.optimizer)
+                self.step_optim(critic_loss, self.critic_optimizer)
+            else:
+                self.step_optim(loss, self.optimizer)
         else:
             raise NotImplementedError("Check that Optimization is appropriate")
         if self.args.double_Q > 0: # double Q learning targets
@@ -59,10 +74,13 @@ class LearningOptimizer():
                     self.option.policy.load_state_dict(new_params)
                     self.updated = self.i
             else:
+                # print("setting params")
+                # print("before", self.option.policy.critic.QFunction.l2.weight.data)
                 old_params = pytorch_model.unwrap(self.option.policy.get_parameters())
                 new_params = pytorch_model.unwrap(self.policy.get_parameters())
                 params = (1-self.args.double_Q) * old_params + self.args.double_Q * new_params
                 self.option.policy.set_parameters(params)
+                # print("after", self.option.policy.critic.QFunction.l2.weight.data)
 
     def step(self, args, rollouts):
         '''
@@ -93,7 +111,7 @@ class DQN_optimizer(LearningOptimizer):
         else:
             self.policy = option.policy
 
-    def DQN_loss(self, batch):
+    def loss_calc(self, batch):
         # start = time.time()
         # print(time.time() - start)
         # start = time.time()
@@ -126,7 +144,7 @@ class DQN_optimizer(LearningOptimizer):
         # print(time.time() - start)
         # start = time.time()
         # print(value_estimate, q_values)
-        q_loss = F.smooth_l1_loss(q_values, value_estimate)#.norm(p=2) / self.args.batch_size
+        q_loss = F.smooth_l1_loss(q_values.squeeze(), value_estimate)#.norm(p=2) / self.args.batch_size
 
         # print(torch.stack((batch.values.object_state.squeeze(), batch.values.next_object_state.squeeze(), batch.values.param.squeeze(), batch.values.action.squeeze(), next_value.squeeze(), value_estimate), dim=1))
         # print("before", torch.cat((output.Q_vals, next_value.unsqueeze(1)), dim=1))
@@ -158,7 +176,7 @@ class DQN_optimizer(LearningOptimizer):
             idxes, batch = rollouts.get_batch(self.args.batch_size, weights = weights)
             # print("batch", time.time() - start)
             # start = time.time()
-            q_loss = self.DQN_loss(batch)
+            q_loss = self.loss_calc(batch)
             # print("loss", time.time() - start)
             # start = time.time()
             self.step_optimizer(q_loss, RL=0)
@@ -215,7 +233,134 @@ class GSR_optimizer(DQN_optimizer): # goal search replay
             total_loss += q_loss
         return PolicyLoss(total_loss/self.args.grad_epoch, None, q_loss, None, None, None)
 
-class HER_optimizer(DQN_optimizer):
+class DDPG_optimizer(DQN_optimizer):
+    def __init__(self, args, option):
+        super().__init__(args, option)
+
+        self.counter = 0
+        self.batches = load_from_pickle("data/batches.pkl")
+        # self.num_inputs = num_inputs
+        # self.action_space = action_space
+
+        # self.actor = Actor(hidden_size, self.num_inputs, self.action_space)
+        # self.actor_target = Actor(hidden_size, self.num_inputs, self.action_space)
+        # self.actor_perturbed = Actor(hidden_size, self.num_inputs, self.action_space)
+        # self.actor_optim = Adam(self.actor.parameters(), lr=1e-4)
+
+        # self.critic = Critic(hidden_size, self.num_inputs, self.action_space)
+        # self.critic_target = Critic(hidden_size, self.num_inputs, self.action_space)
+        # self.critic_optim = Adam(self.critic.parameters(), lr=1e-3)
+        self.actor_critic_optimizer = args.actor_critic_optimizer
+        if self.actor_critic_optimizer:
+            self.optimizer = self.initialize_optimizer(args, self.policy.actor)
+            args.lr *= 10 # hardcoded critic 10x higher learning rate
+            print("initializing_critic", args.lr)
+            self.critic_optimizer = self.initialize_optimizer(args, self.policy.critic)
+            args.lr /= 10
+
+        # hard_update(self.actor_target, self.actor)  # Make sure target is with the same weight
+        # hard_update(self.critic_target, self.critic)
+
+    # def select_action(self, state, action_noise=None, param_noise=None):
+    #     self.actor.eval()
+    #     if param_noise is not None: 
+    #         mu = self.actor_perturbed((Variable(state)))
+    #     else:
+    #         mu = self.actor((Variable(state)))
+
+    #     self.actor.train()
+    #     mu = mu.data
+
+    #     if action_noise is not None:
+    #         mu += torch.Tensor(action_noise.noise())
+
+    #     return mu.clamp(-1, 1)
+
+    def loss_calc(self, batch):
+        next_output = self.option.policy.forward(batch.values.next_state, batch.values.param)
+        next_actions = next_output.action_values
+        next_values = next_output.Q_vals
+        # print(self.policy.critic.QFunction.l2.weight.data)
+        # print(self.option.policy.critic.QFunction.l2.weight.data)
+        # next_action_batch = self.actor_target(next_state_batch)
+        # next_state_action_values = self.critic_target(next_state_batch, next_action_batch)
+
+        value_estimate = batch.values.reward + (self.args.gamma * (1-batch.values.done) * next_values.detach())
+        # print(batch.values.done.squeeze())
+        # reward_batch = reward_batch.unsqueeze(1)
+        # mask_batch = mask_batch.unsqueeze(1)
+        # expected_state_action_batch = reward_batch + (self.gamma * mask_batch * next_state_action_values)
+
+        # self.critic_optim.zero_grad()
+
+        Q_values = self.policy.compute_Q(batch.values.state, batch.values.param, batch.values.action)
+        # print(batch.values.state[:2], batch.values.action[:2], batch.values.reward[:2], value_estimate[:2], next_values[:2], Q_values[:2])
+        # print(batch.values.state[:2], batch.values.action[:2])
+        # error
+        # state_action_batch = self.critic((state_batch), (action_batch))
+        critic_loss = torch.nn.MSELoss()
+        value_loss = critic_loss(Q_values, value_estimate)
+        # Q_values.retain_grad()
+
+        # value_loss.backward()
+        # self.critic_optim.step()
+
+        # self.actor_optim.zero_grad()
+
+        output = self.policy.forward(batch.values.state, batch.values.param)
+        qs = self.policy.compute_Q(batch.values.state, batch.values.param, output.action_values)[:4]
+        # print(batch.values.state[:4], output.action_values[:4], qs)
+        # policy_loss = -self.policy.compute_Q(batch.values.state, output.action_values)
+        policy_loss = -output.Q_vals
+        # policy_loss = -self.critic((state_batch),self.actor((state_batch)))
+
+        policy_loss = policy_loss.mean()
+        # policy_loss.backward()
+        # self.actor_optim.step()
+        # print(value_loss, policy_loss)
+        return value_loss, policy_loss
+
+    def step(self, rollouts, use_range = None):
+        # critic_loss = nn.MSELoss()
+        total_loss = 0
+        for _ in range(self.args.grad_epoch):
+            weights = None
+            if len(self.args.prioritized_replay) > 0:
+                rew = rollouts.get_values(self.args.prioritized_replay) # TODO: use different values than just max reward
+                total = rew.sum() + self.args.weighting_lambda * len(rew)
+                weights =  (rew + self.args.weighting_lambda) / total
+                weights = weights.squeeze().cpu().numpy()
+            idxes, batch = rollouts.get_batch(self.args.batch_size, weights = weights)
+            
+            # print(self.counter, batch.values.state[0])            
+            # tbatch = self.batches[self.counter]
+            # self.counter += 1
+            # batch.values.state = torch.stack(tbatch.state, dim=0).cuda().squeeze()
+            # # print(self.counter, batch.values.state[0])
+            # batch.values.next_state = torch.stack(tbatch.next_state, dim=0).cuda().squeeze()
+            # batch.values.action = torch.stack(tbatch.action, dim=0).cuda().squeeze().unsqueeze(1)
+            # batch.values.reward = torch.stack(tbatch.reward, dim=0).cuda().squeeze().unsqueeze(1)
+            # batch.values.done = (torch.stack(tbatch.mask, dim=0).cuda() - 1).abs().squeeze().unsqueeze(1)
+            
+            # print(batch.values.state.shape, batch.values.next_state, batch.values.action)
+            # state_batch = batch.state
+            # action_batch = batch.action
+            # reward_batch = batch.reward
+            # mask_batch = batch.done
+            # next_state_batch = batch.values.next_state
+            value_loss, policy_loss = self.loss_calc(batch)
+            if self.actor_critic_optimizer:
+                loss = policy_loss
+            else:
+                loss = value_loss + policy_loss
+            # soft_update(self.actor_target, self.actor, self.tau)
+            # soft_update(self.critic_target, self.critic, self.tau)
+            self.step_optimizer(loss, RL=0, critic_loss = value_loss) # might need to take the difference of this instead
+            # print(self.policy.critic.QFunction.l1.weight.data)
+            total_loss += loss.detach()
+        return PolicyLoss(total_loss/self.args.grad_epoch, policy_loss, value_loss, None, None, None)
+
+class HER_optimizer(LearningOptimizer):
     def __init__(self, args, option):
         super().__init__(args, option)
         # only sample one other goal (the successful one)
@@ -226,6 +371,16 @@ class HER_optimizer(DQN_optimizer):
         self.select_positive = args.select_positive
         self.resample_timer = args.resample_timer
         self.use_interact = not args.true_environment
+        if args.Q_updator == "DQN":
+            self.internal_optimizer = DQN_optimizer(args, option)
+        elif args.Q_updator == "DDPG":
+            self.internal_optimizer = DDPG_optimizer(args, option)
+
+        self.loss_calc = self.internal_optimizer.loss_calc
+        self.policy = self.internal_optimizer.policy
+        self.double_Q_counter = self.internal_optimizer.double_Q_counter
+        self.optimizer = self.internal_optimizer.optimizer
+
 
 
     def record_state(self, i, state, next_state, action_chain, rl_outputs, param, rewards, dones):
@@ -276,7 +431,7 @@ class HER_optimizer(DQN_optimizer):
             # else:
             #     idxes, batch = self.rollouts.get_batch(self.args.batch_size, idxes = np.array(vals))
 
-            loss = self.DQN_loss(batch)
+            loss = self.loss_calc(batch)
             self.step_optimizer(loss, RL=0)
             total_loss += loss.clone().detach()
             # print(q_values[0], q_values.grad[0])
@@ -311,21 +466,21 @@ class HER_optimizer(DQN_optimizer):
             
             output = self.policy.forward(S0, P)
             q_values, _ = self.option.get_action(batch.values.action, output.Q_vals, output.std)
-            q_values.retain_grad()
+            # q_values.retain_grad()
             
             q_loss = F.smooth_l1_loss(q_values.squeeze(), value_estimate.squeeze())#.norm(p=2) / self.args.batch_size
             (q_loss).backward()
             # print("before")
             self.optimizer.step()
-            print(rollouts.filled, b[i][0], vals, 
-                np.argwhere(pytorch_model.unwrap(batch.values.state[0].reshape(20,20,3)[:,:,1]) > 0), 
-                np.argwhere(pytorch_model.unwrap(batch.values.next_state[0].reshape(20,20,3)[:,:,1]) > 0), 
-                np.argwhere(pytorch_model.unwrap(batch.values.param[0].reshape(20,20,1)[:,:,0]) > 0), 
-                pytorch_model.unwrap(batch.values.action.squeeze()),
-                pytorch_model.unwrap(batch.values.reward.squeeze()), pytorch_model.unwrap(batch.values.done.squeeze()),
-                "ve", pytorch_model.unwrap(value_estimate.squeeze()[0]), pytorch_model.unwrap(q_values.squeeze()[0]), 
-                "next", pytorch_model.unwrap(next_value.squeeze()[0]),
-                "grad", pytorch_model.unwrap(q_values.grad[0]), pytorch_model.unwrap(q_loss)) 
+            # print(rollouts.filled, b[i][0], vals, 
+            #     np.argwhere(pytorch_model.unwrap(batch.values.state[0].reshape(20,20,3)[:,:,1]) > 0), 
+            #     np.argwhere(pytorch_model.unwrap(batch.values.next_state[0].reshape(20,20,3)[:,:,1]) > 0), 
+            #     np.argwhere(pytorch_model.unwrap(batch.values.param[0].reshape(20,20,1)[:,:,0]) > 0), 
+            #     pytorch_model.unwrap(batch.values.action.squeeze()),
+            #     pytorch_model.unwrap(batch.values.reward.squeeze()), pytorch_model.unwrap(batch.values.done.squeeze()),
+            #     "ve", pytorch_model.unwrap(value_estimate.squeeze()[0]), pytorch_model.unwrap(q_values.squeeze()[0]), 
+            #     "next", pytorch_model.unwrap(next_value.squeeze()[0]),
+            #     "grad", pytorch_model.unwrap(q_values.grad[0]), pytorch_model.unwrap(q_loss)) 
             # print("after", pytorch_model.unwrap(self.policy.QFunction.weight[:,:9]))
             # print("policy", pytorch_model.unwrap(self.option.policy.QFunction.weight[:,:9]))
             q_values.detach()
@@ -474,4 +629,5 @@ class A2C_optimizer(LearningOptimizer):
 
 
 
-learning_algorithms = {'ppo': PPO_optimizer, 'dqn': DQN_optimizer, 'a2c': A2C_optimizer, 'her': HER_optimizer, 'gsr': GSR_optimizer}
+learning_algorithms = {'ppo': PPO_optimizer, 'dqn': DQN_optimizer, 'a2c':
+                        A2C_optimizer, 'her': HER_optimizer, 'gsr': GSR_optimizer, 'ddpg': DDPG_optimizer}

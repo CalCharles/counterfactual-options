@@ -21,6 +21,7 @@ class RawEnvironment():
         self.save_path = "" # save dir also is set using set_save
         self.episode_rewards = deque(maxlen=10) # the episode rewards for the last 10 episodes
         self.reshape = (-1) # the shape of an observation
+        self.discrete_actions = True
 
     def step(self, action):
         '''

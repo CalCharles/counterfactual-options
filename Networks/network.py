@@ -14,7 +14,10 @@ class pytorch_model():
     def wrap(data, dtype=torch.float, cuda=True):
         # print(Variable(torch.Tensor(data).cuda()))
         if type(data) == torch.Tensor:
-            return data.clone().detach() 
+            if cuda: # TODO: dtype not handeled 
+                return data.clone().detach().cuda()
+            else:
+                return data.clone().detach()
         else:
             if cuda:
                 return torch.tensor(data, dtype=dtype).cuda()
@@ -61,6 +64,12 @@ class ConstantNorm():
             self.std = self.std.cuda()
             self.inv_std = self.inv_std.cuda()
 
+    def cpu(self):
+        if type(self.mean) == torch.Tensor:
+            self.mean = self.mean.cpu()
+            self.std = self.std.cpu()
+            self.inv_std = self.inv_std.cpu()
+
 ## end of normalization functions
 
 class Network(nn.Module):
@@ -69,7 +78,7 @@ class Network(nn.Module):
         self.num_inputs, self.num_outputs = kwargs["num_inputs"], kwargs["num_outputs"]
         self.init_form = kwargs["init_form"]
         self.layers = []
-        self.acti = self.get_acti(kwargs["acti"])
+        self.acti = self.get_acti(kwargs["activation"])
         self.iscuda = False
 
     def cuda(self):
@@ -115,24 +124,27 @@ class Network(nn.Module):
                 if type(layer) != nn.ModuleList:
                     fulllayer = [layer]
                 for layer in fulllayer:
-                    # print("layer", self, layer)
                     if self.init_form == "orth":
                         nn.init.orthogonal_(layer.weight.data, gain=nn.init.calculate_gain('relu'))
-                    if self.init_form == "uni":
+                    elif self.init_form == "uni":
                         # print("div", layer.weight.data.shape[0], layer.weight.data.shape)
                          nn.init.uniform_(layer.weight.data, 0.0, 1 / layer.weight.data.shape[0])
-                    if self.init_form == "smalluni":
+                    elif self.init_form == "smalluni":
                         # print("div", layer.weight.data.shape[0], layer.weight.data.shape)
                         nn.init.uniform_(layer.weight.data, -.0001 / layer.weight.data.shape[0], .0001 / layer.weight.data.shape[0])
                     elif self.init_form == "xnorm":
                         torch.nn.init.xavier_normal_(layer.weight.data)
                     elif self.init_form == "xuni":
                         torch.nn.init.xavier_uniform_(layer.weight.data)
+                    elif self.init_form == "knorm":
+                        torch.nn.init.kaiming_normal_(layer.weight.data)
+                    elif self.init_form == "kuni":
+                        torch.nn.init.kaiming_uniform_(layer.weight.data)
                     elif self.init_form == "eye":
                         torch.nn.init.eye_(layer.weight.data)
                     if layer.bias is not None:                
                         nn.init.uniform_(layer.bias.data, 0.0, 1e-6)
-        print("parameter number", self.count_parameters(reuse=False))
+                    print("layer", self.init_form)
 
     def get_parameters(self):
         params = []
@@ -182,6 +194,7 @@ class BasicMLPNetwork(Network):
         super().__init__(**kwargs)
         self.factor = kwargs['factor']
         self.num_layers = kwargs['num_layers']
+        self.use_layer_norm = kwargs['use_layer_norm']
         self.hidden_size = self.factor*self.factor*self.factor // min(4,self.factor)
         
         print("Network Sizes: ", self.num_inputs, self.num_outputs, self.hidden_size)
@@ -190,14 +203,23 @@ class BasicMLPNetwork(Network):
         elif self.num_layers == 2:
             self.l1 = nn.Linear(self.num_inputs,self.hidden_size)
             self.l2 = nn.Linear(self.hidden_size, self.num_outputs)
+            if self.use_layer_norm:
+                self.ln1 = nn.LayerNorm(self.hidden_size)
         elif self.num_layers == 3:
             self.l1 = nn.Linear(self.num_inputs,self.hidden_size)
             self.l2 = nn.Linear(self.hidden_size,self.hidden_size)
             self.l3 = nn.Linear(self.hidden_size, self.num_outputs)
+            if self.use_layer_norm:
+                self.ln1 = nn.LayerNorm(self.hidden_size)
+                self.ln2 = nn.LayerNorm(self.hidden_size)
         if self.num_layers > 0:
             self.layers.append(self.l1)
+            if self.use_layer_norm:
+                self.layers.append(self.ln1)
         if self.num_layers > 1:
             self.layers.append(self.l2)
+            if self.use_layer_norm:
+                self.layers.append(self.ln2)
         if self.num_layers > 2:
             self.layers.append(self.l3)
         self.train()
@@ -206,11 +228,45 @@ class BasicMLPNetwork(Network):
     def forward(self, x):
         if self.num_layers > 0:
             x = self.l1(x)
+            if self.use_layer_norm and self.num_layers > 1:
+                x = self.ln1(x)
+            # print(x)
         if self.num_layers > 1:
             x = self.acti(x)
             x = self.l2(x)
+            if self.use_layer_norm:
+                x = self.ln2(x)
+            # print(x)
         if self.num_layers > 2:
             x = self.acti(x)
             x = self.l3(x)
+            if self.use_layer_norm:
+                x = self.ln3(x)
+            # print(x)
+            # print(x.sum(dim=0))
+            # error
+
+        return x
+
+class FactoredMLPNetwork(Network):    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.factor = kwargs['factor']
+        self.num_layers = kwargs['num_layers']
+        self.use_layer_norm = kwargs['use_layer_norm']
+        self.MLP = BasicMLPNetwork(**kwargs)
+        self.train()
+        self.reset_parameters()
+
+    def basic_operations(self, x):
+        # add, subtract, outer product
+        return
+
+    def forward(self, x):
+        x = self.basic_operations(x)
+        x = self.MLP(x)
+            # print(x)
+            # print(x.sum(dim=0))
+            # error
 
         return x

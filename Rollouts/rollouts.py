@@ -147,13 +147,13 @@ class Rollouts():
     def split_train_test(self, ratio):
         idxes = list(range(self.filled))
         train_num = int(self.filled * ratio)
-        train = np.random.choice(idxes, size=train_num)
+        train = np.random.choice(idxes, size=train_num, replace=False)
         vals = train.tolist()
         vals.sort()
         test = copy.copy(idxes)
         a = 0
         popped = 0
-        while a < len(idxes):
+        while len(vals) > 0:
             if a == vals[0]:
                 test.pop(a - popped)
                 popped += 1

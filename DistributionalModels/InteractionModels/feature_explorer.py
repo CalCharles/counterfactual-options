@@ -3,6 +3,7 @@ import numpy as np
 import os, cv2, time, copy
 import torch
 from collections import Counter
+from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
 from EnvironmentModels.environment_model import ModelRollouts
 from Rollouts.rollouts import merge_rollouts
 from DistributionalModels.InteractionModels.interaction_model import interaction_models, nfd, nf
@@ -81,7 +82,14 @@ class FeatureExplorer():
         self.model_args['num_inputs'] = self.model_args['gamma'].output_size()
         self.model_args['num_outputs'] = self.model_args['delta'].output_size()
         model = interaction_models[self.model_args['model_type']](**self.model_args)
+        print(model)
         train, test = rollouts.split_train_test(train_args.ratio)
+        train.cpu(), test.cpu()
+        save_to_pickle("data/train.pkl", train)
+        save_to_pickle("data/test.pkl", test)
+        # train = load_from_pickle("data/train.pkl")
+        # test = load_from_pickle("data/test.pkl")
+        train.cuda(), test.cuda()
         model.train(train, train_args, control=cfs, target_name=name)
         return model, test, self.model_args['gamma'], self.model_args['delta']
 
