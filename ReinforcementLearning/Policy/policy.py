@@ -7,6 +7,66 @@ import torch.optim as optim
 import copy, os, cv2
 from file_management import default_value_arg
 from Networks.network import Network
+from tianshao.utils.net.continuous import Actor, Critic
+cActor, cCritic = Actor, Critic
+from tianshao.utils.net.discrete import Actor, Critic
+dActor, dCritic = Actor, Critic
+from tianshou.exploration import GaussianNoise, OUNoise
+
+
+# TODO: redo this one
+
+def TSPolicy(nn.Module):
+    '''
+    wraps around a TianShao Base policy, but supports most of the same functions to interface with Option.option.py
+    Note that TianShao Policies also support learning
+
+    '''
+
+    def __init__(self, **kwargs):
+        self.algo_name = kwargs["learning_type"] # the algorithm being used
+        kwargs["actor"], kwargs["actor_optim"], kwargs['critic'], kwargs['critic_optim'], kwargs['critic2'], kwargs['critic2_optim'] = self.init_networks()
+        kwargs["exploration_noise"] = GaussianNoise(sigma=args.epsilon)
+        self.algo_policy = self.init_algorithm(**kwargs)
+
+    def init_networks(self, args):
+        if self.continuous:
+            Actor, Critic = cActor, cCritic
+        else:
+            Actor, Critic = dActor, dCritic
+
+        if self.algo_name in self.actor_algo or self.algo_name in self.actor_critic_algo:
+            anet = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
+            actor = Actor(
+                    net_a, args.action_shape, max_action=args.max_action,
+                    device=args.device).to(args.device)
+            actor_optim = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
+        if self.algo_name in self.critic_algo or self.algo_name in self.actor_critic_algo:
+            net_c = Net(args.state_shape, args.action_shape,
+                        hidden_sizes=args.hidden_sizes,
+                        concat=True, device=args.device)
+            critic = Critic(net_c, device=args.device).to(args.device)
+            critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
+        # init as many as necessary
+        return actor, actor_optim, critic, critic_optim
+
+
+    def init_algorithm(self, **kwargs):
+        if self.algo_name == "ddpg": return DDPGPolicy(**kwargs)
+        # support as many algos as possible, at least ddpg, dqn SAC
+
+    def save(self, pth, name):
+        torch.save(self, os.path.join(pth, name + ".pt"))
+
+    def forward(self, state, param):
+        '''
+        Instead of calling the forward, to avoid batch dependency call the operations while avoiding batch
+        only actions are evaluated out, because the other values aren't part of this framework
+        '''
+        a = getattr(self.algo_policy, 'actor')
+        input_state = torch.cat((state, param), dim=1) # make sure state and param are batch x state shape
+        actions, h = a(input_state)
+        return RLoutput(action_values=actions)
 
 def dummy_RLoutput(n, num_actions, cuda):
     one = torch.tensor([n, 0])
@@ -17,10 +77,10 @@ def dummy_RLoutput(n, num_actions, cuda):
     return RLoutput(one.clone(), )
 
 class RLoutput():
-    def __init__(self, values, dist_entropy, probs, log_probs, action_values, std, Q_vals, Q_best, dist):
+    def __init__(self, values = None, dist_entropy = None, probs = None, log_probs = None, action_values = None, std = None, Q_vals = None, Q_best = None, dist = None):
         self.values = values 
         self.dist_entropy = dist_entropy 
-        self.probs = probs 
+        self.probs = probs
         self.log_probs = log_probs 
         self.action_values = action_values 
         self.std = std 

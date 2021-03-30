@@ -12,6 +12,19 @@ def sample_actions( probs, deterministic): # TODO: why is this here?
         action = probs.max(1)[1]
     return action
 
+class TSBehaviorPolicy():
+    def __init__(self, args):
+        self.exploration_noise = args.exploration_noise
+
+    def get_action(rl_output):
+        '''
+        Still needs to be finished, but has data based on the values
+        '''
+        act = pytorch_model.unwrap(rl_output.action_values)
+        if self.exploration_noise:
+            act = self.policy.exploration_noise(act, self.data)
+
+
 # TODO: doesn't handle a combination of continuous and discrete action spaces (i.e. actions and paddle simultaniously)
 class BehaviorPolicy():
     def __init__(self, args):

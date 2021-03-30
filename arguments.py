@@ -19,7 +19,11 @@ def get_args():
                         help='name of the object filtering for')
     # # optimization hyperparameters
     parser.add_argument('--lr', type=float, default=7e-4,
-                        help='learning rate (default: 1e-6)')
+                        help='learning rate, not used if actor and critic learning rate used for algo (default: 1e-6)')
+    parser.add_argument('--actor-lr', type=float, default=7e-4,
+                        help='actor learning rate (default: 1e-6)')
+    parser.add_argument('--critic-lr', type=float, default=7e-4,
+                        help='critic learning rate (default: 1e-6)')
     parser.add_argument('--eps', type=float, default=1e-5,
                         help='RMSprop/Adam optimizer epsilon (default: 1e-5)')
     parser.add_argument('--alpha', type=float, default=0.99,
@@ -28,46 +32,21 @@ def get_args():
                         help='Adam optimizer betas (default: (0.9, 0.999))')
     parser.add_argument('--weight-decay', type=float, default=0.00,
                         help='Adam optimizer l2 norm constant (default: 0.01)')
-    parser.add_argument('--gamma', type=float, default=0.99,
-                        help='discount factor for rewards (default: 0.99)')
+    parser.add_argument('--tau', type=float, default=0.005,
+                        help='parameter for target network updates (default: 0.95)')
     # cost function hyperparameters
-    parser.add_argument('--return-form', default='value',
-                        help='determines what return equation to use. true is true returns, gae is gae (not implemented), value uses the value function, none avoids return computation')
-    parser.add_argument('--tau', type=float, default=0.95,
-                        help='gae parameter (default: 0.95)')
-    parser.add_argument('--entropy-coef', type=float, default=1e-2,
-                        help='entropy loss term coefficient (default: 1e-7)')
-    parser.add_argument('--high-entropy', type=float, default=0,
-                        help='high entropy (for low frequency) term coefficient (default: 1)')
-    parser.add_argument('--value-loss-coef', type=float, default=0.5,
-                        help='value loss coefficient (default: 0.5)')
-    parser.add_argument('--max-grad-norm', type=float, default=0.5,
-                        help='value loss coefficient (default: 0.5)')
+    parser.add_argument('--gamma', type=float, default=0.99,
+                        help='discount factor for rewards (default: 0.99)') 
     # model hyperparameters
-    parser.add_argument('--num-layers', type=int, default=1,
-                        help='number of layers for network. When using basis functions, defines independence relations (see ReinforcementLearning.basis_models.py)')
-    parser.add_argument('--factor', type=int, default=4,
-                        help='decides width of the network')
-    parser.add_argument('--use-layer-norm', action='store_true', default=False,
-                        help='uses layer normalization')
-    parser.add_argument('--optim', default="RMSprop",
-                        help='optimizer to use: Adam, RMSprop, Evol')
-    parser.add_argument('--activation', default="relu",
-                        help='activation function for hidden layers: relu, sin, tanh, sigmoid')
-    parser.add_argument('--init-form', default="xnorm",
-                    help='initialization to use: uni, xnorm, xuni, eye')
-    parser.add_argument('--last-param', action='store_true', default=False,
-                    help='use the parameter at the last layer, otherwise, does it at the first layer')
-    parser.add_argument('--normalize', action='store_true', default=False,
-                    help='normalizes the inputs using 84')
-    parser.add_argument('--normalized_actions', action='store_true', default=False,
-                    help='normalized_actions the actions to -1,1 with tanh')
+    parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256],
+                        help='sizes of the internal hidden layers')
+    # dynamics model learning parameters
     parser.add_argument('--predict-dynamics', action='store_true', default=False,
                     help='predict the dynamics instead of the next state')
     parser.add_argument('--action-shift', action='store_true', default=False,
                     help='shift the actions back one time step so the action is applied at the last time step')
     # Meta-Hyperparameters
-    parser.add_argument('--policy-type', default="basic",
+    parser.add_argument('--policy-type', default="ts",
                         help='choose the model form for the policy, which is defined in Policy.policy')
     parser.add_argument('--terminal-type', default="param",
                         help='choose the way the terminal condition is defined, in Option.Termination.termination')
@@ -75,10 +54,10 @@ def get_args():
                         help='choose the way the reward is defined, in Option.Reward.reward')
     parser.add_argument('--option-type', default="discrete",
                         help='choose the way the option is defined, in Option.option')
-    parser.add_argument('--behavior-type', default="prob",
+    parser.add_argument('--behavior-type', default="ts",
                         help='choose the way the behavior policy is defined, in ReinforcementLearning.behavior_policy')
-    parser.add_argument('--learning-type', default='a2c',
-                        help='defines the algorithm used for learning')
+    parser.add_argument('--learning-type', default='',
+                        help='defines the algorithm used for learning, includes ddpg, sac, dqn, her can be added as a prefix to any of these')
     parser.add_argument('--sampler-type', default='uni',
                         help='defines the function used to sample param targets')
     # Behavior policy parameters
@@ -105,37 +84,25 @@ def get_args():
                         help='number of forward steps used to compute gradient, -1 for not used (default: -1)')
     parser.add_argument('--batch-size', type=int, default=5,
                         help='number of forward steps used to compute gradient, -1 for not used (default: -1)')
-    parser.add_argument('--reward-check', type=int, default=5,
-                        help='steps between a check for reward, (default 1)')
+    # Training iterations
     parser.add_argument('--num-iters', type=int, default=int(2e5),
                         help='number of iterations for training (default: 2e5)')
     parser.add_argument('--pretrain-iters', type=int, default=int(2e4),
                         help='number of iterations for training (default: 2e4)')
     parser.add_argument('--posttrain-iters', type=int, default=int(0),
-                        help='number of iterations for training after training(default: 2e5)')
+                        help='number of iterations for training after training, or after warm up for RL (default: 2e5)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
-    parser.add_argument('--Q-critic', action='store_true', default=False,
-                        help='use the q function to compute the state value')
-    parser.add_argument('--actor-critic-optimizer', action='store_true', default=False,
-                    help='separate optimizers for the actor and critic components')
-    parser.add_argument('--warm-up', type=int, default=0,
-                        help='warm up updates to fill buffer (default: 0)')
-    parser.add_argument('--warm-updates', type=int, default=0,
-                        help='number of update steps after warm up (default: 0)')
     parser.add_argument('--ratio', type=float, default=0.9,
                     help='ratio of training samples to testing ones')
+    # values for determining if significant things are happening
     parser.add_argument('--model-error-significance', type=float, default=1,
                     help='amount of difference in l2 norm to determine that prediction is happening')
     parser.add_argument('--train-reward-significance', type=float, default=5,
                     help='amount of difference in per-episode reward to determine control')
     # HER/DQN parameters
-    parser.add_argument('--double-Q', type=float, default=-1,
-                        help='weight given to the new parameters between 0-1, or greater than 1 is a schedule (default: -1 (not used))')
     parser.add_argument('--select-positive', type=float, default=0.5,
                     help='For hindsight experience replay, selects the positive reward x percent of the time (default .5)')
-    parser.add_argument('--Q-updator', default="DQN",
-                    help='For hindsight experience replay, determines the internal optimizer (default DQN)')
     parser.add_argument('--resample-timer', type=int, default=10,
                         help='how often to resample a goal (default: 10)')
 
@@ -156,31 +123,9 @@ def get_args():
                         help='the value given to interactions  (default: .5)')
     parser.add_argument('--reward-constant', type=float, default=-1,
                         help='constant value to add to the reward (default: -1)')
-
-
-    # PPO settings
-    parser.add_argument('--clip-param', type=float, default=0.2,
-                    help='ppo clip parameter (default: 0.2)')
-    # goal search replay settings
-    parser.add_argument('--search-rate', type=float, default=0.7,
-                    help='rate at which a high reward parameter is chosen (default: 0.7)')
-
-    # Replay buffer settings
-    parser.add_argument('--match-option', action='store_true', default=False,
-                        help='use data only from the option currently learning (default False')
-    parser.add_argument('--buffer-steps', type=int, default=32,
-                        help='number of buffered steps in the record buffer (default: 32)')
-    parser.add_argument('--buffer-clip', type=int, default=20,
-                        help='backwards return computation (strong effect on runtime')
-    parser.add_argument('--weighting-lambda', type=float, default=1e-3,
-                        help='lambda for the sample weighting in prioritized replay (default = 1e-2)')
-    parser.add_argument('--prioritized-replay', default="",
-                        help='different prioritized replay schemes, (TD (Q TD error), return, recent, ""), default: ""')
     # Option Chain Parameters
     parser.add_argument('--base-node', default="Action",
                         help='The name of the lowest node in the option chain (generally should be Action)')
-    parser.add_argument('--use-both', type=int, default=0,
-                        help='enum for which part to use as parameter (0: state, 1: state difference, 2: both state and state difference)')
     parser.add_argument('--num-samples', type=int, default=10,
                         help='number of samples to take for all_state_next')
     # termination condition parameters
@@ -235,6 +180,7 @@ def get_args():
                         help='path to network')
     args = parser.parse_args()
 
+    args.discount_factor = args.gamma # TianShou Spport
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
     return args
