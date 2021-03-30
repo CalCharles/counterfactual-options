@@ -6,10 +6,14 @@ from Environments.SelfBreakout.breakout_objects import *
 import imageio as imio
 import os, copy
 from Environments.environment_specification import RawEnvironment
+from gym import spaces
 
 class Screen(RawEnvironment):
     def __init__(self, frameskip = 1):
         super(Screen, self).__init__()
+        self.action_space = spaces.Discrete(self.num_actions)
+        self.observation_space = spaces.
+
         self.seed_counter = -1
         self.reset()
         self.num_actions = 4
@@ -52,6 +56,7 @@ class Screen(RawEnvironment):
         self.seed_counter += 1
 
         self.render_frame()
+        return self.get_state
 
     def render_frame(self):
         self.frame = np.zeros((84,84), dtype = 'uint8')
@@ -78,7 +83,7 @@ class Screen(RawEnvironment):
 
     def get_state(self):
         self.render_frame()
-        return self.frame, {obj.name: obj.getMidpoint() + obj.vel.tolist() + [obj.getAttribute()] for obj in self.objects}
+        return {"raw_state": self.frame, "factored_state": {obj.name: obj.getMidpoint() + obj.vel.tolist() + [obj.getAttribute()] for obj in self.objects}}
 
     def clear_interactions(self):
         for o in self.objects:
@@ -137,7 +142,7 @@ class Screen(RawEnvironment):
                 object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
                 object_dumps.close()
             self.write_objects(extracted_state, frame)
-        return self.frame, extracted_state, self.done
+        return {"raw_state": self.frame, "factored_state": extracted_state}, self.reward, self.done, {"lives": 5 - self.ball.losses}
 
     def run(self, policy, iterations = 10000, render=False, save_path = "runs/", save_raw = True, duplicate_actions=1):
         self.set_save(0, save_path, -1, save_raw)

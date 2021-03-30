@@ -81,6 +81,9 @@ class Option():
         if self.rollouts is not None:
             self.rollouts.cpu()
 
+    def get_state_env(self, state):
+        return self.get_state(state["factored_state"], form = 1, inp = 0)
+
     # def get_flattened_input_state(self, factored_state):
     #     return pytorch_model.wrap(self.environment_model.get_flattened_state(names=self.names), cuda=self.iscuda)
     def get_state(self, factored_state=None, form=1, inp=0):
@@ -354,6 +357,10 @@ class RawOption(Option):
         super().cuda()
         # self.stack = self.stack.cuda()
 
+
+    def get_state_env(self, state):
+        return state["raw_state"]
+        
     def get_input_state(self):
         # stack = stack.roll(-1,0)
         # stack[-1] = pytorch_model.wrap(self.environment_model.environment.frame, cuda=self.iscuda)

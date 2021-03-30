@@ -11,7 +11,13 @@ from collections import deque
 
 class RawEnvironment():
     def __init__(self):
-
+        '''
+        To ensure TianShou support, the following values must be added (with gym support)
+        action_space: The Space object corresponding to valid actions
+        observation_space: The Space object corresponding to valid observations
+        reward_range: A tuple corresponding to the min and max possible rewards
+        '''
+        
         self.num_actions = None # this must be defined, -1 for continuous. Only needed for primitive actions
         self.action_shape = (1,) # should be set in the environment, (1,) is for discrete action environments
         self.name = "ABSTRACT_BASE" # required for an environment 
@@ -29,12 +35,40 @@ class RawEnvironment():
         The format of saving is: folders contain the raw state, names are numbers, contain 2000 raw states each
         obj_dumps contains the factored state
         empty string for save_path means no saving state
-        Takes in an action and returns:
-            next raw_state (image or observation)
-            next factor_state (dictionary of name of object to tuple of object bounding box and object property)
+        matches the API of OpenAI gym by taking in action (and optional params)
+        returns
+            state as dict: next raw_state (image or observation) next factor_state (dictionary of name of object to tuple of object bounding box and object property)
+            reward: the true reward from the environment
             done flag: if an episode ends, done is True
+            info: a dict with additional info
         '''
         pass
+
+    def reset(self):
+        '''
+        matches the API of OpenAI gym, resetting the environment
+        returns:
+            state as dict: next raw_state, next factor_state (dict with corresponding keys)
+        '''
+        pass
+
+    def render(self, mode='human'):
+        '''
+        matches the API of OpenAI gym, rendering the environment
+        returns None for human mode
+        '''
+
+    def close(self):
+        '''
+        closes and performs cleanup
+        '''
+
+    def seed(self, seed):
+        '''
+        numpy should be the only source of randomness, but override if there are more
+        '''
+        np.random.seed(seed)
+
 
     def getState(self):
         '''
