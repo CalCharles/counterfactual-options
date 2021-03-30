@@ -108,6 +108,35 @@ class Logger:
             self.action_tensor()
             self.length = 0
 
+def TSTrainRL(args, rollouts, logger, environment, environment_model, option, learning_algorithm, names, graph):
+    # train_collector = ts.data.Collector(option, environment, ts.data.VectorReplayBuffer(args.buffer_len, args.num_threads), exploration_noise=True)
+    train_collector = ts.data.Collector(option.policy, environment, ts.data.ReplayBuffer(args.buffer_len), preprocess_fn=option.get_env_state, exploration_noise=True)
+    test_collector = ts.data.Collector(option.policy, test_envs, exploration_noise=True)
+
+    train_collector.collect(n_step=args.warm_up, random=True)
+
+    option.policy.set_eps(0.1)
+    for i in range(args.num_iters):  # total step
+        collect_result = train_collector.collect(n_step=args.num_steps)
+
+        # once if the collected episodes' mean returns reach the threshold,
+        # or every 1000 steps, we test it on test_collector
+        if i % args.log_interval == 0:
+            option.policy.set_eps(0.05)
+            result = test_collector.collect(n_episode=100)
+            if result['rews'].mean() >= env.spec.reward_threshold:
+                print(f'Finished training! Test mean returns: {result["rews"].mean()}')
+                break
+            else:
+                # back to training eps
+                option.policy.set_eps(0.1)
+
+        # train option.policy with a sampled batch data from buffer
+        losses = option.policy.update(args.batch_size, train_collector.buffer)
+        if i % args.log_interval == 0:
+            print(losses)
+
+
 def trainRL(args, rollouts, logger, environment, environment_model, option, learning_algorithm, names, graph):
     # initialize states. input state/stack goes to the policy, diff state keeps last two states
     # full state, last full state goes into the ground truth forward model
