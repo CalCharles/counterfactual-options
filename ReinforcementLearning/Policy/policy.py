@@ -7,66 +7,115 @@ import torch.optim as optim
 import copy, os, cv2
 from file_management import default_value_arg
 from Networks.network import Network
-from tianshao.utils.net.continuous import Actor, Critic
+from Networks.tianshou_networks import BasicNetwork
+from tianshou.utils.net.continuous import Actor, Critic, ActorProb
 cActor, cCritic = Actor, Critic
-from tianshao.utils.net.discrete import Actor, Critic
+from tianshou.utils.net.discrete import Actor, Critic
 dActor, dCritic = Actor, Critic
 from tianshou.exploration import GaussianNoise, OUNoise
+from tianshou.data import Batch, ReplayBuffer
+import tianshou as ts
+from typing import Any, Dict, Tuple, Union, Optional, Callable
+from ReinforcementLearning.learning_algorithms import HER
+from Rollouts.rollouts import ObjDict
 
+_actor_critic = ['ddpg', 'sac']
+_double_critic = ['sac']
 
 # TODO: redo this one
-
-def TSPolicy(nn.Module):
+class TSPolicy(nn.Module):
     '''
     wraps around a TianShao Base policy, but supports most of the same functions to interface with Option.option.py
     Note that TianShao Policies also support learning
 
     '''
-
-    def __init__(self, **kwargs):
+    def __init__(self, input_shape, action_space, max_action, **kwargs):
+        super().__init__()
+        args = ObjDict(kwargs)
         self.algo_name = kwargs["learning_type"] # the algorithm being used
-        kwargs["actor"], kwargs["actor_optim"], kwargs['critic'], kwargs['critic_optim'], kwargs['critic2'], kwargs['critic2_optim'] = self.init_networks()
+        self.is_her = self.algo_name[:3] == "her" # her is always a prefix
+        self.collect = None
+        if self.is_her: 
+            self.algo_name = self.algo_name[3:]
+            self.learning_algorithm = HER()
+            self.collect = self.learning_algorithm.collect # TODO: not sure what to initialize with
+
+        kwargs["actor"], kwargs["actor_optim"], kwargs['critic'], kwargs['critic_optim'], kwargs['critic2'], kwargs['critic2_optim'] = self.init_networks(args, input_shape, action_space.shape or action_space.n, max_action)
         kwargs["exploration_noise"] = GaussianNoise(sigma=args.epsilon)
+        kwargs["action_space"] = action_space
         self.algo_policy = self.init_algorithm(**kwargs)
+        self.parameterized = kwargs["parameterized"]
+        self.map_action = self.algo_policy.map_action
+        self.exploration_noise = self.algo_policy.exploration_noise
 
-    def init_networks(self, args):
-        if self.continuous:
-            Actor, Critic = cActor, cCritic
-        else:
-            Actor, Critic = dActor, dCritic
-
-        if self.algo_name in self.actor_algo or self.algo_name in self.actor_critic_algo:
-            anet = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
-            actor = Actor(
-                    net_a, args.action_shape, max_action=args.max_action,
-                    device=args.device).to(args.device)
-            actor_optim = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
-        if self.algo_name in self.critic_algo or self.algo_name in self.actor_critic_algo:
-            net_c = Net(args.state_shape, args.action_shape,
-                        hidden_sizes=args.hidden_sizes,
-                        concat=True, device=args.device)
-            critic = Critic(net_c, device=args.device).to(args.device)
+    def init_networks(self, args, input_shape, action_shape, max_action):
+        # if self.continuous:
+        Actor, Critic = cActor, cCritic
+        # else:
+        #     Actor, Critic = dActor, dCritic
+        print(input_shape, action_shape, max_action)
+        actor, critic, critic2 = None, None, None
+        actor_optim, critic_optim, critic2_optim = None, None, None
+        if args.learning_type in _actor_critic:
+            actor = BasicNetwork(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes)
+            critic = BasicNetwork(cuda=args.cuda, num_inputs=int(input_shape + np.prod(action_shape)), num_outputs=1, hidden_sizes = args.hidden_sizes)
+            device = 'cpu' if not args.cuda else 'cuda:' + str(args.gpu)
+            critic = Critic(critic, device=device).to(device)
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
-        # init as many as necessary
-        return actor, actor_optim, critic, critic_optim
+            if args.learning_type in _double_critic:
+                actor = ActorProb(actor, action_shape, device=device, max_action=max_action, unbounded=True, conditioned_sigma=True).to(device)
+                critic2 = BasicNetwork(cuda=args.cuda, num_inputs=int(input_shape + np.prod(action_shape)), num_outputs=1, hidden_sizes = args.hidden_sizes)
+                critic2 = Critic(critic2, device=device).to(device)
+                critic2_optim = torch.optim.Adam(critic2.parameters(), lr=args.critic_lr)
+            else:
+                actor = Actor(actor, action_shape, device=device, max_action=max_action).to(device)
+            actor_optim = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
 
+        elif args.learning_type in ['dqn']:
+            critic = BasicNetwork(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes)
+            critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
+
+        return actor, actor_optim, critic, critic_optim, critic2, critic2_optim
 
     def init_algorithm(self, **kwargs):
-        if self.algo_name == "ddpg": return DDPGPolicy(**kwargs)
+        args = ObjDict(kwargs)
+        noise = GaussianNoise(sigma=args.epsilon) if args.epsilon > 0 else None
+        if args.learning_type == "dqn": 
+            policy = ts.policy.DQNPolicy(args.critic, args.critic_optim, discount_factor=args.discount_factor, estimation_step=3, target_update_freq=int(args.tau))
+            policy.set_eps(args.epsilon)
+        elif args.learning_type == "ddpg": 
+            policy = ts.policy.DDPGPolicy(args.actor, args.actor_optim, args.critic, args.critic_optim,
+                                                                            tau=args.tau, gamma=args.gamma,
+                                                                            exploration_noise=GaussianNoise(sigma=args.epsilon),
+                                                                            estimation_step=args.lookahead, action_space=args.action_space,
+                                                                            action_bound_method='tanh')
+        elif args.learning_type == "sac": 
+            policy = ts.policy.SACPolicy(args.actor, args.actor_optim, args.critic, args.critic_optim, args.critic2, args.critic2_optim,
+                                                                            tau=args.tau, gamma=args.gamma, alpha=args.alpha,
+                                                                            exploration_noise=GaussianNoise(sigma=args.epsilon),
+                                                                            estimation_step=args.lookahead, action_space=args.action_space,
+                                                                            action_bound_method='tanh')
         # support as many algos as possible, at least ddpg, dqn SAC
+        return policy
 
     def save(self, pth, name):
         torch.save(self, os.path.join(pth, name + ".pt"))
 
-    def forward(self, state, param):
+    def forward(self, batch: Batch, state: Optional[Union[dict, Batch, np.ndarray]] = None, input: str = "obs", **kwargs: Any):
         '''
-        Instead of calling the forward, to avoid batch dependency call the operations while avoiding batch
-        only actions are evaluated out, because the other values aren't part of this framework
+        Matches the call for the forward of another algorithm method. Calls 
         '''
-        a = getattr(self.algo_policy, 'actor')
-        input_state = torch.cat((state, param), dim=1) # make sure state and param are batch x state shape
-        actions, h = a(input_state)
-        return RLoutput(action_values=actions)
+        if self.parameterized:
+            batch['obs'] = torch.cat((pytorch_model.wrap(batch['obs'], cuda=self.iscuda), pytorch_model.wrap(batch['param'], cuda=self.iscuda)), dim=1)
+            if len(next_obs) > 0: batch['obs_next'] = torch.cat((pytorch_model.wrap(batch['obs_next'], cuda=self.iscuda), pytorch_model.wrap(batch['param'], cuda=self.iscuda)), dim=1)
+            # not cloning batch could result in issues
+        return self.algo_policy(batch, state = state, input=input, **kwargs)
+
+    def update(
+        self, sample_size: int, buffer: Optional[ReplayBuffer], **kwargs: Any
+    ) -> Dict[str, Any]:
+        if self.is_her: buffer = self.sample_buffer(buffer)
+        return self.algo_policy.update(sample_size, buffer=buffer, **kwargs)
 
 def dummy_RLoutput(n, num_actions, cuda):
     one = torch.tensor([n, 0])

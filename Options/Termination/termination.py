@@ -5,7 +5,7 @@ from ReinforcementLearning.Policy.policy import pytorch_model
 
 class Termination():
 	def __init__(self, **kwargs):
-		self.use_diff = kwargs['use_diff'] # compare the parameter with the diff, or with the outcome
+		pass
 
 	def check(self, state, param):
 		return True
@@ -13,13 +13,14 @@ class Termination():
 class ParameterizedStateTermination(Termination):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
-		self.use_both = kwargs['use_both'] # supercedes use_diff
 		self.epsilon = kwargs['epsilon']
 		self.name = kwargs['name']
 		self.discrete = True #kwargs['discrete']
 		# in the discrete parameter space case
 		self.dataset_model = kwargs['dataset_model']
 		self.min_use = kwargs['min_use']
+		kwargs['use_diff'] = self.dataset_model.predict_dynamics
+		kwargs['use_both'] = 1 if kwargs['use_diff'] else 0
 		# self.assign_parameters(self.dataset_model) # this line is commented out because we aren't using a stored parameter list
 		print(self.name)
 

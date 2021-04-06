@@ -5,9 +5,9 @@ from Networks.network import pytorch_model
 
 class Reward():
 	def __init__(self, **kwargs):
-		self.use_diff = kwargs['use_diff'] # compare the parameter with the diff, or with the outcome
-
-	def get_reward(self, state, diff, param, true_reward=0):
+		pass
+		
+	def get_reward(self, input_state, state, param, true_reward=0):
 		return 1
 
 class BinaryParameterizedReward(Reward):

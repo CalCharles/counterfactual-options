@@ -12,7 +12,7 @@ class Screen(RawEnvironment):
     def __init__(self, frameskip = 1):
         super(Screen, self).__init__()
         self.action_space = spaces.Discrete(self.num_actions)
-        self.observation_space = spaces.
+        self.observation_space = spaces.Box(low=0, high=255, shape=(84, 84, 3), dtype=np.uint8)
 
         self.seed_counter = -1
         self.reset()

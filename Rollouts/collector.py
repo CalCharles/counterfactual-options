@@ -1,7 +1,55 @@
 import numpy as np
-from tianshou.data import Collector, Batch
+import gym
+import time
+import torch
+import warnings
+import numpy as np
+from typing import Any, Dict, List, Union, Optional, Callable
 
-class ParamCollector(Collector): # change to line 97 (update batch) and line 12 (param parameter), the rest of parameter handling must be in policy
+from tianshou.policy import BasePolicy
+from tianshou.data.batch import _alloc_by_keys_diff
+from tianshou.env import BaseVectorEnv, DummyVectorEnv
+from tianshou.data import Collector, Batch, ReplayBuffer
+from Options.option import Option
+from typing import Any, Dict, Tuple, Union, Optional, Callable
+from tianshou.data import Batch, ReplayBuffer, to_torch_as, to_numpy
+
+
+class OptionCollector(Collector): # change to line  (update batch) and line 12 (param parameter), the rest of parameter handling must be in policy
+    def __init__(
+        self,
+        policy: BasePolicy,
+        env: Union[gym.Env, BaseVectorEnv],
+        buffer: Optional[ReplayBuffer] = None,
+        preprocess_fn: Optional[Callable[..., Batch]] = None,
+        exploration_noise: bool = False,
+        option: Option = None,
+    ) -> None:
+        self.option = option
+        super().__init__(policy, env, buffer, preprocess_fn, exploration_noise)
+
+
+    def reset_env(self, keep_statistics: bool = False):
+        obs = self.env.reset()
+        if self.preprocess_fn:
+            obs = self.preprocess_fn(obs=obs).get("obs", obs)
+        if self.option: 
+            self.data.full_state = obs
+            obs = self.option.get_state(obs)
+        self.data.obs = obs
+
+    def _reset_state(self, id: Union[int, List[int]]) -> None:
+        """Reset the hidden state: self.data.state[id]."""
+        if hasattr(self.data.policy, "hidden_state"):
+            state = self.data.policy.hidden_state  # it is a reference
+            if isinstance(state, torch.Tensor):
+                state[id].zero_()
+            elif isinstance(state, np.ndarray):
+                state[id] = None if state.dtype == object else 0
+            elif isinstance(state, Batch):
+                state.empty_(id)
+
+
     def collect(
         self,
         n_step: Optional[int] = None,
@@ -9,12 +57,14 @@ class ParamCollector(Collector): # change to line 97 (update batch) and line 12 
         random: bool = False,
         render: Optional[float] = None,
         no_grad: bool = True,
-        param: Optional[np.ndarray]
+        param: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """Collect a specified number of step or episode.
+
         To ensure unbiased sampling result with n_episode option, this function will
         first collect ``n_episode - env_num`` episodes, then for the last ``env_num``
         episodes, they will be collected evenly from each env.
+
         :param int n_step: how many steps you want to collect.
         :param int n_episode: how many episodes you want to collect.
         :param bool random: whether to use random policy for collecting data. Default
@@ -23,10 +73,17 @@ class ParamCollector(Collector): # change to line 97 (update batch) and line 12 
             Default to None (no rendering).
         :param bool no_grad: whether to retain gradient in policy.forward(). Default to
             True (no gradient retaining).
+        :param np.ndarray param: the parameter which is the goal for the option
+        :param Option option: the option that is being trained (which as attribute
+            "policy")
+
         .. note::
+
             One and only one collection number specification is permitted, either
             ``n_step`` or ``n_episode``.
+
         :return: A dict including the following keys
+
             * ``n/ep`` collected number of episodes.
             * ``n/st`` collected number of steps.
             * ``rews`` array of episode reward over collected episodes.
@@ -35,10 +92,11 @@ class ParamCollector(Collector): # change to line 97 (update batch) and line 12 
         """
         assert not self.env.is_async, "Please use AsyncCollector if using async venv."
         if n_step is not None:
-            assert n_episode is None, (
-                f"Only one of n_step or n_episode is allowed in Collector."
-                f"collect, got n_step={n_step}, n_episode={n_episode}."
-            )
+            # I believe both can be active at once.... we will see though....
+            # assert n_episode is None, ( 
+            #     f"Only one of n_step or n_episode is allowed in Collector."
+            #     f"collect, got n_step={n_step}, n_episode={n_episode}."
+            # )
             assert n_step > 0
             if not n_step % self.env_num == 0:
                 warnings.warn(
@@ -46,11 +104,11 @@ class ParamCollector(Collector): # change to line 97 (update batch) and line 12 
                     "which may cause extra transitions collected into the buffer."
                 )
             ready_env_ids = np.arange(self.env_num)
-        elif n_episode is not None:
+        if n_episode is not None:
             assert n_episode > 0
             ready_env_ids = np.arange(min(self.env_num, n_episode))
             self.data = self.data[:min(self.env_num, n_episode)]
-        else:
+        if not (n_step or n_episode):
             raise TypeError("Please specify at least one (either n_step or n_episode) "
                             "in AsyncCollector.collect().")
 
@@ -62,39 +120,67 @@ class ParamCollector(Collector): # change to line 97 (update batch) and line 12 
         episode_lens = []
         episode_start_indices = []
 
+        if param is not None: self.data.param = [param]
+        if 'state_chain' not in self.data: state_chain = None # support for RNNs while handling feedforward
+        else: state_chain = self.data.state_chain
         while True:
+            # print(step_count, self.data, len(self.data), len(ready_env_ids))
             assert len(self.data) == len(ready_env_ids)
             # restore the state: if the last state is None, it won't store
             last_state = self.data.policy.pop("hidden_state", None)
 
             # get the next action
             if random:
-                self.data.update(
-                    act=[self._action_space[i].sample() for i in ready_env_ids])
+                if self.option: 
+                    action_chain, result, state_chain = self.option.sample_action_chain(self.data, state_chain, random=True)
+                else:
+                    action_chain=[self._action_space[i].sample() for i in ready_env_ids] #line makes no sense
+                self.data.update(act=[[action_chain[-1]]], true_action=[action_chain[0]], action_chain=action_chain)
+                if state_chain is not None: self.data.update(state_chain = state_chain)
+                act = self.data.true_action
             else:
+            # Lines altered from collector
                 if no_grad:
                     with torch.no_grad():  # faster than retain_grad version
                         # self.data.obs will be used by agent to get result
-                        result = self.policy(self.data, last_state)
+                        if self.option: action_chain, result, state_chain = self.option.sample_action_chain(self.data, state_chain)
+                        else: result = self.policy(self.data, last_state)
                 else:
-                    result = self.policy(self.data, last_state)
+                    if self.option: action_chain, result, state_chain = self.option.sample_action_chain(self.data, state_chain)
+                    else: result = self.policy(self.data, last_state)
                 # update state / act / policy into self.data
                 policy = result.get("policy", Batch())
                 assert isinstance(policy, Batch)
                 state = result.get("state", None)
                 if state is not None:
+                    # print(len(state.shape) == 1, len(result.act.shape) == 2)
+                    if len(state.shape) == 1 and len(result.act.shape) == 2: state = [state] 
                     policy.hidden_state = state  # save state into buffer
-                act = to_numpy(result.act)
-                if self.exploration_noise:
-                    act = self.policy.exploration_noise(act, self.data)
-                self.data.update(policy=policy, act=act)
-
+                    self.data.update(state_chain=state_chain)
+                if self.option:
+                    act = to_numpy(action_chain[-1])
+                    self.data.update(true_action=[action_chain[0]], action_chain=action_chain)
+                else: act = to_numpy(result.act)
+                # if self.exploration_noise:
+                #     act = self.policy.exploration_noise(act, self.data)
+                self.data.update(policy=policy, act=[act])
             # get bounded and remapped actions first (not saved into buffer)
-            action_remap = self.policy.map_action(self.data.act)
+            action_remap = self.policy.map_action(self.data.true_action) # the problem is here
             # step in env
+            # print(action_remap, self.data.act, action_chain)
             obs_next, rew, done, info = self.env.step(action_remap, id=ready_env_ids)
+            next_full_state = obs_next[0] # only handling one environment
 
-            self.data.update(obs_next=obs_next, rew=rew, done=done, info=info, param=param)
+
+            true_reward = rew
+            dones, rewards, true_done, true_reward = [], [], done, rew
+            if self.option:
+                self.option.step(next_full_state, action_chain)
+                obs_next = self.option.get_state(next_full_state)
+                self.option.step_timer(true_done)
+                dones, rewards = self.option.terminate_reward(obs_next, param, action_chain)
+                done, rew = dones[-1], rewards[-1]
+            self.data.update(obs_next=[obs_next], next_full_state=[next_full_state], rew=[rew], done=[done], info=info, param=[param], dones=dones, rewards=rewards) # edited
             if self.preprocess_fn:
                 self.data.update(self.preprocess_fn(
                     obs_next=self.data.obs_next,
@@ -109,8 +195,12 @@ class ParamCollector(Collector): # change to line 97 (update batch) and line 12 
                     time.sleep(render)
 
             # add data into the buffer
+            if self.policy.collect: self.policy.collect(self.data)
+            # print(ready_env_ids)
+            # print(self.data)
             ptr, ep_rew, ep_len, ep_idx = self.buffer.add(
                 self.data, buffer_ids=ready_env_ids)
+            # line altered from collector ABOVE
 
             # collect statistics
             step_count += len(ready_env_ids)
@@ -142,6 +232,7 @@ class ParamCollector(Collector): # change to line 97 (update batch) and line 12 
                         self.data = self.data[mask]
 
             self.data.obs = self.data.obs_next
+            self.data.full_state = self.data.next_full_state
 
             if (n_step and step_count >= n_step) or \
                     (n_episode and episode_count >= n_episode):
@@ -154,7 +245,7 @@ class ParamCollector(Collector): # change to line 97 (update batch) and line 12 
 
         if n_episode:
             self.data = Batch(obs={}, act={}, rew={}, done={},
-                              obs_next={}, info={}, policy={})
+                              obs_next={}, info={}, policy={}, full_state={}, param={}, next_full_state={})
             self.reset_env()
 
         if episode_count > 0:
@@ -169,4 +260,5 @@ class ParamCollector(Collector): # change to line 97 (update batch) and line 12 
             "rews": rews,
             "lens": lens,
             "idxs": idxs,
+            "done": int(n_episode is not None and episode_count >= n_episode),
         }

@@ -38,21 +38,23 @@ class Gym(RawEnvironment): # wraps openAI gym environment
     
     def reset(self):
         self.frame = self.env.reset()
-        return self.frame, True        
+        self.extracted_state = self.dict_state(self.env.observation_space.sample(), 0, 0, self.env.action_space.sample())
+        return {"raw_state": self.frame, "factored_state": self.extracted_state}
 
     def step(self, action):
-        observation, reward, self.done, _ = self.env.step(action)
+        observation, self.reward, self.done, info = self.env.step(action)
+        # print("true_outputs", observation, self.reward, self.done, action)
         # print(observation, reward, self.done, _)
         # TODO: not rendering
         if len(action.shape) == 0:
             action = np.array([action])
-        self.extracted_state = self.dict_state(observation, reward, self.done, action)
-        self.frame = observation
-        self.reward = reward
+        extracted_state = self.dict_state(observation, self.reward, self.done, action)
+        frame = observation
+        self.extracted_state, self.frame = extracted_state, frame
         if self.done:
             self.reset()
-            print("FINISHED AN EPISODE")
-        return observation, observation, self.done
+            # print("FINISHED AN EPISODE")
+        return {"raw_state": frame, "factored_state": extracted_state}, self.reward, int(self.done), info
 
     def extracted_state_dict(self):
         return dc(self.extracted_state)
@@ -68,4 +70,4 @@ class Gym(RawEnvironment): # wraps openAI gym environment
         return es
 
     def get_state(self):
-        return self.frame, self.extracted_state_dict()
+        return {'raw_state': self.frame, 'factored_state': self.extracted_state_dict()}

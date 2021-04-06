@@ -34,6 +34,8 @@ def get_args():
                         help='Adam optimizer l2 norm constant (default: 0.01)')
     parser.add_argument('--tau', type=float, default=0.005,
                         help='parameter for target network updates (default: 0.95)')
+    parser.add_argument('--lookahead', type=int, default=1,
+                        help='optimization steps to look ahead (default: 1)')
     # cost function hyperparameters
     parser.add_argument('--gamma', type=float, default=0.99,
                         help='discount factor for rewards (default: 0.99)') 
@@ -52,7 +54,7 @@ def get_args():
                         help='choose the way the terminal condition is defined, in Option.Termination.termination')
     parser.add_argument('--reward-type', default="bin",
                         help='choose the way the reward is defined, in Option.Reward.reward')
-    parser.add_argument('--option-type', default="discrete",
+    parser.add_argument('--option-type', default="model",
                         help='choose the way the option is defined, in Option.option')
     parser.add_argument('--behavior-type', default="ts",
                         help='choose the way the behavior policy is defined, in ReinforcementLearning.behavior_policy')
@@ -63,7 +65,7 @@ def get_args():
     # Behavior policy parameters
     # parser.add_argument('--continuous', action='store_true', default=False,
     #                     help='When the policy outputs a continuous distribution')
-    parser.add_argument('--epsilon', type=float, default=0.1,
+    parser.add_argument('--epsilon', type=float, default=0,
                     help='percentage of random actions in epsilon greedy')
     parser.add_argument('--epsilon-schedule', type=float, default=-1,
                     help='uses exp (-steps/epsilon-schedule) to compute epsilon at a given step, -1 for no schedule')
@@ -84,6 +86,8 @@ def get_args():
                         help='number of forward steps used to compute gradient, -1 for not used (default: -1)')
     parser.add_argument('--batch-size', type=int, default=5,
                         help='number of forward steps used to compute gradient, -1 for not used (default: -1)')
+    parser.add_argument('--buffer-len', type=int, default=int(1e6),
+                        help='length of the replay buffer (default: 1e6)')
     # Training iterations
     parser.add_argument('--num-iters', type=int, default=int(2e5),
                         help='number of iterations for training (default: 2e5)')

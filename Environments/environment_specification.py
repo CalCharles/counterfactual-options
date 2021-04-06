@@ -70,11 +70,12 @@ class RawEnvironment():
         np.random.seed(seed)
 
 
-    def getState(self):
+    def get_state(self):
         '''
         Takes in an action and returns:
-            current raw_state (dictionary of name of object to raw state)
-            current factor_state (dictionary of name of object to tuple of object bounding box and object property)
+            dictionary with keys:
+                raw_state (dictionary of name of object to raw state)
+                factor_state (dictionary of name of object to tuple of object bounding box and object property)
         '''
         pass
 

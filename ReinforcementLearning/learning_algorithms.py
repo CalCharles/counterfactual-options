@@ -4,12 +4,9 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 import sys, glob, copy, os, collections, time
 import numpy as np
-from ReinforcementLearning.train_RL import sample_actions, PolicyLoss
-from ReinforcementLearning.Policy.policy import pytorch_model
-from ReinforcementLearning.rollouts import RLRollouts
+from Networks.network import pytorch_model
 import cv2
 import time
-from replay_memory import ReplayMemory, Transition
 
 
 
@@ -70,7 +67,7 @@ class TSOptimizer(LearningOptimizer):
             loss_dict = self.single_step(args, rollouts) # better logging using logger later
         return loss_dict
 
-class HER_optimizer(LearningOptimizer):
+class HER(LearningOptimizer):
     # TODO: adapt to work with TianShou
     def __init__(self, args, option):
         super().__init__(args, option)
@@ -94,7 +91,8 @@ class HER_optimizer(LearningOptimizer):
 
 
 
-    def record_state(self, i, state, next_state, action_chain, rl_outputs, param, rewards, dones):
+    # def record_state(self, i, state, next_state, action_chain, rl_outputs, param, rewards, dones):
+    def record_state(self, batch):
         super().record_state(i, state, next_state, action_chain, rl_outputs, param, rewards, dones)
         self.rollouts.append(**self.option.get_state_dict(state, next_state, action_chain, rl_outputs, param, rewards, dones))
         self.last_done += 1
@@ -128,6 +126,12 @@ class HER_optimizer(LearningOptimizer):
                 # print("inserting", self.option.reward.get_reward(input_state, object_state, param))
                 self.last_done = 0 # resamples as long 
 
+    def sample_buffer(self, buffer):
+        if np.random.random() > self.select_positive:
+            return buffer
+        else:
+            return self.buffer
+            
     def step(self, rollouts, use_range=None):
         total_loss = 0
         for i in range(self.args.grad_epoch):
@@ -197,5 +201,5 @@ class HER_optimizer(LearningOptimizer):
             q_values.detach()
             return q_loss.detach().item()
 
-learning_algorithms = {'ppo': PPO_optimizer, 'dqn': DQN_optimizer, 'a2c':
-                        A2C_optimizer, 'her': HER_optimizer, 'gsr': GSR_optimizer, 'ddpg': DDPG_optimizer}
+# learning_algorithms = {'ppo': PPO_optimizer, 'dqn': DQN_optimizer, 'a2c':
+#                         A2C_optimizer, 'her': HER_optimizer, 'gsr': GSR_optimizer, 'ddpg': DDPG_optimizer}

@@ -537,6 +537,7 @@ class NeuralInteractionForwardModel(nn.Module):
         self.passive_model = forward_nets[kwargs['passive_class']](**kwargs)
         kwargs['normalization_function'], kwargs['num_inputs'] = norm_fn, num_inputs
         self.interaction_binary = kwargs['interaction_binary']
+        self.control_min, self.control_max = np.zeros(kwargs['num_outputs']), np.zeros(kwargs['num_outputs'])
         if len(self.interaction_binary) > 0:
             self.difference_threshold, self.forward_threshold, self.passive_threshold = self.interaction_binary
         if kwargs['dist'] == "Discrete":
@@ -711,6 +712,14 @@ class NeuralInteractionForwardModel(nn.Module):
             pe.append(passive_loss)
         return torch.cat(bins, dim=0), torch.cat(fe, dim=0), torch.cat(pe, dim=0)
 
+    def get_targets(self, rollouts):
+        # the target is whether we predict the state diff or the next state
+        if self.predict_dynamics:
+            targets = rollouts.get_values('state_diff')
+        else:
+            targets = rollouts.get_values('next_state')
+        return targets
+
     def run_optimizer(self, train_args, optimizer, model, loss):
         optimizer.zero_grad()
         (loss.mean()).backward()
@@ -726,6 +735,9 @@ class NeuralInteractionForwardModel(nn.Module):
         passive_optimizer = optim.Adam(self.passive_model.parameters(), train_args.lr, eps=train_args.eps, betas=train_args.betas, weight_decay=train_args.weight_decay)
         interaction_optimizer = optim.Adam(self.interaction_model.parameters(), train_args.lr, eps=train_args.eps, betas=train_args.betas, weight_decay=train_args.weight_decay)
         
+        minmax = self.delta(rollouts.get_values('state'))
+        self.control_min = np.min(minmax, axis=1)
+        self.control_max = np.max(minmax, axis=1)
 
         self.predict_dynamics = train_args.predict_dynamics
         nf = self.network_args.output_normalization_function
@@ -1108,14 +1120,6 @@ class NeuralInteractionForwardModel(nn.Module):
         # print(pred, inter, self.predict_dynamics, rv(self.forward_model(self.gamma(state))[0]))
         return inter, pred
 
-    def get_targets(self, rollouts):
-        # the target is whether we predict the state diff or the next state
-        if self.predict_dynamics:
-            targets = rollouts.get_values('state_diff')
-        else:
-            targets = rollouts.get_values('next_state')
-        return targets
-
     def test_forward(self, states, next_state, interact=True):
         # gives back the difference between the prediction mean and the actual next state for different sampled feature values
         rv = self.network_args.output_normalization_function.reverse
@@ -1216,7 +1220,7 @@ class NeuralInteractionForwardModel(nn.Module):
         print(self.sample_able.vals)
 
     def sample(self, states):
-        if self.sample_continuous:
+        if self.sample_continuous: # TODO: states should be a full environment state, so need to apply delta to get the appropriate parts
             weights = np.random.random((len(self.cfselectors,))) # random weight vector
             lower_cfs = np.array([i for i in [cfs.feature_range[0] for cfs in self.cfselectors]])
             len_cfs = np.array([j-i for i,j in [tuple(cfs.feature_range) for cfs in self.cfselectors]])
@@ -1279,6 +1283,7 @@ class DummyModel(InteractionModel):
         self.selection_binary = torch.ones([1])
         self.interaction_model = None
         self.interaction_minimum = None
+        self.predict_dynamics = False
 
     def sample(self, states):
         return self.environment_model.get_param(states), self.selection_binary

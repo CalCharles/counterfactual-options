@@ -18,16 +18,17 @@ class GymEnvironmentModel(EnvironmentModel):
         self.enumeration = {"Action": [0,1], "State": [1,2], "Frame": [2,3], "Object": [3,4], "Done": [4,5], "Reward": [5,6]}
         self.param_size = self.state_size
         self.set_indexes()
-
-    def get_raw_state(self, state):
+        
+    def get_raw_state(self, full_state):
         # print(state)
-        if type(state) == dict:
-            return state["State"]
-        else:
-            return state[self.object_sizes["Action"]:self.object_sizes['State'] + self.object_sizes["Action"]]
+        return full_state['raw_state']
+        # if type(state) == dict:
+        #     return state["State"]
+        # else:
+        #     return state[self.object_sizes["Action"]:self.object_sizes['State'] + self.object_sizes["Action"]]
 
-    def get_param(self, factored_state):
-        raw_state = self.get_raw_state(factored_state)
+    def get_param(self, full_state):
+        raw_state = self.get_raw_state(full_state)
         # if len(raw_state.shape) == 1:
         #     raw_state = raw_state.reshape(1, raw_state.shape[0])
         return raw_state

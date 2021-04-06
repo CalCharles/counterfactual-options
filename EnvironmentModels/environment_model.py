@@ -33,6 +33,9 @@ class EnvironmentModel():
         factored states have the format: {"name": state, ...,}
         '''
         return
+        
+    def get_state(self):
+        return self.environment.get_state()
 
     def get_raw_state(self, state): # get the raw form of the state, assumed to be frame, define in subclass if otherwise
         if type(state) == dict:

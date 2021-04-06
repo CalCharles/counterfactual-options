@@ -24,7 +24,6 @@ class TSBehaviorPolicy():
         if self.exploration_noise:
             act = self.policy.exploration_noise(act, self.data)
 
-
 # TODO: doesn't handle a combination of continuous and discrete action spaces (i.e. actions and paddle simultaniously)
 class BehaviorPolicy():
     def __init__(self, args):

@@ -66,9 +66,15 @@ Pendulum
 python add_option.py --object Raw --option-type raw --true-environment --env Pend-Gym --continuous --buffer-steps 500000 --num-steps 50 --gamma .99 --batch-size 16 --record-rollouts data/paddle --num-iters 4000 --terminal-type true --reward-type true --epsilon-close 1 --time-cutoff 50 --set-time-cutoff --init-form none --train --normalize --policy-type grid --learning-type her --grad-epoch 50 --warm-up 400 --warm-update 0 --lr 1e-4 --epsilon .1 --behavior-type greedyQ --return-form none --Q-critic --select-positive .5 --gpu 2 --epsilon-schedule 250 --log-interval 25 --optim Adam --resample-timer 50 --factor 16 --double-Q 60
 
 
-conda create -n cv python=3.7.9
-conda install pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch
+<!-- conda install pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch
+ -->
+conda create -n ts python=3.8
+pip install tianshou
 conda install imageio
 pip install opencv-python
 
 python add_option.py --object Raw --option-type raw --true-environment --env Pend-Gym --buffer-steps 500000 --num-steps 1 --gamma .99 --batch-size 128 --num-iters 20000 --terminal-type true --reward-type true --epsilon-close 1 --init-form none --train --normalize --policy-type actorcritic --learning-type ddpg --grad-epoch 5 --warm-up 128 --warm-update 0 --lr 1e-4 --epsilon 0 --behavior-type greedyQ --return-form none --Q-critic --gpu 2 --log-interval 200 --optim Adam --factor 8 --num-layers 2 --use-layer-norm --double-Q .001 --actor-critic-optimizer
+
+Baseline tests:
+python train_option.py --gpu 1 --hidden-sizes 128 128 128 --env Pendulum-v0 --learning-type sac --actor-lr 1e-4 --critic-lr 1e-3 --tau .005 --num-steps 10
+python train_option.py --gpu 1 --hidden-sizes 128 128 128 --env CartPole-v0 --learning-type dqn --lr 1e-3 --tau 320 --num-steps 10
