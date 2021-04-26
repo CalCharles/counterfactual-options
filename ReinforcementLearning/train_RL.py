@@ -116,22 +116,22 @@ def TSTrainRL(args, rollouts, logger, environment, environment_model, option, le
     train_collector.collect(n_step=args.pretrain_iters, random=True)
 
     total_steps = 0
-    print("fin warmup")
     for i in range(args.num_iters):  # total step
         collect_result = train_collector.collect(n_step=args.num_steps)
         total_steps += args.num_steps
         # once if the collected episodes' mean returns reach the threshold,
         # or every 1000 steps, we test it on test_collector
-        if i % args.log_interval == 0 and i != 0:
+        if i % args.log_interval == 0:
             # option.policy.set_eps(0.05)
-            test_perf = list()
-            for j in range(10):
-                result = test_collector.collect(n_episode=1)
-                test_perf.append(result["rews"].mean())
-            # result = test_collector.collect(n_episode=10)
+            # test_perf = list()
+            # for j in range(10):
+            #     result = test_collector.collect(n_episode=1)
+            #     test_perf.append(result["rews"].mean())
+            # print(f'Test mean returns: {np.array(test_perf).mean()}')
+
+            result = test_collector.collect(n_episode=10)
             print("Steps: ", total_steps)
-            print(f'Test mean returns: {np.array(test_perf).mean()}')
-            # print(f'Test mean returns: {result["rews"].mean()}')
+            print(f'Test mean returns: {result["rews"].mean()}')
             # print(environment.spec.reward_threshold)
             # if result['rews'].eman() >= environment.spec.reward_threshold: 
             #     print(f'Finished training! Test mean returns: {result["rews"].mean()}')
@@ -139,48 +139,105 @@ def TSTrainRL(args, rollouts, logger, environment, environment_model, option, le
             # else:
             #     # back to training eps
             #     option.policy.set_eps(0.1)
+        # if i == 10:
+        #     print(train_collector.buffer.act[:100], train_collector.buffer.obs[:100], train_collector.buffer.rew[:100], train_collector.buffer.done[:100])
 
         # train option.policy with a sampled batch data from buffer
         losses = option.policy.update(args.batch_size, train_collector.buffer)
         if i % args.log_interval == 0:
-            print(losses)
+            print(losses, result['rews'].mean())
+    train_collector.buffer.save_hdf5("data/working_rollouts.hdf5")
+
+def collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, random=False):
+    '''
+    TODO: still need an objective measure for performance
+    '''
+    test_collector.reset()
+    trials = args.test_trials
+    if random:
+        trials = args.test_trials * 10
+    for j in range(trials):
+        if args.max_steps > 0: result = test_collector.collect(n_episode=1, n_step=args.max_steps, new_param=True, random=random)
+        else: result = test_collector.collect(n_episode=1, new_param=True, random=random)
+        test_perf.append(result["rews"].mean())
+        suc.append(float(result["n/st"] != args.max_steps and result["true_done"] < 1))
+    if random:
+        print("Initial trials: ", trials)
+    else:
+        print("Iters: ", i, "Steps: ", total_steps)
+    mean_perf, mean_suc = np.array(test_perf).mean(), np.array(suc).mean()
+    print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}")
+    return mean_perf, mean_suc
+
 
 def trainRL(args, train_collector, test_collector, environment, environment_model, option, names, graph):
-    full_state = environment_model.get_state()
+    # full_state = environment_model.get_state()
     last_done = 0 # assumes that the first state is not done
-    param, mask = option.get_param(full_state, last_done)
-    train_collector.collect(n_step=args.pretrain_iters, random=True, param=param) # param doesn't matter with random actions
-    total_steps = 0
-    print("fin warmup")
-    for i in range(args.num_iters):  # total step
-        full_state = environment_model.get_state(), 
-        param, mask = option.get_param(full_state, last_done)
-        collect_result = train_collector.collect(n_step=args.num_steps, n_episode=1, param=param)
-        total_steps, last_done = collect_result['n/st'] + total_steps, collect_result["done"]
+    train_collector.collect(n_step=args.pretrain_iters, random=True) # param doesn't matter with random actions
+    initial_perf, initial_suc = list(), list()
+    initial_perf, initial_suc = collect_test_trials(args, test_collector, 0, 0, initial_perf, initial_suc)
 
+    total_steps = 0
+    # TODO: might need to put interaction on a schedule also
+    if args.epsilon_schedule:
+        epsilon = 1
+        option.policy.set_eps(epsilon)
+    test_perf, suc = deque(maxlen=200), deque(maxlen=200)
+    print("begin train loop")
+    for i in range(args.num_iters):  # total step
+        # print("training collection")
+        # full_state = environment_model.get_state()
+        collect_result = train_collector.collect(n_step=args.num_steps) # TODO: make n-episode a usable parameter for collect
+        total_steps, last_done = collect_result['n/st'] + total_steps, collect_result["done"]
         # once if the collected episodes' mean returns reach the threshold,
         # or every 1000 steps, we test it on test_collector
-        if i % args.log_interval == 0 and i != 0:
+        if i % args.log_interval == 0:
+            print("testing collection")
             # option.policy.set_eps(0.05)
-            test_perf = list()
-            for j in range(10):
-                result = test_collector.collect(n_episode=1, param=param)
+            test_collector.reset()
+            for j in range(args.test_trials):
+                if args.max_steps > 0: result = test_collector.collect(n_episode=1, n_step=args.max_steps, new_param=True)
+                else: result = test_collector.collect(n_episode=1, new_param=True)
+                print(result["n/st"])
                 test_perf.append(result["rews"].mean())
-            print("Steps: ", total_steps)
-            print(f'Test mean returns: {np.array(test_perf).mean()}')
-            # print(environment.spec.reward_threshold)
-            # if result['rews'].eman() >= environment.spec.reward_threshold: 
-            #     print(f'Finished training! Test mean returns: {result["rews"].mean()}')
-            #     break
-            # else:
-            #     # back to training eps
-            #     option.policy.set_eps(0.1)
+                suc.append(float(result["n/st"] != args.max_steps and result["true_done"] < 1))
+            print("Iters: ", i, "Steps: ", total_steps)
+            print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}")
+            train_collector.reset_env() # because test collector and train collector share the same environment
 
+            # result = test_collector.collect(n_episode=10)
+            # print("Steps: ", total_steps)
+            # print(f'Test mean returns: {result["rews"].mean()}')
+            # train_collector.env.workers[0].env.state = train_collector.other_buffer[train_collector.at].obs
+            # print(train_collector.other_buffer[train_collector.at].obs)
+            # train_collector.data.obs = environment.env.state
+
+        # if i == 5:
+        #     error
+        #     print(train_collector.buffer.act[:100], train_collector.buffer.obs[:100], train_collector.buffer.rew[:100], train_collector.buffer.done[:100])
+            # error
         # train option.policy with a sampled batch data from buffer
         losses = option.policy.update(args.batch_size, train_collector.buffer)
         if i % args.log_interval == 0:
             print(losses)
+            print("epsilon", epsilon)
+        if args.epsilon_schedule > 0:
+            epsilon = args.epsilon + (1-args.epsilon) * (np.exp(-1.0 * (i*args.num_steps)/args.epsilon_schedule))
+            option.policy.set_eps(epsilon)
+        if args.save_interval > 0 and (i+1) % args.save_interval == 0:
+            option.save(args.save_dir)
+            graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
 
+    if args.save_interval > 0:
+        option.save(args.save_dir)
+        graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
+    final_perf, final_suc = list(), list()
+    final_perf, final_suc = collect_test_trials(args, test_collector, 0, 0, final_perf, final_suc)
+
+    print("performance comparison", initial_perf, final_perf)
+    if initial_perf < final_perf - 2:
+        return True # trained is true
+    return False
 
 # def trainRL(args, rollouts, logger, environment, environment_model, option, learning_algorithm, names, graph):
 #     # initialize states. input state/stack goes to the policy, diff state keeps last two states

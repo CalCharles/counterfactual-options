@@ -25,26 +25,30 @@ if __name__ == '__main__':
     except OSError as e:
         actions = PrimitiveOption(None, (None, environment_model), "Action")
         nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}
-        graph = OptionGraph(nodes, dict())
-        afs = FeatureSelector([environment_model.indexes['Action'][1] - 1], {'Action': environment_model.object_sizes['Action'] - 1})
+        afs = environment_model.construct_action_selector() 
         controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
+        graph = OptionGraph(nodes, dict(), controllable_feature_selectors)
     graph.load_environment_model(environment_model)
     environment_model.shapes_dict["all_state_next"] = [args.num_samples, environment_model.state_size]
 
     last_state = None
     for cfs in controllable_feature_selectors:
-        graph.nodes[cfs.object()].option.set_behavior_epsilon(0)
+        # print(cfs.object(), graph.nodes[cfs.object()].option.policy)
+        if cfs.object() != "Action":
+            graph.nodes[cfs.object()].option.policy.set_eps(0)
     
-    # data = read_obj_dumps(args.record_rollouts, i=-1, rng = args.num_frames, filename='object_dumps.txt')
-    # rollouts = ModelRollouts(len(data), environment_model.shapes_dict)
-    # for data_dict, next_data_dict in zip(data, data[1:]):
-    #     insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
-    #     rollouts.append(**insert_dict)
+    data = read_obj_dumps(args.record_rollouts, i=-1, rng = args.num_frames, filename='object_dumps.txt')
+    rollouts = ModelRollouts(len(data), environment_model.shapes_dict)
+    for data_dict, next_data_dict in zip(data, data[1:]):
+        insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
+        rollouts.append(**insert_dict)
+    # REMOVE LATER: saves rollouts so you don't have to run each time
     # save_to_pickle("data/rollouts.pkl", rollouts)
-    rollouts = load_from_pickle("data/rollouts.pkl")
-    if args.cuda:
-        rollouts.cuda()
+    # rollouts = load_from_pickle("data/rollouts.pkl")
+    # if args.cuda:
+    #     rollouts.cuda()
     # print(len(data), rollouts.filled)
+    # REMOVE ABOVE
 
     # cf_state = CounterfactualStateDataset(environment_model)
     # rollouts = cf_state.generate_dataset(rollouts, controllable_feature_selectors)
@@ -66,8 +70,8 @@ if __name__ == '__main__':
             hypothesis_model.train(train, args, control=hypothesis_model.control_feature, target_name=hypothesis_model.name.split("->")[1])
             success = True
         else:
-            model_args = default_model_args()
-            model_args.factor, model_args.num_layers, model_args.interaction_binary, model_args.interaction_prediction, model_args.init_form, model_args.activation = args.factor, args.num_layers, args.interaction_binary, args.interaction_prediction, args.init_form, args.activation
+            model_args = default_model_args(args.predict_dynamics, 10,5) # input and output sizes should not be needed
+            model_args.hidden_sizes, model_args.interaction_binary, model_args.interaction_prediction, model_args.init_form, model_args.activation = args.hidden_sizes, args.interaction_binary, args.interaction_prediction, args.init_form, args.activation
             model_args['controllable'], model_args['environment_model'] = controllable_feature_selectors, environment_model
             feature_explorer = FeatureExplorer(graph, controllable_feature_selectors, environment_model, model_args) # args should contain the model args, might want subspaces for arguments or something since args is now gigantic
             print(rollouts.filled)
@@ -86,8 +90,8 @@ if __name__ == '__main__':
         hypothesis_model.cpu()
         hypothesis_model.cuda()
         delta, gamma = hypothesis_model.delta, hypothesis_model.gamma
-
-        passive_error = hypothesis_model.get_passive_error(rollouts)
+        rollouts.cuda()
+        passive_error = hypothesis_model.get_prediction_error(rollouts)
         weights, use_weights, total_live, total_dead, ratio_lambda = hypothesis_model.get_weights(passive_error)     
         trace = hypothesis_model.generate_interaction_trace(rollouts, [hypothesis_model.control_feature.object()], [hypothesis_model.name.split('->')[1]])
         ints = hypothesis_model.get_interaction_vals(rollouts)
@@ -131,7 +135,7 @@ if __name__ == '__main__':
         print("com fp, fn", comb_false_positives, comb_false_negatives)
         print("total, tp", trace.shape[0], trace.sum())
 
-        afs = FeatureSelector([environment_model.indexes['Action'][1] - 1], {'Action': environment_model.object_sizes['Action'] - 1})
+        afs = environment_model.construct_action_selector() 
         controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
         hypothesis_model.determine_active_set(rollouts)
         hypothesis_model.collect_samples(rollouts)

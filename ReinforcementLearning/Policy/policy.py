@@ -6,8 +6,8 @@ from torch.autograd import Variable
 import torch.optim as optim
 import copy, os, cv2
 from file_management import default_value_arg
-from Networks.network import Network
-from Networks.tianshou_networks import BasicNetwork
+from Networks.network import Network, pytorch_model
+from Networks.tianshou_networks import networks
 from tianshou.utils.net.continuous import Actor, Critic, ActorProb
 cActor, cCritic = Actor, Critic
 from tianshou.utils.net.discrete import Actor, Critic
@@ -35,18 +35,22 @@ class TSPolicy(nn.Module):
         self.algo_name = kwargs["learning_type"] # the algorithm being used
         self.is_her = self.algo_name[:3] == "her" # her is always a prefix
         self.collect = None
+        self.lookahead = args.lookahead
+        self.option = args.option
         if self.is_her: 
             self.algo_name = self.algo_name[3:]
-            self.learning_algorithm = HER()
-            self.collect = self.learning_algorithm.collect # TODO: not sure what to initialize with
-
+            self.learning_algorithm = HER(ObjDict(kwargs), kwargs['option'])
+            self.collect = self.learning_algorithm.record_state # TODO: not sure what to initialize with
+            self.sample_buffer = self.learning_algorithm.sample_buffer
         kwargs["actor"], kwargs["actor_optim"], kwargs['critic'], kwargs['critic_optim'], kwargs['critic2'], kwargs['critic2_optim'] = self.init_networks(args, input_shape, action_space.shape or action_space.n, max_action)
         kwargs["exploration_noise"] = GaussianNoise(sigma=args.epsilon)
         kwargs["action_space"] = action_space
         self.algo_policy = self.init_algorithm(**kwargs)
         self.parameterized = kwargs["parameterized"]
+        self.param_process = None
         self.map_action = self.algo_policy.map_action
         self.exploration_noise = self.algo_policy.exploration_noise
+        self.grad_epoch = kwargs['grad_epoch']
 
     def init_networks(self, args, input_shape, action_shape, max_action):
         # if self.continuous:
@@ -56,40 +60,54 @@ class TSPolicy(nn.Module):
         print(input_shape, action_shape, max_action)
         actor, critic, critic2 = None, None, None
         actor_optim, critic_optim, critic2_optim = None, None, None
-        if args.learning_type in _actor_critic:
-            actor = BasicNetwork(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes)
-            critic = BasicNetwork(cuda=args.cuda, num_inputs=int(input_shape + np.prod(action_shape)), num_outputs=1, hidden_sizes = args.hidden_sizes)
+        PolicyType = networks[args.policy_type]
+        if self.algo_name in _actor_critic:
+            actor = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
+            critic = PolicyType(cuda=args.cuda, num_inputs=int(input_shape + np.prod(action_shape)), num_outputs=1, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
             device = 'cpu' if not args.cuda else 'cuda:' + str(args.gpu)
             critic = Critic(critic, device=device).to(device)
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
-            if args.learning_type in _double_critic:
+            if self.algo_name in _double_critic:
                 actor = ActorProb(actor, action_shape, device=device, max_action=max_action, unbounded=True, conditioned_sigma=True).to(device)
-                critic2 = BasicNetwork(cuda=args.cuda, num_inputs=int(input_shape + np.prod(action_shape)), num_outputs=1, hidden_sizes = args.hidden_sizes)
+                critic2 = PolicyType(cuda=args.cuda, num_inputs=int(input_shape + np.prod(action_shape)), num_outputs=1, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
                 critic2 = Critic(critic2, device=device).to(device)
                 critic2_optim = torch.optim.Adam(critic2.parameters(), lr=args.critic_lr)
             else:
                 actor = Actor(actor, action_shape, device=device, max_action=max_action).to(device)
             actor_optim = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
 
-        elif args.learning_type in ['dqn']:
-            critic = BasicNetwork(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes)
-            critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
+        elif self.algo_name in ['dqn']:
+            critic = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
+            
+            # other_net = torch.load("data/model.pt")
+            # other_net.cuda()
+            # critic.fc1.weight.data.copy_(other_net.fc1.weight.data)
+            # critic.fc2.weight.data.copy_(other_net.fc2.weight.data)
+            # critic.conv1.weight.data.copy_(other_net.conv1.weight.data)
+            # critic.conv2.weight.data.copy_(other_net.conv2.weight.data)
+            # critic.conv3.weight.data.copy_(other_net.conv3.weight.data)
 
+
+            critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
         return actor, actor_optim, critic, critic_optim, critic2, critic2_optim
+
+    def set_eps(self, epsilon): # not all algo policies have set eps
+        if hasattr(self.algo_policy, "set_eps"):
+            self.algo_policy.set_eps(epsilon)
 
     def init_algorithm(self, **kwargs):
         args = ObjDict(kwargs)
         noise = GaussianNoise(sigma=args.epsilon) if args.epsilon > 0 else None
-        if args.learning_type == "dqn": 
-            policy = ts.policy.DQNPolicy(args.critic, args.critic_optim, discount_factor=args.discount_factor, estimation_step=3, target_update_freq=int(args.tau))
+        if self.algo_name == "dqn": 
+            policy = ts.policy.DQNPolicy(args.critic, args.critic_optim, discount_factor=args.discount_factor, estimation_step=args.lookahead, target_update_freq=int(args.tau))
             policy.set_eps(args.epsilon)
-        elif args.learning_type == "ddpg": 
+        elif self.algo_name == "ddpg": 
             policy = ts.policy.DDPGPolicy(args.actor, args.actor_optim, args.critic, args.critic_optim,
                                                                             tau=args.tau, gamma=args.gamma,
                                                                             exploration_noise=GaussianNoise(sigma=args.epsilon),
                                                                             estimation_step=args.lookahead, action_space=args.action_space,
                                                                             action_bound_method='tanh')
-        elif args.learning_type == "sac": 
+        elif self.algo_name == "sac": 
             policy = ts.policy.SACPolicy(args.actor, args.actor_optim, args.critic, args.critic_optim, args.critic2, args.critic2_optim,
                                                                             tau=args.tau, gamma=args.gamma, alpha=args.alpha,
                                                                             exploration_noise=GaussianNoise(sigma=args.epsilon),
@@ -101,21 +119,111 @@ class TSPolicy(nn.Module):
     def save(self, pth, name):
         torch.save(self, os.path.join(pth, name + ".pt"))
 
+    def add_param(self, batch, indices = None):
+        orig_obs, orig_next = None, None
+        if self.parameterized:
+            orig_obs, orig_next = batch.obs, batch.obs_next
+            if self.param_process is None:
+                param_process = lambda x,y: np.concatenate((x,y), axis=1) # default to concatenate
+            else:
+                param_process = self.param_process
+            if indices is None:
+                batch['obs'] = param_process(batch['obs'], batch['param'])
+                if type(batch['obs_next']) == np.ndarray: batch['obs_next'] = param_process(batch['obs_next'], batch['param']) # relies on batch defaulting to Batch, and np.ndarray for all other state representations
+            else: # indices indicates that it is handling a buffer
+                batch.obs[indices] = param_process(batch.obs[indices], batch.param[indices])
+                if type(batch.obs_next[indices]) == np.ndarray: batch.obs_next[indices] = param_process(batch.obs_next[indices], batch.param[indices])                
+                # print(batch.obs[indices].shape, batch.obs_next.shape)
+        return orig_obs, orig_next
+
+    def restore_obs(self, batch, orig_obs, orig_next):
+        if self.parameterized:
+            batch['obs'], batch['obs_next'] = orig_obs, orig_next
+
+    def restore_buffer(self, buffer, orig_obs, orig_next, rew, done, idices):
+        if self.parameterized:
+            buffer.obs[idices], buffer.obs_next[idices], buffer.rew[idices], buffer.done[idices] = orig_obs, orig_next, rew, done
+
+
     def forward(self, batch: Batch, state: Optional[Union[dict, Batch, np.ndarray]] = None, input: str = "obs", **kwargs: Any):
         '''
         Matches the call for the forward of another algorithm method. Calls 
         '''
-        if self.parameterized:
-            batch['obs'] = torch.cat((pytorch_model.wrap(batch['obs'], cuda=self.iscuda), pytorch_model.wrap(batch['param'], cuda=self.iscuda)), dim=1)
-            if len(next_obs) > 0: batch['obs_next'] = torch.cat((pytorch_model.wrap(batch['obs_next'], cuda=self.iscuda), pytorch_model.wrap(batch['param'], cuda=self.iscuda)), dim=1)
             # not cloning batch could result in issues
-        return self.algo_policy(batch, state = state, input=input, **kwargs)
+        # print(batch.obs.shape, batch.obs_next.shape)
+        vals= self.algo_policy(batch, state = state, input=input, **kwargs)
+        return vals
+
+    # def add_param_buffer(self, buffer, indices):
+    #     '''
+    #     edits obs, obs_next, reward and done based on the parameter
+    #     '''
+    #     if self.parameterized:
+    #         new_indices = [indices]
+    #         for _ in range(self.lookahead - 1):
+    #             new_indices.append(buffer.next(new_indices[-1]))
+    #         # new_indices.pop(0)
+    #         new_indices_stack = np.stack(new_indices).flatten()
+    #         # terminal indicates buffer indexes nstep after 'indice',
+    #         # and are truncated at the end of each episode
+
+    #         # Insert parameter into observations
+    #         param = buffer.param[indices[0]]
+    #         broadcast_object_state = np.stack([param.copy() for _ in range(new_indices_stack.shape[0])], axis=0)
+    #         buffer.param[new_indices_stack] = broadcast_object_state
+    #         param = broadcast_object_state
+    #         input_state = buffer.obs_next[new_indices_stack]
+    #         object_state = buffer.next_target[new_indices_stack]
+    #         true_done = buffer.true_done[new_indices_stack]
+    #         true_reward = buffer.true_reward[new_indices_stack]
+    #         # apply termination and reward to buffer indices
+    #         rew = buffer.rew[new_indices_stack]
+    #         done = buffer.done[new_indices_stack]
+    #         buffer.done[new_indices_stack] = self.option.termination.check(input_state, object_state, param, true_done)
+    #         buffer.rew[new_indices_stack] = self.option.reward.get_reward(input_state, object_state, param, true_reward)
+
+    #         orig_obs, orig_next = self.add_param(buffer, indices=new_indices_stack)
+    #         return orig_obs, orig_next, rew, done, new_indices_stack
+    #     return None, None, None, None, None # none of thes should be used if not parameterized
 
     def update(
         self, sample_size: int, buffer: Optional[ReplayBuffer], **kwargs: Any
     ) -> Dict[str, Any]:
-        if self.is_her: buffer = self.sample_buffer(buffer)
-        return self.algo_policy.update(sample_size, buffer=buffer, **kwargs)
+        '''
+        don't call the algo_policy update, but carries almost the same logic
+        however, inserting the param needs to be handled.
+        '''
+        for i in range(self.grad_epoch):
+            use_buffer = buffer
+            if self.is_her: use_buffer = self.sample_buffer(buffer)
+            if use_buffer is None:
+                return {}
+            batch, indice = use_buffer.sample(sample_size)
+            self.algo_policy.updating = True
+            # print(use_buffer.param.shape, batch.param.shape, batch.obs_next.shape)
+            # orig_obs, orig_next = self.add_param(batch)
+            # orig_obs_buffer, orig_next_buffer, buffer_idces = self.add_param_buffer(use_buffer, indice)
+            # for done, frame, last_frame,param in zip(batch.done, batch.obs_next, batch.obs, batch.param):
+            #     target = np.argwhere(frame[:,:,2] == 10.0)[0]
+            #     pos = np.argwhere(frame[:,:,1] == 10.0)[0]
+            #     target_last = np.argwhere(frame[:,:,2] == 10.0)[0]
+            #     pos_last = np.argwhere(last_frame[:,:,1] == 10.0)[0]
+            #     p = np.argwhere(param == 10.0)[0]
+            #     print(done, target, target_last, pos, pos_last, p)
+            # print(type(batch["obs_next"]), batch["obs_next"].shape, self.param_process)
+            batch = self.algo_policy.process_fn(batch, use_buffer, indice)
+            # for o,on,r,d,a in zip(batch.obs, batch.obs_next, batch.rew, batch.done, batch.act):
+            #     print(r,d,a)
+            #     cv2.imshow('state', o)
+            #     cv2.waitKey(500)
+            #     cv2.imshow('state', on)
+            #     cv2.waitKey(500)
+            result = self.algo_policy.learn(batch, **kwargs)
+            self.algo_policy.post_process_fn(batch, use_buffer, indice)
+            # self.restore_obs(batch, orig_obs, orig_next)
+            # self.restore_buffer(orig_obs_buffer, orig_next_buffer, buffer_idces)
+            self.algo_policy.updating = False
+        return result
 
 def dummy_RLoutput(n, num_actions, cuda):
     one = torch.tensor([n, 0])
@@ -141,31 +249,31 @@ class RLoutput():
         return self.values, self.dist_entropy, self.probs, self.log_probs, self.action_values, self.std, self.Q_vals, self.Q_best, self.dist
 
 
-class pytorch_model():
-    def __init__(self, combiner=None, loss=None, reducer=None, cuda=True):
-        # should have customizable combiner and loss, but I dont.
-        self.cuda=cuda
-        self.reduce_size = 2 # someday this won't be hard coded either
+# class pytorch_model():
+#     def __init__(self, combiner=None, loss=None, reducer=None, cuda=True):
+#         # should have customizable combiner and loss, but I dont.
+#         self.cuda=cuda
+#         self.reduce_size = 2 # someday this won't be hard coded either
 
-    @staticmethod
-    def wrap(data, dtype=torch.float, cuda=True):
-        # print(Variable(torch.Tensor(data).cuda()))
-        if type(data) == torch.Tensor:
-            v = data.clone().detach()
-        else:
-            v = torch.tensor(data, dtype=dtype)
-        if cuda:
-            return v.cuda()
-        return v
+#     @staticmethod
+#     def wrap(data, dtype=torch.float, cuda=True):
+#         # print(Variable(torch.Tensor(data).cuda()))
+#         if type(data) == torch.Tensor:
+#             v = data.clone().detach()
+#         else:
+#             v = torch.tensor(data, dtype=dtype)
+#         if cuda:
+#             return v.cuda()
+#         return v
 
 
-    @staticmethod
-    def unwrap(data):
-        return data.clone().detach().cpu().numpy()
+#     @staticmethod
+#     def unwrap(data):
+#         return data.clone().detach().cpu().numpy()
 
-    @staticmethod
-    def concat(data, axis=0):
-        return torch.cat(data, dim=axis)
+#     @staticmethod
+#     def concat(data, axis=0):
+#         return torch.cat(data, dim=axis)
 
 FixedCategorical = torch.distributions.Categorical
 

@@ -36,7 +36,7 @@ if __name__ == '__main__':
     # dataset_model.sample_zero = args.sample_zero
     # hypothesis_model = NeuralInteractionForwardModel(environment_model = environment_model, target_name=args.target, contingent_nodes=[n for n in graph.nodes.values() if n.name != args.target])
     # hypothesis_model.train(rollouts)
-    model_args = default_model_args()
+    model_args = default_model_args(args.predict_dynamics)
     model_args['controllable'], model_args['environment_model'], model_args['cuda'] = [cfs], environment_model, args.cuda
     controllable_entity = cfs.feature_selector.get_entity()[0]
     entity_selection = environment_model.create_entity_selector([controllable_entity, args.target])

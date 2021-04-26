@@ -7,6 +7,8 @@ import numpy as np
 from Networks.network import pytorch_model
 import cv2
 import time
+import tianshou as ts
+from Rollouts.param_buffer import ParamReplayBuffer
 
 
 
@@ -15,7 +17,6 @@ from file_management import load_from_pickle
 class LearningOptimizer():
     def __init__(self, args, option):
         self.option = option
-        self.policy = self.option.policy # optimizer is built into policy, initialized outside
         self.args = args
         self.i = 0
         self.updated = 0
@@ -72,50 +73,63 @@ class HER(LearningOptimizer):
     def __init__(self, args, option):
         super().__init__(args, option)
         # only sample one other goal (the successful one)
-        self.rollouts = RLRollouts(option.rollouts.length, option.rollouts.shapes)
-        if args.cuda:
-            self.rollouts.cuda()
+        # self.rollouts = RLRollouts(option.rollouts.length, option.rollouts.shapes)
+        self.replay_buffer = ParamReplayBuffer(args.buffer_len, 1)
+
         self.last_done = 0
         self.select_positive = args.select_positive
         self.resample_timer = args.resample_timer
         self.use_interact = not args.true_environment
-        if args.Q_updator == "DQN":
-            self.internal_optimizer = DQN_optimizer(args, option)
-        elif args.Q_updator == "DDPG":
-            self.internal_optimizer = DDPG_optimizer(args, option)
+        self.resample_interact = args.resample_interact # resample whenever an interaction occurs
 
-        self.loss_calc = self.internal_optimizer.loss_calc
-        self.policy = self.internal_optimizer.policy
-        self.double_Q_counter = self.internal_optimizer.double_Q_counter
-        self.optimizer = self.internal_optimizer.optimizer
 
 
 
     # def record_state(self, i, state, next_state, action_chain, rl_outputs, param, rewards, dones):
     def record_state(self, batch):
-        super().record_state(i, state, next_state, action_chain, rl_outputs, param, rewards, dones)
-        self.rollouts.append(**self.option.get_state_dict(state, next_state, action_chain, rl_outputs, param, rewards, dones))
+        # super().record_state(i, state, next_state, action_chain, rl_outputs, param, rewards, dones)
+                
+        ptr, ep_rew, ep_len, ep_idx = self.replay_buffer.add(batch, buffer_ids=[0]) # TODO: hacked buffer IDs because parallelism not supported
+        # print("shapes", batch.param.shape, self.replay_buffer.param.shape)
+        # self.rollouts.append(**self.option.get_state_dict(state, next_state, action_chain, rl_outputs, param, rewards, dones))
         self.last_done += 1
         # if dones[-1] == 1: # option terminated, resample
-        if (self.last_done == self.resample_timer and self.resample_timer > 0) or dones[-1] == 1: # either end of episode or end of timer
+        if (self.last_done == self.resample_timer and self.resample_timer > 0) or batch.done: # either end of episode or end of timer
             interacting = True
             if self.use_interact:
-                interact = self.option.dataset_model.interaction_model(self.option.get_state(next_state))
+                interact = self.option.dataset_model.interaction_model(self.option.get_state(batch.next_full_state)) # edit interaction model to take numpy arrays
+                # interact = self.option.dataset_model.interaction_model(self.option.get_state(next_state))
                 interacting = self.option.dataset_model.check_interaction(interact)
             if interacting:
-                last_done_at = (self.rollouts.at - self.last_done) % self.rollouts.length
-                object_state = self.option.get_state(next_state, inp=1)
+                # indexes = (self.rollouts.at - self.last_done) % self.rollouts.length
+                indexes = np.array([(ptr[0] + 1 - self.last_done + i) % self.replay_buffer.maxsize for i in range(self.last_done)])
+                object_state = self.option.get_state(batch["next_full_state"][0], inp=1)
                 num_vals = self.last_done
-                broadcast_object_state = torch.stack([object_state.clone() for _ in range(num_vals)], dim=0)
-                self.rollouts.insert_value(last_done_at, 0, num_vals, "param", broadcast_object_state)
-                param = self.rollouts.get_values("param")[-self.last_done:]
-                input_state = self.rollouts.get_values("next_state")[-self.last_done:]
-                object_state = self.rollouts.get_values("next_object_state")[-self.last_done:]
-                true_done = self.rollouts.get_values("true_done")[-self.last_done:]
-                true_reward = self.rollouts.get_values("true_reward")[-self.last_done:]
+                broadcast_object_state = np.stack([object_state.copy() for _ in range(num_vals)], axis=0)
+                # print(broadcast_object_state.shape)
+                self.replay_buffer.param[indexes] = broadcast_object_state
+                self.replay_buffer.obs[indexes] = self.option.assign_param(self.replay_buffer.obs[indexes], broadcast_object_state)
+                self.replay_buffer.obs_next[indexes] = self.option.assign_param(self.replay_buffer.obs_next[indexes], broadcast_object_state)
+                # self.rollouts.insert_value(last_done_at, 0, num_vals, "param", broadcast_object_state)
+                param = broadcast_object_state
+                # print(self.replay_buffer.obs_next[indexes.squeeze()].shape)
+                input_state = self.option.strip_param(self.replay_buffer.obs_next[indexes])
+                object_state = self.replay_buffer.next_target[indexes]
+                true_done = self.replay_buffer.true_done[indexes]
+                true_reward = self.replay_buffer.true_reward[indexes]
+                # param = self.rollouts.get_values("param")[-self.last_done:]
+                # input_state = self.rollouts.get_values("next_state")[-self.last_done:]
+                # object_state = self.rollouts.get_values("next_object_state")[-self.last_done:]
+                # true_done = self.rollouts.get_values("true_done")[-self.last_done:]
+                # true_reward = self.rollouts.get_values("true_reward")[-self.last_done:]
+
                 # print(self.rollouts.at, input_state.shape, object_state.shape, param.shape)
-                self.rollouts.insert_value(last_done_at, 0, num_vals, "done", self.option.termination.check(input_state, object_state, param, true_done))
-                self.rollouts.insert_value(last_done_at, 0, num_vals, "reward", self.option.reward.get_reward(input_state, object_state, param, true_reward))
+                
+                # self.rollouts.insert_value(last_done_at, 0, num_vals, "done", self.option.termination.check(input_state, object_state, param, true_done))
+                # self.rollouts.insert_value(last_done_at, 0, num_vals, "reward", self.option.reward.get_reward(input_state, object_state, param, true_reward))
+                self.replay_buffer.done[indexes] = self.option.termination.check(input_state, object_state, param, true_done)
+                self.replay_buffer.rew[indexes] = self.option.reward.get_reward(input_state, object_state, param, true_reward)
+                # print(self.option.termination.check(input_state, object_state, param, true_done))
                 # print(pytorch_model.unwrap(self.rollouts.get_values("reward")[-self.last_done:]))
                 # for i in range(self.last_done):
                 #     # print(self.rollouts.at - self.last_done + i)
@@ -124,13 +138,22 @@ class HER(LearningOptimizer):
                 #     cv2.imshow('Example - Show image in window',pytorch_model.unwrap(state))
                 #     cv2.waitKey(100)
                 # print("inserting", self.option.reward.get_reward(input_state, object_state, param))
-                self.last_done = 0 # resamples as long 
+                # print("added", self.replay_buffer.done)
+                self.last_done = 0 # resamples as long
+                # print([np.argwhere(p == 10.0).squeeze() for p in self.replay_buffer.param])
+                # print(self.replay_buffer.done, self.replay_buffer.rew)
 
     def sample_buffer(self, buffer):
         if np.random.random() > self.select_positive:
+        # print(len(buffer), len(self.replay_buffer))
+        # if np.random.random() < (len(buffer) / (len(self.replay_buffer) + len(buffer))):
+            # print("negative", (len(buffer) / (len(self.replay_buffer) + len(buffer))))
+            # print("negative")
             return buffer
         else:
-            return self.buffer
+            # print("positive", (len(buffer) / (len(self.replay_buffer) + len(buffer))))
+            # print("positive")
+            return self.replay_buffer
             
     def step(self, rollouts, use_range=None):
         total_loss = 0

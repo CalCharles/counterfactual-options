@@ -6,7 +6,7 @@ from collections import Counter
 from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
 from EnvironmentModels.environment_model import ModelRollouts
 from Rollouts.rollouts import merge_rollouts
-from DistributionalModels.InteractionModels.interaction_model import interaction_models, nfd, nf
+from DistributionalModels.InteractionModels.interaction_model import interaction_models, default_model_args
 
 class FeatureExplorer():
     def __init__(self, graph, controllable_feature_selectors, environment_model, model_args):
@@ -25,8 +25,9 @@ class FeatureExplorer():
         # while not found:
         cfslist = copy.copy(self.cfs)
         cfslist.reverse()
+        print([c.object() for c in cfslist])
         # HACKED LINE TO SPEED UP TRAINING
-        for cfs in [cfslist[0]]:
+        for cfs in [cfslist[0 ]]:
         # for cfs in cfslist:
             controllable_entity = cfs.feature_selector.get_entity()[0]
             if controllable_entity not in gamma_tested:
@@ -67,18 +68,17 @@ class FeatureExplorer():
 
     def pass_criteria(self, model, test, model_error_significance): # TODO: using difference from passive is not a great criteria since the active follows a difference loss once interaction is added in
         forward_error, passive_error = model.assess_error(test)
-        print(forward_error.shape, passive_error.shape)
+        print(forward_error, passive_error, model_error_significance)
         passed = forward_error < (passive_error - model_error_significance)
         return passed, forward_error-passive_error
 
     def train(self, cfs, rollouts, train_args, entity_selection, name):
         print("Training ", cfs.object(), "-> ", name)
-        if entity_selection.output_size() == 5:
-            self.model_args['normalization_function'] = nf
-        else:
-            self.model_args['normalization_function'] = nfd
         self.model_args['gamma'] = entity_selection
         self.model_args['delta'] = self.em.create_entity_selector([name])
+        dma = default_model_args(train_args.predict_dynamics, entity_selection.output_size(), self.model_args['delta'].output_size())
+        self.model_args['normalization_function'] = dma['normalization_function']
+        print(entity_selection.output_size())
         self.model_args['num_inputs'] = self.model_args['gamma'].output_size()
         self.model_args['num_outputs'] = self.model_args['delta'].output_size()
         model = interaction_models[self.model_args['model_type']](**self.model_args)

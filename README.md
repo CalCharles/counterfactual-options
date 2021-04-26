@@ -76,5 +76,36 @@ pip install opencv-python
 python add_option.py --object Raw --option-type raw --true-environment --env Pend-Gym --buffer-steps 500000 --num-steps 1 --gamma .99 --batch-size 128 --num-iters 20000 --terminal-type true --reward-type true --epsilon-close 1 --init-form none --train --normalize --policy-type actorcritic --learning-type ddpg --grad-epoch 5 --warm-up 128 --warm-update 0 --lr 1e-4 --epsilon 0 --behavior-type greedyQ --return-form none --Q-critic --gpu 2 --log-interval 200 --optim Adam --factor 8 --num-layers 2 --use-layer-norm --double-Q .001 --actor-critic-optimizer
 
 Baseline tests:
-python train_option.py --gpu 1 --hidden-sizes 128 128 128 --env Pendulum-v0 --learning-type sac --actor-lr 1e-4 --critic-lr 1e-3 --tau .005 --num-steps 10
-python train_option.py --gpu 1 --hidden-sizes 128 128 128 --env CartPole-v0 --learning-type dqn --lr 1e-3 --tau 320 --num-steps 10
+point transformer largent koinenet
+
+
+python add_option.py --object Raw --option-type raw --true-environment --env Nav2D --buffer-steps 500000 --num-steps 50 --gamma .99 --batch-size 16 --num-iters 4000 --terminal-type true --reward-type true --epsilon-close 1 --time-cutoff 50 --policy-type grid --learning-type herdqn --grad-epoch 50 --warm-up 10000 --lr 1e-4 --epsilon .1 --return-form none --select-positive .5 --gpu 2 --epsilon-schedule 250 --log-interval 25 --resample-timer 50 --factor 16--tau 60
+
+
+Gym tests: 
+python train_option.py --gpu 1 --hidden-sizes 128 128 128 --env gymenvPendulum-v0 --learning-type sac --actor-lr 1e-4 --critic-lr 1e-3 --tau .005 --num-steps 10 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 7000 --buffer-len 100000
+
+python train_option.py --gpu 1 --hidden-sizes 128 128 128 --env gymenvCartPole-v0 --learning-type dqn --actor-lr 1e-4 --critic-lr 1e-3 --tau 100 --num-steps 10 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 2000 --buffer-len 50000
+
+
+Nav2D grid test
+python train_option.py --object Raw --option-type raw --true-environment --env Nav2D --buffer-len 1000000 --num-steps 50 --gamma .99 --batch-size 16 --num-iters 1500 --terminal-type env --reward-type env  --epsilon-close 1 --time-cutoff 50 --policy-type grid --learning-type herdqn --grad-epoch 50 --pretrain-iters 20000 --lr 1e-4 --epsilon .1 --select-positive .5 --gpu 2 --epsilon-schedule 2000 --log-interval 1 --max-steps 50 --hidden-sizes 32 64 64 564 --tau 3000 --resample-timer 50 --test-trials 3
+
+
+Running Tianshou
+# train the paddle motion model
+python construct_hypothesis_model.py --record-rollouts data/random/ --log-interval 500 --hidden-sizes 1024 1024 --predict-dynamics --action-shift --batch-size 10 --pretrain-iters 10000 --epsilon-schedule 3000 --num-iters 20000 --interaction-binary -1 -8 -16 --train --save-dir data/interaction_ln > train_hypothesis.txt
+
+# train the paddle policy with HER and DQN
+python train_option.py --dataset-dir data/interaction_ln/ --object Paddle --option-type model --buffer-len 500000 --num-steps 50 --gamma .99 --batch-size 16 --record-rollouts data/paddle --num-iters 4000 --terminal-type comb --reward-type comb --parameterized-lambda 0 --epsilon-close 1 --time-cutoff 50 --set-time-cutoff  --hidden-sizes 128 128 --learning-type herdqn --grad-epoch 50 --pretrain-iters 100 --lr 1e-4 --epsilon .1 --epsilon-schedule 200 --select-positive .5 --gpu 1 --resample-timer 50 --tau 2500 --log-interval 25 --reward-constant -1 --max-steps 50 --save-graph data/paddle_graph --save-interval 100 > logs/train_paddle.txt
+
+# train the ball bounce interaction model
+python construct_hypothesis_model.py --record-rollouts data/paddle/ --hidden-sizes 512 512 --batch-size 64 --pretrain-iters 100000 --interaction-iters 100000 --epsilon-schedule 1000 --num-iters 200000 --posttrain-iters 0 --log-interval 1000 --num-frames 100000 --interaction-binary -1 -13 -13 --graph-dir data/paddle_graph/ --train --gpu 2  --save-dir data/interaction_bpI > logs/ball_paddle_interactionI.txt
+
+# Run "test" to fill in parameter values for the hypothesis model
+python construct_hypothesis_model.py --record-rollouts data/paddle/ --hidden-sizes 512 512 --batch-size 64 --epsilon-schedule 1000 --log-interval 1000 --num-frames 100000 --interaction-binary -1 -13 -13 --graph-dir data/paddle_graph/ --gpu 2  --dataset-dir data/interaction_bpI --save-dir data/interaction_bpIv > logs/ball_paddle_interactionIv.txt
+
+# train the ball policy with SAC and HER
+python train_option.py --dataset-dir data/interaction_bpIv/ --object Ball --option-type model --buffer-len 500000 --num-steps 250 --gamma .99 --batch-size 32 --record-rollouts data/ball --num-iters 50000 --terminal-type comb --reward-type comb --parameterized-lambda 10 --epsilon-close .5 --time-cutoff 150 --train  --hidden-sizes 512 512 --learning-type hersac --grad-epoch 50 --pretrain-iters 10000 --lr 1e-4 --epsilon .1 --epsilon-schedule 100 --behavior-type greedyQ --select-positive .5 --gpu 1 --resample-timer 150 --tau .005 --log-interval 50 --reward-constant -.1 --graph-dir data/paddle_graph --max-steps 50
+
+python train_option.py --dataset-dir data/interaction_bpIv/ --object Ball --option-type model --buffer-len 500000 --num-steps 250 --gamma .99 --batch-size 32 --record-rollouts data/ball --num-iters 50000 --terminal-type comb --reward-type comb --parameterized-lambda 10 --epsilon-close .5 --time-cutoff 150 --train  --hidden-sizes 512 512 --learning-type sac --grad-epoch 50 --pretrain-iters 10000 --lr 1e-4 --epsilon .1 --epsilon-schedule 100 --behavior-type greedyQ --select-positive .5 --gpu 1 --resample-timer 150 --tau .005 --log-interval 50 --reward-constant -.1 --graph-dir data/paddle_graph --max-steps 50 --interaction-probability 1

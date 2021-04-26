@@ -60,9 +60,9 @@ class ParameterizedStateTermination(Termination):
 		# 		return (diff - param).norm(p=1, dim=1) <= self.epsilon
 		# else:
 		if len(state.shape) == 1:
-			return (state - param).norm(p=1) <= self.epsilon
+			return np.linalg.norm(state - param, ord  = 1) <= self.epsilon
 		else:
-			return (state - param).norm(p=1, dim=1) <= self.epsilon
+			return np.linalg.norm(state - param, ord =1, axis=1 ) <= self.epsilon
 
 class InteractionTermination(Termination):
 	def __init__(self, **kwargs):
@@ -71,7 +71,7 @@ class InteractionTermination(Termination):
 		self.epsilon = kwargs["epsilon"]
 
 	def check(self, input_state, state, param, true_done=0):
-		interaction_pred = self.interaction_model(input_state)
+		interaction_pred = self.interaction_model(pytorch_model.wrap(input_state))
 		return interaction_pred > 1 - self.epsilon
 
 class CombinedTermination(Termination):
@@ -86,19 +86,29 @@ class CombinedTermination(Termination):
 	def check(self, input_state, state, param, true_done=0):
 		# terminates if the parameter matches and interaction is true
 		# has some probability of terminating if interaction is true
-		interaction_pred = self.interaction_model(input_state).squeeze() 
+		interaction_pred = self.interaction_model(pytorch_model.wrap(input_state)).squeeze() 
 		inter = interaction_pred > (1 - self.epsilon)
 		param_term = self.parameterized_termination.check(input_state, state, param)
 		if self.interaction_probability > 0:
-			chances = pytorch_model.wrap(torch.rand(interaction_pred.shape) > self.interaction_probability, cuda=self.dataset_model.iscuda)
+			chances = pytorch_model.wrap(torch.rand(interaction_pred.shape) < self.interaction_probability, cuda=self.dataset_model.iscuda)
 			chosen = inter * chances + param_term * inter
 			chosen[chosen > 1] = 1
-			return chosen
+			# print(pytorch_model.unwrap(chosen), pytorch_model.unwrap(inter), pytorch_model.unwrap(interaction_pred), pytorch_model.unwrap(chances), input_state)
+			# error
+			return pytorch_model.unwrap(chosen)
 		# print(inter, param_term, state, (state - param), self.parameterized_termination.epsilon)
-		return inter * param_term
+		return pytorch_model.unwrap(inter) * param_term
 
 class TrueTermination(Termination):
 	def check(self, input_state, state, param, true_done=0):
 		return true_done
 
-terminal_forms = {'param': ParameterizedStateTermination, 'comb': CombinedTermination, 'true': TrueTermination}
+class EnvFnTermination(Termination):
+	def __init__(self, **kwargs):
+		super().__init__(**kwargs)
+		self.term_fn = kwargs["env"].check_done
+
+	def check(self, input_state, state, param, true_done=0):
+		return self.term_fn(input_state, state, param)
+
+terminal_forms = {'param': ParameterizedStateTermination, 'comb': CombinedTermination, 'true': TrueTermination, 'env': EnvFnTermination}

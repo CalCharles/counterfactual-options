@@ -18,12 +18,12 @@ def get_args():
     parser.add_argument('--target', default='',
                         help='name of the object filtering for')
     # # optimization hyperparameters
-    parser.add_argument('--lr', type=float, default=7e-4,
+    parser.add_argument('--lr', type=float, default=1e-4,
                         help='learning rate, not used if actor and critic learning rate used for algo (default: 1e-6)')
-    parser.add_argument('--actor-lr', type=float, default=7e-4,
-                        help='actor learning rate (default: 1e-6)')
-    parser.add_argument('--critic-lr', type=float, default=7e-4,
-                        help='critic learning rate (default: 1e-6)')
+    parser.add_argument('--actor-lr', type=float, default=-1,
+                        help='actor learning rate (default: -1 (replace wih lr))')
+    parser.add_argument('--critic-lr', type=float, default=-1,
+                        help='critic learning rate (default: -1 (replace with lr))')
     parser.add_argument('--eps', type=float, default=1e-5,
                         help='RMSprop/Adam optimizer epsilon (default: 1e-5)')
     parser.add_argument('--alpha', type=float, default=0.99,
@@ -40,15 +40,23 @@ def get_args():
     parser.add_argument('--gamma', type=float, default=0.99,
                         help='discount factor for rewards (default: 0.99)') 
     # model hyperparameters
+    parser.add_argument('--relative-state', action='store_true', default=False,
+                    help='concatenates on the relative state between objects to the input state to RL network')
+    parser.add_argument('--relative-action', type=float, default=-1,
+                    help='the model computes actions relative to the current object position (-1 is not used)')
     parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256],
                         help='sizes of the internal hidden layers')
+    parser.add_argument('--init-form', default="none",
+                        help='choose the initialization for the weights')    
+    parser.add_argument('--activation', default="relu",
+                        help='choose the activation function (TODO: not used at the moment)')    
     # dynamics model learning parameters
     parser.add_argument('--predict-dynamics', action='store_true', default=False,
                     help='predict the dynamics instead of the next state')
     parser.add_argument('--action-shift', action='store_true', default=False,
                     help='shift the actions back one time step so the action is applied at the last time step')
     # Meta-Hyperparameters
-    parser.add_argument('--policy-type', default="ts",
+    parser.add_argument('--policy-type', default="basic",
                         help='choose the model form for the policy, which is defined in Policy.policy')
     parser.add_argument('--terminal-type', default="param",
                         help='choose the way the terminal condition is defined, in Option.Termination.termination')
@@ -72,6 +80,8 @@ def get_args():
     # termination set parameters
     parser.add_argument('--epsilon-close', type=float, default=0.1,
                     help='minimum distance for states to be considered the same')
+    parser.add_argument('--max-steps', type=int, default=-1,
+                        help='number of steps before forcing the end of episode flag (default: -1 (not used))')
 
     # Learning settings
     parser.add_argument('--seed', type=int, default=4,
@@ -109,6 +119,8 @@ def get_args():
                     help='For hindsight experience replay, selects the positive reward x percent of the time (default .5)')
     parser.add_argument('--resample-timer', type=int, default=10,
                         help='how often to resample a goal (default: 10)')
+    parser.add_argument('--resample-interact', action='store_true', default=False,
+                        help='forces HER to resample whenever an interaction occurs')
 
     #interaction parameters
     parser.add_argument('--interaction-iters', type=int, default=0,
@@ -121,6 +133,8 @@ def get_args():
                         help='the minimum distance to define the active set  (default: 0.3)')
     parser.add_argument('--sample-schedule', type=int, default=-1,
                     help='changes sampling after a certain number of calls')
+    parser.add_argument('--passive-weighting', action ='store_true', default=False,
+                        help='weight with the passive error')
 
     # reward settings
     parser.add_argument('--parameterized-lambda', type=float, default=.5,
@@ -143,6 +157,8 @@ def get_args():
                         help='save interval, one save per n updates (default: 10)')
     parser.add_argument('--save-dir', default='data/new_net/',
                         help='directory to save data when adding edges')
+    parser.add_argument('--test-trials', type=int, default=10,
+                    help='number of episodes to run as a test')
     parser.add_argument('--save-graph', default='',
                         help='directory to save graph data. If empty, does not save the graph')
     parser.add_argument('--save-recycle', type=int, default=-1,
@@ -186,6 +202,8 @@ def get_args():
 
     args.discount_factor = args.gamma # TianShou Spport
     args.cuda = not args.no_cuda and torch.cuda.is_available()
+    args.critic_lr = args.lr if args.critic_lr < 0 else args.critic_lr
+    args.actor_lr = args.lr if args.actor_lr < 0 else args.actor_lr
 
     return args
 

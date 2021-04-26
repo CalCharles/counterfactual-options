@@ -21,6 +21,9 @@ from tianshou.utils.net.continuous import ActorProb, Critic, Actor
 if __name__ == '__main__':
 
     args = get_args()
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
     torch.cuda.set_device(args.gpu)
     if args.env == "SelfBreakout":
         environment = Screen()
@@ -30,10 +33,12 @@ if __name__ == '__main__':
         optim = torch.optim.Adam(net.parameters(), lr=args.lr)
     else:
         environment = gym.make(args.env) # "CartPole-v0, Pendulum-v0"
+        environment.seed(args.seed)
         environment_model = None
         action_shape = environment.action_space.shape or environment.action_space.n
-        print(environment.observation_space.shape, action_shape, environment.action_space.high[0])
+        print(environment.observation_space.shape, action_shape)
         if args.learning_type in ['ddpg', 'sac']:
+            print(environment.action_space.high[0])
             actor = BasicNetwork(cuda=args.cuda, num_inputs=environment.observation_space.shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes)
             critic = BasicNetwork(cuda=args.cuda, num_inputs=int(np.prod(environment.observation_space.shape) + np.prod(action_shape)) , num_outputs=1, hidden_sizes = args.hidden_sizes)
             device = 'cpu' if not args.cuda else 'cuda:' + str(args.gpu)
@@ -53,6 +58,7 @@ if __name__ == '__main__':
         critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
         net = critic
         optim = critic_optim
+
     # initialize: policy, 
     class DummyOption():
         def __init__(self, args): # replace policy with the wrapper that handles param
@@ -66,11 +72,12 @@ if __name__ == '__main__':
                                                                                 action_bound_method='tanh')
             if args.learning_type == "sac": self.policy = ts.policy.SACPolicy(actor, actor_optim, critic, critic_optim, critic2, critic2_optim,
                                                                                 tau=args.tau, gamma=args.gamma, alpha=args.alpha,
-                                                                                exploration_noise=GaussianNoise(sigma=args.epsilon),
+                                                                                # exploration_noise=GaussianNoise(sigma=args.epsilon),
                                                                                 estimation_step=args.lookahead, action_space=environment.action_space,
                                                                                 action_bound_method='tanh')
         def get_env_state(self, **kwargs):
             return kwargs["obs"]
 
     option = DummyOption(args)
+    torch.save(option.policy.state_dict(), "data/TSTestPolicy.pt")
     done_lengths, trained = TSTrainRL(args, "rollouts replaced by collector", "Logger replaced by tianshou (eventually)", environment, environment_model, option, "Learning Algorithms replaced by Tianshou", None, None)

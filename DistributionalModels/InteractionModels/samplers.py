@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+import copy
+from Networks.network import pytorch_model
 
 class Sampler():
     def __init__(self, **kwargs):
@@ -21,7 +23,7 @@ class Sampler():
         # gives back the samples based on normalized weights
         if edited_features is None:
             edited_features = self.lower_cfs + self.len_cfs * weights
-        new_states = states.clone()
+        new_states = states.copy()
         if centered:
             for f, w, cfs in zip(edited_features, self.len_cfs * weights, self.cfselectors):
                 cfs.assign_feature(new_states, w, edit=True, clipped=True)
@@ -45,7 +47,17 @@ class LinearUniformSampling(Sampler):
             weights = np.random.random((len(cfselectors,))) # random weight vector
             return self.weighted_samples(states, weights)
         else: # sample discrete with weights
-            return
+            num_sample = 1
+            if len(states.shape) > 1:
+                num_sample = states.shape[0]
+                masks = [pytorch_model.unwrap(self.dataset_model.selection_binary.clone()) for i in range(num_sample)]
+            else:
+                masks = pytorch_model.unwrap(self.dataset_model.selection_binary.clone())
+            # print(self.dataset_model.sample_able.vals)
+
+            value = np.array([self.dataset_model.sample_able.vals[np.random.randint(len(self.dataset_model.sample_able.vals))].copy() for i in range(num_sample)])
+            # print(copy.deepcopy(pytorch_model.unwrap(value)))
+            return copy.deepcopy(pytorch_model.unwrap(value)), masks
 
 class HistorySampling(Sampler):
     def sample(self, states):

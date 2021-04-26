@@ -9,7 +9,7 @@ class GymEnvironmentModel(EnvironmentModel):
         self.action_shape = action_shape
         state_shape = gym_environment.observation_space.shape
         self.state_shape = state_shape
-        state = gym_environment.reset()
+        state = gym_environment.get_state()
         self.object_names = ["State", "Frame", "Object", "Action", 'Done', "Reward"] # TODO: Reward missing from the objects
         self.object_sizes = {"Action": int(np.prod(action_shape)), "State": int(np.prod(state_shape)), "Frame": int(np.prod(state_shape)), "Object": int(np.prod(state_shape)), 'Done': 1, "Reward": 1}
         self.object_num = {"Action": 1, "State": 1, "Frame": 1, "Object": 1, 'Done': 1, "Reward": 1}

@@ -27,10 +27,11 @@ class Nav2DEnvironmentModel(EnvironmentModel):
     #     self.environment.step(factored_state["Action"][-1])
     #     self.set_from_factored_state(factored_state)
     def get_raw_state(self, state):
-        if type(state) == dict:
-            return state["Frame"]
-        else:
-            return state[self.enumeration['Frame'][0]*3:self.object_sizes['Frame'] + (self.enumeration['Frame'][0]*3)]
+        return state["raw_state"]
+        # if type(state) == dict:
+        #     return state["Frame"]
+        # else:
+        #     return state[self.enumeration['Frame'][0]*3:self.object_sizes['Frame'] + (self.enumeration['Frame'][0]*3)]
 
     def get_object(self, factored_state):
         raw_state = self.get_raw_state(factored_state)
@@ -38,10 +39,10 @@ class Nav2DEnvironmentModel(EnvironmentModel):
             raw_state = raw_state.reshape(*self.environment.reshape)
         elif len(raw_state.shape) == 2:
             raw_state = raw_state.reshape(-1,*self.environment.reshape)
-        if len(raw_state.shape) == 2:
-            return raw_state[:,:,:,1].flatten()
+        if len(raw_state.shape) == 4:
+            return raw_state[:,:,:,1]
         else:
-            return raw_state[:,:,1].flatten()
+            return raw_state[:,:,1]
 
     def get_param(self, factored_state):
         raw_state = self.get_raw_state(factored_state)
@@ -49,10 +50,10 @@ class Nav2DEnvironmentModel(EnvironmentModel):
             raw_state = raw_state.reshape(*self.environment.reshape)
         elif len(raw_state.shape) == 2:
             raw_state = raw_state.reshape(-1,*self.environment.reshape)
-        if len(raw_state.shape) == 2:
-            return raw_state[:,:,:,2].flatten()
+        if len(raw_state.shape) == 4:
+            return raw_state[:,:,:,2]
         else:
-            return raw_state[:,:,2].flatten()
+            return raw_state[:,:,2]
 
     def get_factored_state(self, instanced = False): # "instanced" has no use here
         factored_state = {n: [] for n in self.object_names}

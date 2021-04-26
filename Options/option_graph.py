@@ -39,7 +39,7 @@ class OptionGraph():
             print(node)
             node.option.cpu()
             print(name)
-            node_policies[name], node_rollouts[name] = node.option.save(save_dir, clear=True)
+            node_policies[name] = node.option.save(save_dir, clear=True)
             # node_policies[name] = (node.option.policy, iscuda)
             # node.option.policy = None
             # if len(simplify) > 0 and node.option.dataset_model is not None:
@@ -47,8 +47,8 @@ class OptionGraph():
         save_to_pickle(os.path.join(save_dir, "graph.pkl"), self)
         for name, policy in node_policies.items():
             self.nodes[name].option.policy = policy
-        for name, rollouts in node_rollouts.items():
-            self.nodes[name].option.rollouts = rollouts
+        # for name, rollouts in node_rollouts.items():
+        #     self.nodes[name].option.rollouts = rollouts
         if cuda:
             for name, node in self.nodes.items():
                 node.option.cuda()
@@ -66,8 +66,8 @@ def load_graph(load_dir, length):
     for node in graph.nodes.values():
         print(node.name, load_dir, node.option.object_name +"_policy")
         node.option.load_policy(load_dir)
-        if node.name != 'Action':
-            node.option.rollouts = RLRollouts(length, node.option.rollout_params[1])
+        # if node.name != 'Action':
+        #     node.option.rollouts = RLRollouts(length, node.option.rollout_params[1])
         print("loaded object")
     for node in graph.nodes.values():
         print(node.name, node.option.policy)

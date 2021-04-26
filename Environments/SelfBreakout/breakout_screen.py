@@ -11,19 +11,20 @@ from gym import spaces
 class Screen(RawEnvironment):
     def __init__(self, frameskip = 1):
         super(Screen, self).__init__()
+        self.num_actions = 4
         self.action_space = spaces.Discrete(self.num_actions)
         self.observation_space = spaces.Box(low=0, high=255, shape=(84, 84, 3), dtype=np.uint8)
 
+        self.done = False
+        self.reward = 0
         self.seed_counter = -1
         self.reset()
-        self.num_actions = 4
         self.average_points_per_life = 0
         self.itr = 0
         self.save_path = ""
         self.recycle = -1
         self.frameskip = frameskip
         self.total_score = 0
-        self.done = False
         self.discrete_actions = True
 
     def reset(self):
@@ -56,7 +57,7 @@ class Screen(RawEnvironment):
         self.seed_counter += 1
 
         self.render_frame()
-        return self.get_state
+        return self.get_state()
 
     def render_frame(self):
         self.frame = np.zeros((84,84), dtype = 'uint8')
@@ -83,7 +84,7 @@ class Screen(RawEnvironment):
 
     def get_state(self):
         self.render_frame()
-        return {"raw_state": self.frame, "factored_state": {obj.name: obj.getMidpoint() + obj.vel.tolist() + [obj.getAttribute()] for obj in self.objects}}
+        return {"raw_state": self.frame, "factored_state": {**{obj.name: obj.getMidpoint() + obj.vel.tolist() + [obj.getAttribute()] for obj in self.objects}, **{'Done': [self.done], 'Reward': [self.reward]}}}
 
     def clear_interactions(self):
         for o in self.objects:
@@ -121,8 +122,8 @@ class Screen(RawEnvironment):
             # self.ball.move()
             for ani_obj in self.animate:
                 ani_obj.move()
-            if last_loss != self.ball.losses:
-                self.done = True
+            # if last_loss != self.ball.losses:
+            #     self.done = True
             if self.ball.losses == 5:
                 self.average_points_per_life = self.total_score / 5.0
                 self.done = True
@@ -136,7 +137,8 @@ class Screen(RawEnvironment):
             if render:
                 self.render_frame()
         self.itr += 1
-        frame, extracted_state = self.get_state()
+        full_state = self.get_state()
+        frame, extracted_state = full_state['raw_state'], full_state['factored_state']
         if len(self.save_path) != 0:
             if self.itr == 0:
                 object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist

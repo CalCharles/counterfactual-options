@@ -492,11 +492,17 @@ class HackedInteractionModel(SimpleInteractionModel):
             masks.append(self.observed_differences[self.target_name][i][1].clone())
         return torch.stack(samples, dim=0), torch.stack(masks, dim=0)
 
-def default_model_args():
+def default_model_args(predict_dynamics, nin, nout):
     nf1 = ConstantNorm(mean=0, variance=1, invvariance=1)
     nf5 = ConstantNorm(mean=0, variance=5, invvariance=.2)
     nf = ConstantNorm(mean=pytorch_model.wrap([84//2,84//2, 0, 0, 0]), variance=pytorch_model.wrap([84,84, 5, 5, 1]), invvariance=pytorch_model.wrap([1/84,1/84, 1/5, 1/5, 1]))
     nfd = ConstantNorm(mean=pytorch_model.wrap([84//2,84//2, 0, 0, 0, 84//2,84//2, 0, 0, 0]), variance=pytorch_model.wrap([84,84, 5, 5, 1, 84,84, 5, 5, 1]), invvariance=pytorch_model.wrap([1/84,1/84, 1/5, 1/5, 1, 1/84,1/84, 1/5, 1/5, 1]))
+    if nin % 5 == 0:
+        nflen = lambda x: ConstantNorm(mean= pytorch_model.wrap(sum([[84//2,84//2,0,0,0] for i in range(x // 5)], list())), variance = pytorch_model.wrap(sum([[84,84, 5, 5, 1] for i in range(x // 5)], list())), invvariance = pytorch_model.wrap(sum([[1/84,1/84, 1/5, 1/5, 1] for i in range(x // 5)], list())))
+    else:
+        nflen = lambda x: (ConstantNorm(mean=pytorch_model.wrap([84//2,84//2, 0, 0, 0, 0]), variance=pytorch_model.wrap([84,84, 5, 5, 1, 1]), invvariance=pytorch_model.wrap([1/84,1/84, 1/5, 1/5, 1, 1]))
+                            if x == 6 else
+                            ConstantNorm(mean=0, variance=1, invvariance=1))
     # nf = ConstantNorm(mean=0, variance=84)
     
     model_args = ObjDict({ 'model_type': 'neural',
@@ -509,8 +515,8 @@ def default_model_args():
      'factor': 8,
      'num_layers': 2,
      'use_layer_norm': False,
-     'normalization_function': nf,
-     'output_normalization_function': nf,# if predict dynamics: nf5,
+     'normalization_function': nflen(nin),
+     'output_normalization_function': nflen(nout) if not predict_dynamics else nf5,
      'interaction_minimum': .3,
      'interaction_binary': [],
      'active_epsilon': .5})
@@ -596,6 +602,9 @@ class NeuralInteractionForwardModel(nn.Module):
 
     def cpu(self):
         super().cpu()
+        self.forward_model.cpu()
+        self.interaction_model.cpu()
+        self.passive_model.cpu()
         self.network_args.normalization_function.cpu()
         self.network_args.output_normalization_function.cpu()
         if self.selection_binary is not None:
@@ -605,6 +614,9 @@ class NeuralInteractionForwardModel(nn.Module):
 
     def cuda(self):
         super().cuda()
+        self.forward_model.cuda()
+        self.interaction_model.cuda()
+        self.passive_model.cuda()
         self.network_args.normalization_function.cuda()
         self.network_args.output_normalization_function.cuda()
         if self.selection_binary is not None:
@@ -634,6 +646,7 @@ class NeuralInteractionForwardModel(nn.Module):
         # return ((forward_error - passive_loss < self.forward_threshold) * (forward_error < self.passive_threshold)).float() #(active_prediction+not_passive > 1).float()
         # passive can't predict well, forward is better, forward predicts well
         potential = (active_prediction * difference).float()
+        # print(passive_mean, forward_mean, difference)
         return ((not_passive) * (active_prediction) * (difference)).float(), potential #(active_prediction+not_passive > 1).float()
 
     def get_error(self, mean, target, normalized = False):
@@ -723,7 +736,7 @@ class NeuralInteractionForwardModel(nn.Module):
     def run_optimizer(self, train_args, optimizer, model, loss):
         optimizer.zero_grad()
         (loss.mean()).backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), train_args.max_grad_norm)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
         optimizer.step()
 
     def train(self, rollouts, train_args, control, target_name=None):
@@ -736,8 +749,9 @@ class NeuralInteractionForwardModel(nn.Module):
         interaction_optimizer = optim.Adam(self.interaction_model.parameters(), train_args.lr, eps=train_args.eps, betas=train_args.betas, weight_decay=train_args.weight_decay)
         
         minmax = self.delta(rollouts.get_values('state'))
-        self.control_min = np.min(minmax, axis=1)
-        self.control_max = np.max(minmax, axis=1)
+        print(minmax)
+        self.control_min = np.amin(pytorch_model.unwrap(minmax), axis=1)
+        self.control_max = np.amax(pytorch_model.unwrap(minmax), axis=1)
 
         self.predict_dynamics = train_args.predict_dynamics
         nf = self.network_args.output_normalization_function
@@ -783,7 +797,9 @@ class NeuralInteractionForwardModel(nn.Module):
         # torch.save(self.forward_model, "data/active_model.pt")
 
         # for debugging purposes only REMOVE:
-        trace = self.generate_interaction_trace(rollouts, [control_name], [target_name])
+        trace = None
+        if train_args.interaction_iters > 0:
+            trace = self.generate_interaction_trace(rollouts, [control_name], [target_name])
         # save_to_pickle("data/trace.pkl", trace)
         # trace = load_from_pickle("data/trace.pkl").cpu().cuda()
         # REMOVE above
@@ -826,12 +842,22 @@ class NeuralInteractionForwardModel(nn.Module):
         # self.passive_model.cuda()
         # self.forward_model = torch.load("data/active_model.pt")
         # REMOVE ABOVE
-        passive_error_all = self.get_prediction_error(rollouts)
-        print(passive_error_all.shape)
-        # passive_error = self.interaction_model(self.gamma(rollouts.get_values("state")))
-        # passive_error = pytorch_model.wrap(trace)
-        weights, use_weights, total_live, total_dead, ratio_lambda = self.get_weights(passive_error_all, ratio_lambda = 4)     
-
+        if train_args.passive_weighting:
+            passive_error_all = self.get_prediction_error(rollouts)
+            print(passive_error_all.shape)
+            # passive_error = self.interaction_model(self.gamma(rollouts.get_values("state")))
+            # passive_error = pytorch_model.wrap(trace)
+            weights, use_weights, total_live, total_dead, ratio_lambda = self.get_weights(passive_error_all, ratio_lambda = 4)
+        elif train_args.interaction_iters > 0:
+            weight_lambda = 300
+            weights = trace * weight_lambda + 1
+            weights = weights / weights.sum()
+            use_weights =  weights.clone()
+            total_live, total_dead, ratio_lamba = 0, 0, 0            
+        else:
+            weights, use_weights = torch.ones(rollouts.filled) / rollouts.filled, torch.ones(rollouts.filled) / rollouts.filled
+            total_live, total_dead, ratio_lamba = 0, 0, 0
+        print(weights.sum(), use_weights.sum())
         boosted_passive_operator = copy.deepcopy(self.passive_model)
         true_passive = self.passive_model
         # self.passive_model = boosted_passive_operator
@@ -841,10 +867,12 @@ class NeuralInteractionForwardModel(nn.Module):
         torch.set_printoptions(precision=3)
         for i in range(train_args.num_iters):
             # passive failure weights
-            idxes, batchvals = rollouts.get_batch(train_args.batch_size, weights=use_weights, existing=batchvals)
+            idxes, batchvals = rollouts.get_batch(train_args.batch_size, weights=pytorch_model.unwrap(use_weights), existing=batchvals)
             # for debugging purposes only REMOVE:
-            true_binaries = trace[idxes].unsqueeze(1)
-            pe = passive_error_all[idxes]
+            if train_args.interaction_iters > 0:
+                true_binaries = trace[idxes].unsqueeze(1)
+            if train_args.passive_weighting:
+                pe = passive_error_all[idxes]
             # REMOVE above
 
             prediction_params = self.forward_model(self.gamma(batchvals.values.state))
@@ -887,6 +915,7 @@ class NeuralInteractionForwardModel(nn.Module):
                 # forward_bin_loss = forward_error * interaction_binaries
                 # forward_max_loss = forward_error * torch.max(torch.cat([interaction_binaries, interaction_likelihood.clone(), potential.clone()], dim=1).detach(), dim = 1)[0]
                 forward_max_loss = forward_error * torch.max(torch.cat([interaction_binaries, interaction_likelihood.clone()], dim=1).detach(), dim = 1)[0]
+                self.run_optimizer(train_args, interaction_optimizer, self.interaction_model, interaction_loss)
             else:
                 interaction_binaries, potential = self.compute_interaction(forward_error, passive_error, rv(target))
                 interaction_loss = bce_loss(interaction_likelihood, interaction_binaries.detach())
@@ -894,9 +923,8 @@ class NeuralInteractionForwardModel(nn.Module):
             # MIGHT require no-grad to step passive_error correctly
             # loss = (passive_error + forward_loss * interaction_schedule(i) + forward_error * (1-interaction_schedule(i))).sum() + interaction_loss.sum()
             loss = (forward_max_loss * interaction_schedule(i) + forward_error * (1-interaction_schedule(i)))
-            # self.run_optimizer(train_args, passive_optimizer, self.passive_model, passive_loss)
+            self.run_optimizer(train_args, passive_optimizer, self.passive_model, passive_loss)
             self.run_optimizer(train_args, active_optimizer, self.forward_model, loss)
-            self.run_optimizer(train_args, interaction_optimizer, self.interaction_model, interaction_loss)
 
             # PASSIVE OPTIMIZATION SEPARATE NO WEIGHTS CODE:
             # MIGHT 
@@ -916,29 +944,34 @@ class NeuralInteractionForwardModel(nn.Module):
             if i % train_args.log_interval == 0:
                 # print(i, ": pl: ", pytorch_model.unwrap(passive_error.norm()), " fl: ", pytorch_model.unwrap(forward_loss.norm()), 
                 #     " il: ", pytorch_model.unwrap(interaction_loss.norm()), " dl: ", pytorch_model.unwrap(interaction_diversity_loss.norm()))
-                print(i, ": pl: ", pytorch_model.unwrap(passive_error.mean()), " fl: ", pytorch_model.unwrap(forward_loss.mean()))
                 likelihood_binaries = (interaction_likelihood > .5).float()
-                test_binaries = (interaction_binaries + true_binaries + likelihood_binaries).long().squeeze()
+                if train_args.interaction_iters > 0:
+                    test_binaries = (interaction_binaries + true_binaries + likelihood_binaries).long().squeeze()
+                    test_idxes = torch.nonzero(test_binaries)
+                    intbint = torch.cat([interaction_likelihood, likelihood_binaries, interaction_binaries, true_binaries, forward_error, passive_error], dim=1)[test_idxes].squeeze()
+                else:
+                    test_binaries = (interaction_binaries + likelihood_binaries).long().squeeze()
+                    test_idxes = torch.nonzero(test_binaries)
+                    intbint = torch.cat([interaction_likelihood, likelihood_binaries, interaction_binaries, forward_error, passive_error], dim=1).squeeze()
                 test_binaries[test_binaries > 1] = 1
-                test_idxes = torch.nonzero(test_binaries)
-                print(
-                    "input", self.gamma(batchvals.values.state)[test_idxes].squeeze(),
+                print("iteration: ", i,
+                    "input", self.gamma(batchvals.values.state)[:15].squeeze(),
                     # "\ninteraction", interaction_likelihood,
-                    # "\nbinaries", interaction_binaries,
+                    "\nbinaries", interaction_binaries[:15],
                     # "\ntrue binaries", true_binaries,
-                    "\nintbint", torch.cat([interaction_likelihood, likelihood_binaries, interaction_binaries, true_binaries, forward_error, passive_error], dim=1)[test_idxes].squeeze(),
+                    "\nintbint", intbint[:15],
                     # "\naoutput", rv(prediction_params[0]),
                     # "\navariance", rv(prediction_params[1]),
                     # "\npoutput", rv(passive_prediction_params[0]),
                     # "\npvariance", rv(passive_prediction_params[1]),
                     # self.delta(batchvals.values.next_state[0]), 
                     # self.gamma(batchvals.values.state[0]),
-                    "\ntarget: ", rv(target)[test_idxes].squeeze(),
-                    "\nactive", rv(prediction_params[0])[test_idxes].squeeze(),
+                    "\ntarget: ", rv(target)[:15].squeeze(),
+                    "\nactive", rv(prediction_params[0])[test_idxes][:15].squeeze(),
                     # "\ntadiff", (rv(target) - rv(prediction_params[0])) * test_binaries,
                     # "\ntpdiff", (rv(target) - rv(passive_prediction_params[0])) * test_binaries,
-                    "\ntadiff", (rv(target) - rv(prediction_params[0]))[test_idxes].squeeze(),
-                    "\ntpdiff", (rv(target) - rv(passive_prediction_params[0]))[test_idxes].squeeze(),
+                    "\ntadiff", (rv(target) - rv(prediction_params[0]))[test_idxes][:15].squeeze(),
+                    "\ntpdiff", (rv(target) - rv(passive_prediction_params[0]))[test_idxes][:15].squeeze(),
                     "\nal2: ", active_l2.mean(dim=0),
                     "\npl2: ", passive_l2.mean(dim=0),
                     "\nae: ", forward_error.mean(dim=0),
@@ -946,29 +979,34 @@ class NeuralInteractionForwardModel(nn.Module):
                     "\npl: ", passive_error.mean(dim=0)
                     )
                 # REWEIGHTING CODE
-                ratio_lambda = max(.5, ratio_lambda * .99)
-                # # if i % (train_args.log_interval * 10) == 0 and i != 0:
-                # #     interactions = self.get_interaction_vals(rollouts)
-                # #     interactions[interactions < .5] = 0
-                # #     interactions[interactions >= .5] = 1
-                # #     use_weights = ((weights + interactions.squeeze()) * live_factor) + 1
-                live_factor = total_dead / total_live * ratio_lambda
+                if train_args.interaction_iters > 0:
+                    weight_lambda = max(30, weight_lambda * .95)
+                    use_weights = trace * weight_lambda + 1
+                    use_weights = use_weights / use_weights.sum()
+                elif train_args.passive_weighting:
+                    ratio_lambda = max(.5, ratio_lambda * .99)
+                    # # if i % (train_args.log_interval * 10) == 0 and i != 0:
+                    # #     interactions = self.get_interaction_vals(rollouts)
+                    # #     interactions[interactions < .5] = 0
+                    # #     interactions[interactions >= .5] = 1
+                    # #     use_weights = ((weights + interactions.squeeze()) * live_factor) + 1
+                    live_factor = total_dead / total_live * ratio_lambda
 
-                # if i < train_args.log_interval * 5:
-                #     passive_error_all = self.get_prediction_error(rollouts)
-                #     weights, use_weights, total_live, total_dead, ratio_lambda = self.get_weights(passive_error_all, ratio_lambda = 4)     
-                use_weights = (weights * live_factor) + 1
+                    # if i < train_args.log_interval * 5:
+                    #     passive_error_all = self.get_prediction_error(rollouts)
+                    #     weights, use_weights, total_live, total_dead, ratio_lambda = self.get_weights(passive_error_all, ratio_lambda = 4)     
+                    use_weights = (weights * live_factor) + 1
 
-                #     # remove high error active weighted ones
-                #     active_error_all = self.get_active_error(rollouts)
-                # # # else:
-                use_weights = use_weights / use_weights.sum()
-                use_weights = pytorch_model.unwrap(use_weights)
+                    #     # remove high error active weighted ones
+                    #     active_error_all = self.get_active_error(rollouts)
+                    # # # else:
+                    use_weights = use_weights / use_weights.sum()
+                    use_weights = pytorch_model.unwrap(use_weights)
         # torch.save(self.forward_model, "data/active_model.pt")
         # torch.save(self.interaction_model, "data/train_int.pt")
-
-        weights, use_weights, total_live, total_dead, ratio_lambda = self.get_weights(passive_error_all, ratio_lambda=.5)     
-        print(train_args.posttrain_iters)
+        if train_args.passive_weighting:
+            weights, use_weights, total_live, total_dead, ratio_lambda = self.get_weights(passive_error_all, ratio_lambda=.5)     
+            print(train_args.posttrain_iters)
         interaction_optimizer = optim.Adam(self.interaction_model.parameters(), train_args.lr, eps=train_args.eps, betas=train_args.betas, weight_decay=train_args.weight_decay)
         for i in range(train_args.posttrain_iters):
             idxes, batchvals = rollouts.get_batch(train_args.batch_size, weights=use_weights, existing=batchvals)
@@ -1013,7 +1051,8 @@ class NeuralInteractionForwardModel(nn.Module):
                     "\nintbint", torch.cat([interaction_likelihood, interaction_binaries, true_binaries, forward_error], dim=1),
                     "fore_error", forward_loss
                     )
-        self.compute_interaction_stats(rollouts, trace = trace)
+        if train_args.interaction_iters > 0:
+            self.compute_interaction_stats(rollouts, trace = trace)
 
         # self.save(train_args.save_dir)
         # ints = self.get_interaction_vals(rollouts)
@@ -1092,8 +1131,15 @@ class NeuralInteractionForwardModel(nn.Module):
         rv = self.network_args.output_normalization_function.reverse
         interaction, forward, passive = self.hypothesize(test_rollout.get_values("state"))
         targets = self.get_targets(test_rollout)
-        sfe = (rv(forward) - self.delta(targets)).norm(dim=1) * interaction.squeeze() # per state forward error
-        spe = (rv(passive) - self.delta(targets)).norm(dim=1) * interaction.squeeze() # per state passive error
+        sfe = (forward - self.delta(targets)).norm(dim=1) * interaction.squeeze() # per state forward error
+        spe = (passive - self.delta(targets)).norm(dim=1) * interaction.squeeze() # per state passive error
+        print(self.network_args.output_normalization_function.mean, self.network_args.output_normalization_function.std)
+        print("forward error", (forward - self.delta(targets))[:100])
+        print("passive error", (passive - self.delta(targets))[:100])
+        print("interaction", interaction.squeeze()[:100])
+        print("inputs", self.gamma(test_rollout.get_values("state"))[:100])
+        print("targets", self.delta(targets)[:100])
+
         return sfe.abs().sum() / interaction.sum().squeeze(), spe.abs().sum() / interaction.sum().squeeze()
 
     def predict_next_state(self, state):
@@ -1181,15 +1227,17 @@ class NeuralInteractionForwardModel(nn.Module):
         self.cfselectors = list()
         for ff in self.feature_selector.flat_features:
             factored = self.environment_model.flat_to_factored(ff)
-            single_selector = FeatureSelector([ff], {factored[0]: factored[1]})
+            single_selector = FeatureSelector([ff], {factored[0]: factored[1]}, {factored[0]: np.array([factored[1], ff])})
             rng = self.determine_range(rollouts, single_selector)
             print(rng)
             self.cfselectors.append(ControllableFeature(single_selector, rng, 1, self))
         self.selection_list = get_selection_list(self.cfselectors)
+        self.control_min = [cfs.feature_range[0] for cfs in self.cfselectors]
+        self.control_max = [cfs.feature_range[1] for cfs in self.cfselectors]
         return self.feature_selector, self.cfselectors
 
     def get_active_mask(self):
-        return self.selection_binary.clone()
+        return pytorch_model.unwrap(self.selection_binary.clone())
 
     def determine_range(self, rollouts, active_delta):
         # Even if we are predicting the dynamics, we determine the active range with the states
@@ -1213,10 +1261,10 @@ class NeuralInteractionForwardModel(nn.Module):
         for state,next_state in zip(rollouts.get_values("state"), rollouts.get_values("next_state")):
             inter = self.interaction_model(self.gamma(state))
             if inter > .7:
-                sample = self.delta(next_state) * self.selection_binary
+                sample = pytorch_model.unwrap(self.delta(next_state) * self.selection_binary)
                 self.sample_able.add(sample)
-        if self.iscuda:
-            self.sample_able.cuda()
+        # if self.iscuda:
+        #     self.sample_able.cuda()
         print(self.sample_able.vals)
 
     def sample(self, states):
@@ -1225,7 +1273,7 @@ class NeuralInteractionForwardModel(nn.Module):
             lower_cfs = np.array([i for i in [cfs.feature_range[0] for cfs in self.cfselectors]])
             len_cfs = np.array([j-i for i,j in [tuple(cfs.feature_range) for cfs in self.cfselectors]])
             edited_features = lower_cfs + len_cfs * weights
-            new_states = states.clone()
+            new_states = copy.deepcopy(states)
             for f, cfs in zip(edited_features, self.cfselectors):
                 cfs.assign_feature(new_states, f)
             if len(new_states.shape) > 1: # if a stack, duplicate mask for all
@@ -1245,19 +1293,19 @@ class StateSet():
                 self.lst.append(v)
         self.iscuda = False
 
-    def cuda(self):
-        self.iscuda = True
-        for i in range(len(self.vals)):
-            self.vals[i] = self.vals[i].cuda()
+    # def cuda(self):
+    #     self.iscuda = True
+    #     for i in range(len(self.vals)):
+    #         self.vals[i] = self.vals[i].cuda()
 
     def __getitem__(self, val):
         for iv in self.vals:
-            if (iv - val).abs().sum() < self.close:
-                return iv.clone()
+            if np.linalg.norm(iv - val, ord=1) < self.close:
+                return iv.copy()
         raise AttributeError("No such attribute: " + name)
 
     def add(self, val):
-        val = pytorch_model.wrap(val, cuda=self.iscuda)
+        val = pytorch_model.unwrap(val)
         i = self.inside(val)
         if i == -1:
             self.vals.append(val)
@@ -1265,7 +1313,7 @@ class StateSet():
 
     def inside(self, val):
         for i, iv in enumerate(self.vals):
-            if (iv - val).abs().sum() < self.close:
+            if np.linalg.norm(iv - val, ord=1) < self.close:
                 return i
         return -1
 

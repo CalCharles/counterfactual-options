@@ -31,10 +31,10 @@ class BinaryParameterizedReward(Reward):
 		# 	else:
 		# 		return ((diff - param).norm(p=1, dim=1) <= self.epsilon).float()
 		# else:
-		if len(param.shape) == 1:
-			return ((state - param).norm(p=1) <= self.epsilon).float()
+		if len(state.shape) == 1:
+			return (np.linalg.norm(state - param, ord = 1) <= self.epsilon).astype(float)
 		else:
-			return ((state - param).norm(p=1, dim=1) <= self.epsilon).float()
+			return (np.linalg.norm(state - param, ord = 1, axis=1) <= self.epsilon).astype(float)
 
 class InteractionReward(Reward):
 	def __init__(self, **kwargs):
@@ -43,8 +43,8 @@ class InteractionReward(Reward):
 
 	def get_reward(self, input_state, state, param, true_reward=0):
 		# return (self.interaction_model(input_state) - 1).squeeze()
-		print(pytorch_model.unwrap(self.interaction_model(input_state)), pytorch_model.unwrap(input_state))
-		return (self.interaction_model(input_state)).squeeze()
+		# print(pytorch_model.unwrap(self.interaction_model(input_state)), pytorch_model.unwrap(input_state))
+		return (pytorch_model.unwrap(self.interaction_model(input_state))).squeeze()
 
 class CombinedReward(Reward):
 	def __init__(self, **kwargs):
@@ -57,12 +57,12 @@ class CombinedReward(Reward):
 	def get_reward(self, input_state, state, param, true_reward=0):
 		ireward = self.interaction_reward.get_reward(input_state, state, param)
 		preward = self.parameterized_reward.get_reward(input_state, state, param)
-		interacting = self.interaction_reward.interaction_model(input_state)
+		interacting = pytorch_model.unwrap(self.interaction_reward.interaction_model(input_state))
 		# interaction_reward = (ireward > self.interaction_probability).float() - 1 # only give parameterized reward at interactions
 		
 		# print(ireward * self.lmbda, preward, interaction_reward, )
 		# print(ireward, preward, interacting)
-		return ireward * self.lmbda + preward * interacting.squeeze() + self.reward_constant
+		return pytorch_model.unwrap(ireward * self.lmbda + preward * interacting.squeeze() + self.reward_constant)
 
 class TrueReward(Reward):
 	def __init__(self, **kwargs):
@@ -71,6 +71,13 @@ class TrueReward(Reward):
 	def get_reward(self, input_state, state, param, true_reward=0):
 		return true_reward
 
+class EnvFnReward(Reward):
+	def __init__(self, **kwargs):
+		super().__init__(**kwargs)
+		self.reward_fn = kwargs["env"].check_reward
+
+	def get_reward(self, input_state, state, param, true_reward=0):
+		return self.reward_fn(input_state, state, param)
 
 
-reward_forms = {'bin': BinaryParameterizedReward, 'int': InteractionReward, 'comb': CombinedReward, 'true': TrueReward}
+reward_forms = {'bin': BinaryParameterizedReward, 'int': InteractionReward, 'comb': CombinedReward, 'true': TrueReward, 'env': EnvFnReward}

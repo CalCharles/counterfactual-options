@@ -7,10 +7,13 @@ adapted from: https://github.com/orrivlin/Navigation-HER.git
 
 import torch
 import numpy as np
+import gym
 # from matplotlib.pyplot import imshow
 # import matplotlib as plt
 from copy import deepcopy as dc
 from Environments.environment_specification import RawEnvironment
+
+
 
 
 class Nav2D(RawEnvironment):
@@ -23,19 +26,39 @@ class Nav2D(RawEnvironment):
         self.Rmin = Rmin
         self.state_dim = [N,N,3]
         self.num_actions = 4
-        self.action_shape = (1,)
+        self.action_space = gym.spaces.Discrete(4)
+        self.action_shape = self.action_space.shape
         self.scale = 10.0
         self.itr = 0
         self.save_path = ""
         self.recycle = -1
         self.frameskip = 1
         self.done = False
-        self.frame, done = self.reset()
-        self.action = 0
+        self.action = np.array(0)
+        # if len(self.action.shape) == 0:
+        #     self.action = np.array([self.action])
+        full_state = self.reset()
+        self.frame = full_state["raw_state"]
         self.reward = -1
         self.reshape = [N,N,3]
         self.trajectory_len = 50
         self.discrete_actions = True
+
+        self.observation_space = gym.spaces.Box(low=0, high=1, shape=(N, N, 3))
+        self.observation_shape = self.state_dim
+        self.done = 0
+        self.reward = 0
+
+        self.extracted_state = self.extracted_state_dict()
+
+    def param_process(self, obs, param):
+        for i in range(obs.shape[0]):
+            obs[i,:,:,2] = param[i]
+        return obs
+
+    def preprocess(self, obs):
+        obs = obs.transpose((0,3,1,2))
+        return obs
 
 
     def get_dims(self):
@@ -66,8 +89,26 @@ class Nav2D(RawEnvironment):
         self.frame[start[0],start[1],1] = self.scale*1.0
         self.frame[finish[0],finish[1],2] = self.scale*1.0
         done = False
-        return self.frame, done
-    
+        return {"raw_state": self.frame, "factored_state": self.extracted_state_dict()}
+
+    def check_reward(self, input_state, state, param):
+        frame = input_state
+        rews = list()
+        for p, frame in zip(param, input_state):
+            target = np.argwhere(p == self.scale*1.0)[0]
+            pos = np.argwhere(frame[:,:,1] == self.scale**1.0)[0]
+            rews.append(int(np.linalg.norm(target - pos) < .0001) - 1)
+        return np.array(rews) 
+
+    def check_done(self, input_state, state, param):
+        frame = input_state
+        dones = list()
+        for p, frame in zip(param, input_state):
+            target = np.argwhere(p == self.scale*1.0)[0]
+            pos = np.argwhere(frame[:,:,1] == self.scale**1.0)[0]
+            dones.append(np.linalg.norm(target - pos) < .0001)
+        return np.array(dones)
+
     def step(self,action):
         max_norm = self.N
         action = int(action)
@@ -88,11 +129,17 @@ class Nav2D(RawEnvironment):
         #reward = -dist2
         self.reward = -1
         self.itr += 1
+        if self.itr % self.trajectory_len == 0 and self.itr != 0:
+            # print("failure")
+            frame = dc(self.frame)
+            self.reset()
+            self.done = True
+            return {'raw_state': frame, 'factored_state': self.extracted_state_dict()}, self.reward, True, dict()
         if (np.any(new_pos < 0.0) or np.any(new_pos > (self.N - 1)) or (self.frame[new_pos[0],new_pos[1],0] == 1.0)):
             #dist = np.linalg.norm(pos - target)
             #reward = (dist1 - dist2)
             extracted_state = self.extracted_state_dict()
-            return self.frame, extracted_state, self.done
+            return {'raw_state': self.frame, 'factored_state': extracted_state}, self.reward, self.done, dict()
         self.pos = new_pos
         new_frame[pos[0],pos[1],1] = 0.0
         new_frame[new_pos[0],new_pos[1],1] = self.scale*1.0
@@ -100,9 +147,11 @@ class Nav2D(RawEnvironment):
         if ((new_pos[0] == target[0]) and (new_pos[1] == target[1])):
             self.reward = 0.0
             done = True
+            # print("success")
             # print("reached goal", self.itr)
         #dist = np.linalg.norm(new_pos - target)
         #reward = (dist1 - dist2)
+        self.done = done
         extracted_state = self.extracted_state_dict()
         self.frame = new_frame
         if len(self.save_path) != 0:
@@ -114,19 +163,12 @@ class Nav2D(RawEnvironment):
             # print("done", self.itr, self.done)
             frame = dc(self.frame)
             self.reset()
-            self.done = done
             self.reward = 0.0
-            return frame, extracted_state, True
-        elif self.itr % self.trajectory_len == 0 and self.itr != 0:
-            frame = dc(self.frame)
-            self.reset()
-            self.done = done
-            return frame, extracted_state, False
-        self.done = done
-        return self.frame, extracted_state, self.done
+            return {'raw_state': frame, 'factored_state': extracted_state}, self.reward, True, dict()
+        return {'raw_state': self.frame, 'factored_state': extracted_state}, self.reward, self.done, dict()
 
     def get_state(self):
-        return self.frame, self.extracted_state_dict()
+        return {'raw_state': self.frame, 'factored_state': self.extracted_state_dict()}
 
     def toString(self, extracted_state):
         names = ["Action", "Pos", "Target", "Reward", "Done"]

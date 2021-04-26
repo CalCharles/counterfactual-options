@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from Networks.network import pytorch_model
+import torch.nn.functional as F
 
 class TSNet(nn.Module):
     def __init__(self, **kwargs):
@@ -21,7 +22,7 @@ class TSNet(nn.Module):
         if not isinstance(obs, torch.Tensor):
             obs = pytorch_model.wrap(obs, dtype=torch.float, cuda=self.iscuda)
         batch = obs.shape[0]
-        obs.view(batch, -1)
+        obs = obs.reshape(batch, -1)
         logits = self.model(obs)
         return logits, state
 
@@ -32,10 +33,9 @@ class BasicNetwork(TSNet):
         state_shape = kwargs["num_inputs"]
         print(self.output_dim)
         self.model = nn.Sequential(
-            nn.Linear(np.prod(state_shape), kwargs["hidden_sizes"][0]), nn.ReLU(inplace=True),
-            nn.Linear(kwargs["hidden_sizes"][0], kwargs["hidden_sizes"][1]), nn.ReLU(inplace=True),
-            nn.Linear(kwargs["hidden_sizes"][1], kwargs["hidden_sizes"][2]), nn.ReLU(inplace=True),
-            nn.Linear(kwargs["hidden_sizes"][2], self.output_dim)
+            *([nn.Linear(np.prod(state_shape), kwargs["hidden_sizes"][0]), nn.ReLU(inplace=True)] + 
+              sum([[nn.Linear(kwargs["hidden_sizes"][i-1], kwargs["hidden_sizes"][i]), nn.ReLU(inplace=True)] for i in range(len(kwargs["hidden_sizes"]))], list()) + 
+            [nn.Linear(kwargs["hidden_sizes"][-1], self.output_dim)])
         )
         if self.iscuda:
             self.cuda()
@@ -48,13 +48,16 @@ class PixelNetwork(TSNet): # no relation to pixelnet, just a network that operat
         # TODO: assumes images of size 84x84, make general
         self.num_stack = 4
         factor = self.factor
-        nn.Sequential(
+        self.conv = nn.Sequential(
             nn.Conv2d(self.num_stack, kwargs["hidden_sizes"][0], 8, stride=4), nn.ReLU(inplace=True),
             nn.Conv2d(kwargs["hidden_sizes"][0], kwargs["hidden_sizes"][1], 4, stride=2), nn.ReLU(inplace=True),
             nn.Conv2d(kwargs["hidden_sizes"][1], kwargs["hidden_sizes"][2], 3, stride=1), nn.ReLU(inplace=True),
+        )
+        self.model = nn.Sequential(
             nn.Linear(2 * kwargs["hidden_sizes"][2] * self.viewsize * self.viewsize, kwargs["hidden_sizes"][3]), nn.ReLU(inplace=True),
             nn.Linear(kwargs["hidden_sizes"][3], kwargs["num_outputs"])
         )
+
         if self.iscuda:
             self.cuda()
 
@@ -76,22 +79,64 @@ class PixelNetwork(TSNet): # no relation to pixelnet, just a network that operat
         self.reset_parameters()
 
     def forward(self, obs, state=None, info={}):
-        if self.reshape[0] != -1:
-            inputs = inputs.reshape(-1, *self.reshape)
-        norm_term = 1.0
-        if self.normalize:
-            norm_term =  255.0
-        x = self.conv1(inputs / norm_term)
-        x = self.acti(x)
+        batch_size= obs.shape[0]
+        instate = self.conv(obs / 255.0)
+        instate.view(batch_size, -1)
+        return super().forward(instate, state=state, info={})
 
-        x = self.conv2(x)
-        x = self.acti(x)
+class GridWorldNetwork(TSNet):
+    def __init__(self,**kwargs):
+        super().__init__(**kwargs)
+        N = 20 # hardcoded at the moment
+        H, W = N, N
+        self.H, self.W = H, W
+        self.C = 3
+        self.num_stack = 3
+        self.hs = kwargs["hidden_sizes"]
+        # self.conv = nn.Sequential(
+        #     nn.Conv2d(self.num_stack, self.hs[0], 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+        #     nn.Conv2d(self.hs[0], self.hs[1], 3, stride=1, padding=1), nn.ReLU(inplace=True),
+        #     nn.Conv2d(self.hs[1], self.hs[2], 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2)
+        # )
+        self.conv1 = torch.nn.Conv2d(in_channels=self.num_stack,out_channels=self.hs[0],kernel_size=3,stride=1,padding=1)
+        self.conv2 = torch.nn.Conv2d(in_channels=self.hs[0],out_channels=self.hs[1],kernel_size=3,stride=1,padding=1)
+        self.conv3 = torch.nn.Conv2d(in_channels=self.hs[1],out_channels=self.hs[2],kernel_size=3,stride=1,padding=1)
+        self.fc1 = torch.nn.Linear(int(self.hs[2]*H*W/16),self.hs[3])
+        self.fc2 = torch.nn.Linear(self.hs[3],kwargs["num_outputs"])
 
-        x = self.conv3(x)
-        x = self.acti(x)
-        x = x.view(-1, 2 * self.factor * self.viewsize * self.viewsize)
-        x = self.acti(x)
-        if self.linear1 is not None:
-            x = self.linear1(x)
-            x = self.acti(x)
-        return x
+
+        self.model = nn.Sequential(
+            nn.Linear(int(kwargs["hidden_sizes"][2] * H * W / 16), kwargs["hidden_sizes"][3]), nn.ReLU(inplace=True),
+            nn.Linear(kwargs["hidden_sizes"][3], kwargs["num_outputs"])
+        )
+        self.mid_size = int(kwargs["hidden_sizes"][2] * H * W / 16)
+        self.preprocess = kwargs["preprocess"]
+        # self.fc2 = torch.nn.Linear(564,self.insize)
+        if self.iscuda:
+            self.cuda()
+
+    def forward(self, obs, state=None, info={}):
+        # needs to ensure parameter is used correctly:
+        # x[:,:,:,2] = p.reshape(-1,*self.reshape[:-1])
+        # x = x.transpose(3,2).transpose(2,1)
+        if self.preprocess: obs = self.preprocess(obs)
+        if not isinstance(obs, torch.Tensor):
+            obs = pytorch_model.wrap(obs, dtype=torch.float, cuda=self.iscuda)
+        batch_size = obs.shape[0]
+        x = F.max_pool2d(F.relu(self.conv1(obs)),2)
+        x = F.relu(self.conv2(x))
+        x = F.max_pool2d(F.relu(self.conv3(x)),2)
+
+        x = x.reshape(batch_size,int(self.hs[2]*self.H*self.W/16))
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        # instate = self.conv(obs)
+
+
+
+        # print(instate.shape)
+        # instate = instate.reshape(batch_size, self.mid_size)
+        # return super().forward(instate, state=state, info={})
+        return x, state
+
+networks = {'basic': BasicNetwork, 'pixel': PixelNetwork, 'grid': GridWorldNetwork}

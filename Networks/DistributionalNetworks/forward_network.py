@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from Networks.network import Network, BasicMLPNetwork
+from Networks.network import Network, BasicMLPNetwork, pytorch_model
 
 class DiagGaussianForwardNetwork(Network):
     def __init__(self, **kwargs):
@@ -10,7 +10,7 @@ class DiagGaussianForwardNetwork(Network):
         self.mean = BasicMLPNetwork(**kwargs)
         self.std = BasicMLPNetwork(**kwargs)
         self.normalization = kwargs['normalization_function']
-        self.layers += [self.mean, self.std]
+        self.model = [self.mean, self.std]
 
         self.train()
         self.reset_parameters()
@@ -25,6 +25,7 @@ class DiagGaussianForwardNetwork(Network):
 
 
     def forward(self, x):
+        x = pytorch_model.wrap(x, cuda=self.iscuda)
         x = self.normalization(x)
         return torch.tanh(self.mean(x)), torch.sigmoid(self.std(x)) + 1e-2
 

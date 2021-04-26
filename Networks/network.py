@@ -53,6 +53,7 @@ class ConstantNorm():
         self.inv_std = kwargs['invvariance']
 
     def __call__(self, val):
+        # print(val, self.mean, self.inv_std)
         return (val - self.mean) * self.inv_std
 
     def reverse(self, val):
@@ -109,7 +110,7 @@ class Network(nn.Module):
 
     def reset_parameters(self):
         relu_gain = nn.init.calculate_gain('relu')
-        for layer in self.layers:
+        for layer in self.model:
             if type(layer) == nn.Conv2d:
                 if self.init_form == "orth":
                     nn.init.orthogonal_(layer.weight.data, gain=nn.init.calculate_gain('relu'))
@@ -142,9 +143,9 @@ class Network(nn.Module):
                         torch.nn.init.kaiming_uniform_(layer.weight.data)
                     elif self.init_form == "eye":
                         torch.nn.init.eye_(layer.weight.data)
-                    if layer.bias is not None:                
+                    if hasattr(layer, 'bias') and layer.bias is not None:
                         nn.init.uniform_(layer.bias.data, 0.0, 1e-6)
-                    print("layer", self.init_form)
+                    # print("layer", self.init_form)
 
     def get_parameters(self):
         params = []
@@ -192,60 +193,26 @@ class Network(nn.Module):
 class BasicMLPNetwork(Network):    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.factor = kwargs['factor']
-        self.num_layers = kwargs['num_layers']
+        self.hs = kwargs['hidden_sizes']
         self.use_layer_norm = kwargs['use_layer_norm']
-        self.hidden_size = self.factor*self.factor*self.factor // min(4,self.factor)
-        
-        print("Network Sizes: ", self.num_inputs, self.num_outputs, self.hidden_size)
-        if self.num_layers == 1:
-            self.l1 = nn.Linear(self.num_inputs,self.num_outputs)
-        elif self.num_layers == 2:
-            self.l1 = nn.Linear(self.num_inputs,self.hidden_size)
-            self.l2 = nn.Linear(self.hidden_size, self.num_outputs)
-            if self.use_layer_norm:
-                self.ln1 = nn.LayerNorm(self.hidden_size)
-        elif self.num_layers == 3:
-            self.l1 = nn.Linear(self.num_inputs,self.hidden_size)
-            self.l2 = nn.Linear(self.hidden_size,self.hidden_size)
-            self.l3 = nn.Linear(self.hidden_size, self.num_outputs)
-            if self.use_layer_norm:
-                self.ln1 = nn.LayerNorm(self.hidden_size)
-                self.ln2 = nn.LayerNorm(self.hidden_size)
-        if self.num_layers > 0:
-            self.layers.append(self.l1)
-            if self.use_layer_norm:
-                self.layers.append(self.ln1)
-        if self.num_layers > 1:
-            self.layers.append(self.l2)
-            if self.use_layer_norm:
-                self.layers.append(self.ln2)
-        if self.num_layers > 2:
-            self.layers.append(self.l3)
+
+        if self.use_layer_norm:
+            self.model = nn.Sequential(
+                *([nn.Linear(self.num_inputs, self.hs[0]), nn.ReLU(inplace=True),nn.LayerNorm(self.hs[0])] + 
+                  sum([[nn.Linear(self.hs[i-1], self.hs[i]), nn.ReLU(inplace=True), nn.LayerNorm(self.hs[i])] for i in range(len(self.hs))], list()) + 
+                [nn.Linear(self.hs[-1], self.num_outputs)])
+            )
+        else:
+            self.model = nn.Sequential(
+                *([nn.Linear(self.num_inputs, self.hs[0]), nn.ReLU(inplace=True)] + 
+                  sum([[nn.Linear(self.hs[i-1], self.hs[i]), nn.ReLU(inplace=True)] for i in range(len(self.hs))], list()) + 
+                [nn.Linear(self.hs[-1], self.num_outputs)])
+            )
         self.train()
         self.reset_parameters()
 
     def forward(self, x):
-        if self.num_layers > 0:
-            x = self.l1(x)
-            if self.use_layer_norm and self.num_layers > 1:
-                x = self.ln1(x)
-            # print(x)
-        if self.num_layers > 1:
-            x = self.acti(x)
-            x = self.l2(x)
-            if self.use_layer_norm:
-                x = self.ln2(x)
-            # print(x)
-        if self.num_layers > 2:
-            x = self.acti(x)
-            x = self.l3(x)
-            if self.use_layer_norm:
-                x = self.ln3(x)
-            # print(x)
-            # print(x.sum(dim=0))
-            # error
-
+        x = self.model(x)
         return x
 
 class FactoredMLPNetwork(Network):    
