@@ -59,6 +59,7 @@ class Gym(RawEnvironment): # wraps openAI gym environment
         # TODO: not rendering
         if len(action.shape) == 0:
             action = np.array([action])
+            self.action = action
         extracted_state = self.dict_state(observation, self.reward, self.done, action)
         frame = observation
         self.extracted_state, self.frame = extracted_state, frame

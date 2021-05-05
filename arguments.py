@@ -17,6 +17,8 @@ def get_args():
                         help='name of the object whose options are being investigated')
     parser.add_argument('--target', default='',
                         help='name of the object filtering for')
+    parser.add_argument('--temporal-extend', type=int, default=-1,
+                        help='take temporally extended actions, max number of steps to extend before resampling (default: -1 (no extension))')
     # # optimization hyperparameters
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='learning rate, not used if actor and critic learning rate used for algo (default: 1e-6)')
@@ -40,6 +42,8 @@ def get_args():
     parser.add_argument('--gamma', type=float, default=0.99,
                         help='discount factor for rewards (default: 0.99)') 
     # model hyperparameters
+    parser.add_argument('--true-actions', action='store_true', default=False,
+                        help='short circuits option framework to just take true actions')
     parser.add_argument('--relative-state', action='store_true', default=False,
                     help='concatenates on the relative state between objects to the input state to RL network')
     parser.add_argument('--relative-action', type=float, default=-1,
@@ -98,6 +102,8 @@ def get_args():
                         help='number of forward steps used to compute gradient, -1 for not used (default: -1)')
     parser.add_argument('--buffer-len', type=int, default=int(1e6),
                         help='length of the replay buffer (default: 1e6)')
+    parser.add_argument('--prioritized-replay', type=float, nargs='*', default=[],
+                        help='alpha and beta values for prioritized replay')
     # Training iterations
     parser.add_argument('--num-iters', type=int, default=int(2e5),
                         help='number of iterations for training (default: 2e5)')
@@ -159,6 +165,8 @@ def get_args():
                         help='directory to save data when adding edges')
     parser.add_argument('--test-trials', type=int, default=10,
                     help='number of episodes to run as a test')
+    parser.add_argument('--pretest-trials', type=int, default=1,
+                    help='number of episodes of random policy to assess performance')
     parser.add_argument('--save-graph', default='',
                         help='directory to save graph data. If empty, does not save the graph')
     parser.add_argument('--save-recycle', type=int, default=-1,
@@ -200,7 +208,7 @@ def get_args():
                         help='path to network')
     args = parser.parse_args()
 
-    args.discount_factor = args.gamma # TianShou Spport
+    args.discount_factor = args.gamma # TianShou Support
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     args.critic_lr = args.lr if args.critic_lr < 0 else args.critic_lr
     args.actor_lr = args.lr if args.actor_lr < 0 else args.actor_lr

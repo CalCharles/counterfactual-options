@@ -67,7 +67,8 @@ class EnvironmentModel():
     def append_shapes(self, addv):
         if type(addv) != np.ndarray:
             addv = np.array(addv)
-        addv=addv.squeeze()
+        addv=addv.squeeze() # TODO: highly problamatic line but I don't know how to fix it
+        # print(addv.shape, addv.tolist())
         if len(addv.shape) == 0:
             return [addv.tolist()]
         return addv.tolist()
@@ -96,13 +97,11 @@ class EnvironmentModel():
             else:
                 flattened_state = list()
                 for n in names:
-                    # print(n)
                     if self.object_num[n] > 1:
                         for i in range(self.object_num[n]):
                             flattened_state += self.append_shapes(factored_state[n+str(i)])
                     else:
                         flattened_state += self.append_shapes(factored_state[n])
-                    # print(flattened_state)
                 flattened_state = np.array(flattened_state)
         else:
             if type(factored_state) == list:
@@ -307,7 +306,7 @@ class FeatureSelector():
             return -1
 
         def hash_names(n, on): # TODO: relative state defined by object order rather than ord order
-            if n > on:
+            if n < on:
                 return (n, on)
             return (on, n)
 
@@ -407,6 +406,25 @@ def assign_feature(states, assignment, edit=False, clipped=None):
         if clipped is not None:
             cstates = states[:, :, assignment[0]].clamp(clipped[0], clipped[1])
             states[:, :, assignment[0]] = cstates
+
+def discretize_actions(action_space): # converts a continuous action space into a discrete one
+    # takes action +- 1, 0 at each dimension, for every combination
+    # creates combinatorially many combinations of this
+    # action space is assumed to be the tuple shape of the space
+    actions = list()
+    def append_str(i, bs):
+        if i == len(action_space): actions.append(bs)
+        else:
+            bsn1 = copy.copy(bs)
+            bsn1.append(-1)
+            append_str(i+1, bsn1)
+            bs0 = copy.copy(bs)
+            bs0.append(0)
+            append_str(i+1, bs)
+            bs.append(1)
+            append_str(i+1,bs)
+    append_str(0, list())
+    return {i: actions[i] for i in range(len(actions))} # gives the ordering arrived at by -1, 0, 1 ordering interleaved
 
 class ModelRollouts(Rollouts):
     def __init__(self, length, shapes_dict):

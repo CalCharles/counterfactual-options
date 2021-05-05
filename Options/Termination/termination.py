@@ -86,7 +86,8 @@ class CombinedTermination(Termination):
 	def check(self, input_state, state, param, true_done=0):
 		# terminates if the parameter matches and interaction is true
 		# has some probability of terminating if interaction is true
-		interaction_pred = self.interaction_model(pytorch_model.wrap(input_state)).squeeze() 
+		interaction_pred = self.interaction_model(pytorch_model.wrap(input_state)).squeeze()
+		# print(interaction_pred, input_state)
 		inter = interaction_pred > (1 - self.epsilon)
 		param_term = self.parameterized_termination.check(input_state, state, param)
 		if self.interaction_probability > 0:

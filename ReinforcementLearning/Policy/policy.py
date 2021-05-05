@@ -29,7 +29,7 @@ class TSPolicy(nn.Module):
     Note that TianShao Policies also support learning
 
     '''
-    def __init__(self, input_shape, action_space, max_action, **kwargs):
+    def __init__(self, input_shape, action_space, max_action, discrete_actions, **kwargs):
         super().__init__()
         args = ObjDict(kwargs)
         self.algo_name = kwargs["learning_type"] # the algorithm being used
@@ -42,9 +42,10 @@ class TSPolicy(nn.Module):
             self.learning_algorithm = HER(ObjDict(kwargs), kwargs['option'])
             self.collect = self.learning_algorithm.record_state # TODO: not sure what to initialize with
             self.sample_buffer = self.learning_algorithm.sample_buffer
-        kwargs["actor"], kwargs["actor_optim"], kwargs['critic'], kwargs['critic_optim'], kwargs['critic2'], kwargs['critic2_optim'] = self.init_networks(args, input_shape, action_space.shape or action_space.n, max_action)
+        kwargs["actor"], kwargs["actor_optim"], kwargs['critic'], kwargs['critic_optim'], kwargs['critic2'], kwargs['critic2_optim'] = self.init_networks(args, input_shape, action_space.shape or action_space.n, max_action, discrete_actions)
         kwargs["exploration_noise"] = GaussianNoise(sigma=args.epsilon)
         kwargs["action_space"] = action_space
+        kwargs["discrete_actions"] = discrete_actions
         self.algo_policy = self.init_algorithm(**kwargs)
         self.parameterized = kwargs["parameterized"]
         self.param_process = None
@@ -52,23 +53,37 @@ class TSPolicy(nn.Module):
         self.exploration_noise = self.algo_policy.exploration_noise
         self.grad_epoch = kwargs['grad_epoch']
 
-    def init_networks(self, args, input_shape, action_shape, max_action):
-        # if self.continuous:
-        Actor, Critic = cActor, cCritic
-        # else:
-        #     Actor, Critic = dActor, dCritic
-        print(input_shape, action_shape, max_action)
+    def init_networks(self, args, input_shape, action_shape, max_action, discrete_actions):
+        if discrete_actions:
+            Actor, Critic = dActor, dCritic
+        else:
+            Actor, Critic = cActor, cCritic
+        print(input_shape, action_shape, max_action, discrete_actions)
         actor, critic, critic2 = None, None, None
         actor_optim, critic_optim, critic2_optim = None, None, None
         PolicyType = networks[args.policy_type]
+        device = 'cpu' if not args.cuda else 'cuda:' + str(args.gpu)
         if self.algo_name in _actor_critic:
+            if self.discrete: # handle both discrete and continuous
+                cinp_shape = input_shape
+                cout_shape = args.hidden_sizes[-1]
+                aout_shape = args.hidden_sizes[-1]
+                hidden_sizes = args.hidden_sizes[:-1]
+            else:
+                cimp_shape = int(input_shape + np.prod(action_shape))
+                cout_shape = 1
+                aout_shape = action_shape
+                hidden_sizes = args.hidden_sizes
+
             actor = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
-            critic = PolicyType(cuda=args.cuda, num_inputs=int(input_shape + np.prod(action_shape)), num_outputs=1, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
-            device = 'cpu' if not args.cuda else 'cuda:' + str(args.gpu)
+            critic = PolicyType(cuda=args.cuda, num_inputs=cimp_shape, num_outputs=1, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
             critic = Critic(critic, device=device).to(device)
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
             if self.algo_name in _double_critic:
-                actor = ActorProb(actor, action_shape, device=device, max_action=max_action, unbounded=True, conditioned_sigma=True).to(device)
+                if discrete_actions:
+                    actor = Actor(actor, action_shape, device=device, max_action=max_action).to(device)
+                else:
+                    actor = ActorProb(actor, action_shape, device=device, max_action=max_action, unbounded=True, conditioned_sigma=True).to(device)
                 critic2 = PolicyType(cuda=args.cuda, num_inputs=int(input_shape + np.prod(action_shape)), num_outputs=1, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
                 critic2 = Critic(critic2, device=device).to(device)
                 critic2_optim = torch.optim.Adam(critic2.parameters(), lr=args.critic_lr)
@@ -78,17 +93,18 @@ class TSPolicy(nn.Module):
 
         elif self.algo_name in ['dqn']:
             critic = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
-            
-            # other_net = torch.load("data/model.pt")
-            # other_net.cuda()
-            # critic.fc1.weight.data.copy_(other_net.fc1.weight.data)
-            # critic.fc2.weight.data.copy_(other_net.fc2.weight.data)
-            # critic.conv1.weight.data.copy_(other_net.conv1.weight.data)
-            # critic.conv2.weight.data.copy_(other_net.conv2.weight.data)
-            # critic.conv3.weight.data.copy_(other_net.conv3.weight.data)
-
-
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
+        elif self.algo_name in ['ppo']:
+            if discrete_actions:
+                net = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=args.hidden_sizes[-1], hidden_sizes = args.hidden_sizes[:-1], preprocess=args.preprocess)
+                actor = Actor(net, action_shape, device=device).to(device)
+                critic = Critic(net, device=device).to(device)
+            # else: # TODO: no continuous PPO handling
+            #     net = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)                
+            #     critic = PolicyType(cuda=args.cuda, num_inputs=int(input_shape + np.prod(action_shape)), num_outputs=1, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
+            #     actor = Actor(net, action_shape, device=device, max_action=max_action).to(device)
+            #     critic = Critic(critic, device=device).to(device)
+            actor_optim = torch.optim.Adam(set(actor.parameters()).union(critic.parameters()), lr=args.actor_lr)
         return actor, actor_optim, critic, critic_optim, critic2, critic2_optim
 
     def set_eps(self, epsilon): # not all algo policies have set eps
@@ -101,18 +117,29 @@ class TSPolicy(nn.Module):
         if self.algo_name == "dqn": 
             policy = ts.policy.DQNPolicy(args.critic, args.critic_optim, discount_factor=args.discount_factor, estimation_step=args.lookahead, target_update_freq=int(args.tau))
             policy.set_eps(args.epsilon)
+        elif self.algo_name == "ppo": 
+            policy = ts.policy.PPOPolicy(args.actor, args.critic, args.actor_optim, torch.distributions.Categorical, discount_factor=args.discount_factor, max_grad_norm=None,
+                                eps_clip=0.2, vf_coef=0.5, ent_coef=0.01, gae_lambda=0.95, # parameters hardcoded to defaults
+                                reward_normalization=False, dual_clip=None, value_clip=False,
+                                action_space=args.action_space)
         elif self.algo_name == "ddpg": 
             policy = ts.policy.DDPGPolicy(args.actor, args.actor_optim, args.critic, args.critic_optim,
                                                                             tau=args.tau, gamma=args.gamma,
                                                                             exploration_noise=GaussianNoise(sigma=args.epsilon),
                                                                             estimation_step=args.lookahead, action_space=args.action_space,
-                                                                            action_bound_method='tanh')
-        elif self.algo_name == "sac": 
-            policy = ts.policy.SACPolicy(args.actor, args.actor_optim, args.critic, args.critic_optim, args.critic2, args.critic2_optim,
+                                                                            action_bound_method='clip')
+        elif self.algo_name == "sac":
+            if args.discrete_actions:
+                policy = ts.policy.DiscreteSACPolicy(
+                        actor, actor_optim, critic1, critic1_optim, critic2, critic2_optim,
+                        tau=args.tau, gamma=args.gamma, alpha=args.alpha, estimation_step=args.n_step,
+                        reward_normalization=args.rew_norm)
+            else:
+                policy = ts.policy.SACPolicy(args.actor, args.actor_optim, args.critic, args.critic_optim, args.critic2, args.critic2_optim,
                                                                             tau=args.tau, gamma=args.gamma, alpha=args.alpha,
                                                                             exploration_noise=GaussianNoise(sigma=args.epsilon),
                                                                             estimation_step=args.lookahead, action_space=args.action_space,
-                                                                            action_bound_method='tanh')
+                                                                            action_bound_method='clip')
         # support as many algos as possible, at least ddpg, dqn SAC
         return policy
 
@@ -199,6 +226,7 @@ class TSPolicy(nn.Module):
             if use_buffer is None:
                 return {}
             batch, indice = use_buffer.sample(sample_size)
+            # print(batch)
             self.algo_policy.updating = True
             # print(use_buffer.param.shape, batch.param.shape, batch.obs_next.shape)
             # orig_obs, orig_next = self.add_param(batch)
@@ -218,12 +246,15 @@ class TSPolicy(nn.Module):
             #     cv2.waitKey(500)
             #     cv2.imshow('state', on)
             #     cv2.waitKey(500)
+            kwargs["batch_size"] = sample_size
+            kwargs["repeat"] = 2
             result = self.algo_policy.learn(batch, **kwargs)
             self.algo_policy.post_process_fn(batch, use_buffer, indice)
             # self.restore_obs(batch, orig_obs, orig_next)
             # self.restore_buffer(orig_obs_buffer, orig_next_buffer, buffer_idces)
             self.algo_policy.updating = False
         return result
+
 
 def dummy_RLoutput(n, num_actions, cuda):
     one = torch.tensor([n, 0])

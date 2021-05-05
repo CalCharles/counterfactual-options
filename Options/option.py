@@ -47,6 +47,8 @@ class Option():
         self.use_mask = True
         self.param_process = None # must be assigned externally
         self.last_factor = self.get_state(form=1, inp=1)
+        self.last_act = None
+        self.policy_batch = None # the policy batch for previous
         # print(self.get_state(form=0))
         self.inter_shape = self.get_state(form=FEATURIZED, inp=INPUT_STATE).shape
         print(self.get_state(form=0))
@@ -63,6 +65,7 @@ class Option():
         self.terminated = True
         self.time_cutoff = -1
         self.timer = 0
+        self.resample_timer = 0 # tracking when the last resample was
         self.reward_timer = 0 # a hack to reduce the frequency of rewards
         self.reward_freq = 13
 
@@ -101,7 +104,7 @@ class Option():
     # def get_flattened_input_state(self, factored_state):
     #     return pytorch_model.wrap(self.environment_model.get_flattened_state(names=self.names), cuda=self.iscuda)
     def get_state(self, full_state=None, form=1, inp=0, rel=0, param=None): # param is expected 
-        # form is an enumerator, 0 is full state, 1 is gamma/delta state, 2 is diff using last_factor
+        # form is an enumerator, 0 is flattened state, 1 is gamma/delta state, 2 is diff using last_factor
         # inp indicates if gamma or delta or gamma+param (if param is not None)
         # param can either be None (add a dummy param), a list of the same length as full_state, or a param dimensional numpy array
         if full_state is None:
@@ -126,8 +129,14 @@ class Option():
             # if inp == 2:
                 # print(featurize(self.environment_model.flatten_factored_state(factored_state, instanced=True)), param)
                 # print("getting combined", comb_param(featurize(self.environment_model.flatten_factored_state(factored_state, instanced=True))))
+            base_shape = np.array(factored_state[list(factored_state.keys())[0]]).shape
+            n_unsqueeze = len(base_shape) - 1
             flat = self.environment_model.flatten_factored_state(factored_state, instanced=True)
+            # print("flat", flat.shape, n_unsqueeze, base_shape, factored_state["Ball"])
+            for _ in range(n_unsqueeze):
+                flat = np.expand_dims(flat, 0)
             state = comb_param(featurize(flat))
+            # print(state.shape)
             # print("cat param", state.shape, rel)
             if rel == 1:
                 rel = featurize.get_relative(flat) # there might be some difficulty managing concatenate for relative state
@@ -185,6 +194,7 @@ class Option():
 
     def get_param(self, full_state, last_done, force=False):
         # print(self.timer, last_done)
+        new_param = False
         if last_done or self.timer == 0 or force:
             # print("resample")
             if self.object_name == 'Raw': # raw param handling is questionable at best
@@ -193,16 +203,23 @@ class Option():
                 if last_done or self.timer == 0 or force: # force forces it to resample
                     self.param, self.mask = self.sampler.sample(self.get_state(full_state, form=0))
                     self.timer = 0
+                    new_param = True
                     # print(self.param, self.get_state(full_state, form=FEATURIZED, inp=OUTPUT_STATE))
             self.param, self.mask = pytorch_model.unwrap(self.param), pytorch_model.unwrap(self.mask)
         # print(self.timer, self.time_cutoff, self.param, self.get_state(full_state, form=FEATURIZED, inp=OUTPUT_STATE))
-        return self.param, self.mask
+        return self.param, self.mask, new_param
 
-    def convert_param(self, param):
+    def convert_param(self, param): # TODO: only handles single params at a time
         if self.discrete:
             if type(param) == np.ndarray: param = int(param.squeeze())
             if type(param) == torch.tensor: param = param.squeeze().long()
             return self.get_possible_parameters()[param][0]
+        else:
+            mask = self.dataset_model.get_active_mask()
+            new_param = (mask.copy())
+            param = param.squeeze()
+            new_param[new_param == 1] = param
+            param = new_param
         return param
 
     def convert_relative_action(self, state, act):
@@ -210,12 +227,22 @@ class Option():
         if self.relative_actions:
             new_act = list()
             for a, cfs in zip(act, self.next_option.dataset_model.cfselectors):
-                new_act.append(min(cfs.feature_range[1], max(cfs.feature_range[0], cfs.feature_selector(state) + a))) # add the action, then constrain to the range
+                new_act.append(min(cfs.feature_range[1], max(cfs.feature_range[0], (cfs.feature_selector(state) + a).squeeze()))) # add the action, then constrain to the range
                 # print("new_act", new_act, cfs.feature_selector(state), a, cfs.feature_range)
             return np.array(new_act)
         return new_act
 
-    def sample_action_chain(self, batch, state_chain, random=False): # TODO: change this to match the TS parameter format, in particular, make sure that forward returns the desired components in RLOutput
+    def map_action(self, act, resampled, batch):
+        act = self.policy.map_action(act)
+        if self.relative_actions and self.next_option is not None and self.next_option.object_name != "Action":
+            if resampled:
+                act = self.convert_relative_action(self.next_option.get_state(batch["full_state"], form=0, inp=1), act)
+                self.last_mapped_act = act
+            else:
+                act = self.last_mapped_act # otherwise we get a moving target problem
+        return act
+
+    def sample_action_chain(self, batch, state_chain, random=False, force=False): # TODO: change this to match the TS parameter format, in particular, make sure that forward returns the desired components in RLOutput
         '''
         takes in a tianshou.data.Batch object and param, and runs the policy on it
         the batch object can only contain a single full state (computes one state at a time), because of handling issues
@@ -223,18 +250,33 @@ class Option():
         # compute policy information for next state
         # input_state = self.get_state(state, form=FEATURIZED, inp=INPUT_STATE)
 
-        # rl_output = policy.forward(input_state.unsqueeze(0), param.unsqueeze(0)) # REMOVE THIS LINE LATER
-        # get the action from the behavior policy, baction is integer for discrete
-        if self.temp_ext and (self.next_option is not None and not self.next_option.terminated):
-            act = self.last_action # the baction is the discrete index of the action, where the action is the parameterized form that is a parameter
-        if random:
-            if self.relative_actions and self.next_option is not None and self.next_option.object_name != "Action": # only on higher level options
-                act = self.relative_action_space.sample()
-                act = self.convert_relative_action(self.next_option.get_state(batch["full_state"], form=0, inp=1), act)
-            else:
-                act = self.action_space.sample()
+        resampled = True
+        # if self.object_name == "Ball":
+        #     print("resample_check", not (self.timer % self.temp_ext == 0 and self.timer != 0), # using temporal extension
+        #     (self.timer), # temporal extension timer ellapsed
+        #     (self.next_option is not None and not self.next_option.terminated), # waiting for next option termination 
+        #     not force) # forces a new action
+
+        # print(self.object_name, self.next_option.terminated)
+        if (self.temp_ext > 0 and # using temporal extension
+            (not (self.resample_timer == self.temp_ext)) and # temporal extension timer ellapsed
+            (self.next_option is not None and not self.next_option.terminated) # waiting for next option termination 
+            and not force): # forces a new action
+            act = self.last_act # the baction is the discrete index of the action, where the action is the parameterized form that is a parameter
+            mapped_act = self.last_action
+            if state_chain is None: state = None
+            else: state = state_chain[-1] 
+            policy_batch = self.policy_batch
+            resampled = False
+        elif random:
+            # if self.relative_actions and self.next_option is not None and self.next_option.object_name != "Action": # only on higher level options
+            #     act = self.relative_action_space.sample()
+            #     act = self.convert_relative_action(self.next_option.get_state(batch["full_state"], form=0, inp=1), act)
+            # else:
+            act = self.policy_action_space.sample()
             policy_batch = None
             state = None
+            mapped_act = self.map_action(act, resampled, batch)
         else:
             # batch['obs'] = self.get_state(batch['full_state'], form=FEATURIZED, inp=INPUT_STATE)
             # batch['next_obs'] = self.get_state(batch['next_full_state'], form=FEATURIZED, inp=INPUT_STATE) if 'next_full_state' in batch else None
@@ -243,28 +285,35 @@ class Option():
             state = policy_batch['state']
             act = policy_batch.act
             act = to_numpy(act)
-            noise_act = self.policy.exploration_noise(act, batch)
-            noise_act = noise_act[0]
-            mapped_act = self.policy.map_action(noise_act)
-            print(self.object_name, act, mapped_act, self.convert_relative_action(self.next_option.get_state(batch["full_state"], form=0, inp=1), act) if self.relative_actions and self.next_option is not None and self.next_option.object_name != "Action" else 0)
-            act = mapped_act
-            if self.relative_actions and self.next_option is not None and self.next_option.object_name != "Action": self.convert_relative_action(self.next_option.get_state(batch["full_state"], form=0, inp=1), act)
+            # print("prenoise", act)
+            act = self.policy.exploration_noise(act, batch)
+            act = act[0]
+            # print(self.object_name, batch.obs, batch.obs_next, batch.param, act, mapped_act, self.convert_relative_action(self.next_option.get_state(batch["full_state"], form=0, inp=1), act) if self.relative_actions and self.next_option is not None and self.next_option.object_name != "Action" else 0)
+            # print(self.object_name, batch.obs, act)
+            # print("relative", act)
+            mapped_act = self.map_action(act, resampled, batch)
+        if resampled: self.resample_timer = 0
         # print(self.iscuda, param, baction, action)
-        chain = [act]
+        # print(act, mapped_act)
+        chain = [mapped_act]
         
         # recursively propagate action up the chain
         if self.next_option is not None:
             param = batch['param']
             obs = batch['obs']
-            batch['param'] = act.squeeze() if type(act) == torch.tensor or type(act) == np.ndarray else act
-            if self.next_option.object_name != "Action": batch['obs'] = np.array([self.next_option.get_state(batch["full_state"], form=1, inp=2, rel = 1 if self.next_option.relative_state else 0)]) # will always concatenate param
-            if state_chain is None: rem_chain, result, rem_state_chain = self.next_option.sample_action_chain(batch, None) # , random=random # TODO: only sample top level randomly
-            else: rem_chain, result, rem_state_chain = self.next_option.sample_action_chain(batch, state_chain[:-1]) # , random=random # TODO: only sample top level randomly
+            param_act = self.next_option.convert_param(mapped_act)
+            batch['param'] = [param_act]
+            if self.next_option.object_name != "Action": batch['obs'] = np.array([self.next_option.get_state(batch["full_state"], form=1, inp=2, rel = 1 if self.next_option.relative_state else 0, param=param_act)]) # will always concatenate param
+            # print("params", self.next_option.object_name, batch.param, param_act, param, batch.obs)
+            if state_chain is None: next_policy_act, rem_chain, result, rem_state_chain, last_resampled = self.next_option.sample_action_chain(batch, None) # , random=random # TODO: only sample top level randomly
+            else: next_policy_act, rem_chain, result, rem_state_chain, last_resampled = self.next_option.sample_action_chain(batch, state_chain[:-1]) # , random=random # TODO: only sample top level randomly
             chain = rem_chain + chain
             state = rem_state_chain + [state]
             batch['param'] = param
             batch['obs'] = obs
-        return chain, policy_batch, state
+        self.policy_batch = policy_batch
+        self.last_act = act
+        return act, chain, policy_batch, state, resampled
 
     def step(self, last_state, chain):
         # This can only be called once per time step because the state diffs are managed here
@@ -274,10 +323,14 @@ class Option():
         self.last_factor = self.get_state(last_state, form=FEATURIZED, inp=OUTPUT_STATE)
 
     def step_timer(self, done): # TODO: does this need to handle done chains?
+        # return true if the timer ellapsed
         self.timer += 1
+        self.resample_timer += 1
         # print(done, self.timer)
         if done or (self.timer == self.time_cutoff and self.time_cutoff > 0):
             self.timer = 0
+            return self.timer == self.time_cutoff and self.time_cutoff > 0
+        return False
 
     def terminate_reward(self, state, param, chain, needs_reward=True):
         # recursively get all of the dones and rewards
@@ -309,6 +362,7 @@ class Option():
                 done = 1
         dones = last_dones + [done]
         rewards = last_rewards + [reward]
+        # print(self.object_name, done, object_state, param)
         return dones, rewards
 
     def record_state(self, state, next_state, action_chain, rl_outputs, param, rewards, dones):
@@ -396,6 +450,7 @@ class PrimitiveOption(Option): # primative discrete actions
         self.dataset_model = None
         self.time_cutoff = 1
         self.rollouts = None
+        self.terminated = True
 
     def save(self, save_dir, clear=False):
         return None
@@ -423,13 +478,13 @@ class PrimitiveOption(Option): # primative discrete actions
             return [(torch.tensor([i]).cuda(), torch.tensor([1]).cuda()) for i in range(self.num_params)]
         return [(torch.tensor([i]), torch.tensor([1])) for i in range(self.num_params)]
 
-    def sample_action_chain(self, batch, state, random=False): # param is an int denoting the primitive action, not protected (could send a faulty param)
+    def sample_action_chain(self, batch, state, random=False, force=False): # param is an int denoting the primitive action, not protected (could send a faulty param)
         if random:
             chain = [self.action_space.sample()]
         else:
             param = batch['param']
             chain = [int(param.squeeze())]
-        return chain, None, list()
+        return int(param.squeeze()), chain, None, list(), True # chain is the action as an int, policy batch is None, state chain is a list, resampled is True
 
     def terminate_reward(self, state, param, chain, needs_reward=False):
         return [1], [0]
@@ -475,8 +530,8 @@ class RawOption(Option):
     def get_param(self, full_state, done, force=False):
         if done or force:
             self.param = self.environment_model.get_param(full_state)
-            return self.param, [1]
-        return self.param, [1]
+            return self.param, [1], True
+        return self.param, [1], False
 
     def get_possible_parameters(self):
         if self.iscuda:
@@ -507,7 +562,7 @@ class RawOption(Option):
         return input_state
 
 
-    def sample_action_chain(self, batch, state_chain, random=False):
+    def sample_action_chain(self, batch, state_chain, random=False, force=False):
         '''
         Takes an action in the state, only accepts single states. Since the initiation condition extends to all states, this is always callable
         also returns whether the current state is a termination condition. The option will still return an action in a termination state
@@ -543,7 +598,7 @@ class RawOption(Option):
         # baction = self.behavior_policy.get_action(rl_output)
         chain = [act]
         # print(chain)
-        return chain, policy_batch, state
+        return act, chain, policy_batch, state, True # resampled is always true since there is no temporal extension
 
     def terminate_reward(self, state, param, chain, needs_reward=False):
         # print(state)
@@ -567,14 +622,20 @@ class ModelCounterfactualOption(Option):
         self.action_min = np.array(self.next_option.control_min)
         self.control_max = np.array(self.dataset_model.control_max)
         self.control_min = np.array(self.dataset_model.control_min)
+        self.policy_min = -1 * np.ones(self.action_min.shape) # policy space is always the same
+        self.policy_max = 1 * np.ones(self.action_min.shape)
+        self.last_action = np.zeros(self.action_shape)
+        self.last_act = np.zeros(self.action_shape)
         if self.discrete_actions:
             self.action_space = gym.spaces.Discrete(self.next_option.control_max)
+            self.policy_action_space = gym.spaces.Discrete(self.next_option.control_max)
             self.relative_action_space = gym.spaces.Discrete(self.next_option.control_max) # no relative actions for discrete
         else:
             print(self.action_min, self.action_max)
             self.action_space = gym.spaces.Box(self.action_min, self.action_max)
             rng = self.action_max - self.action_min
             self.relative_action_space = gym.spaces.Box(-rng / self.range_limiter, rng / self.range_limiter)
+            self.policy_action_space = gym.spaces.Box(self.policy_min, self.policy_max)
         self.output_prob_shape = (self.dataset_model.delta.output_size(), ) # continuous, so the size will match
         # TODO: fix this so that the output size is equal to the nonzero elements of the self.dataset_model.selection_binary() at each level
 

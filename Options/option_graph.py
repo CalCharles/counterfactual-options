@@ -59,7 +59,7 @@ class OptionGraph():
         for node in self.nodes.values():
             node.option.environment_model = environment_model
 
-def load_graph(load_dir, length):
+def load_graph(load_dir):
     print(os.path.join(load_dir, "graph.pkl"))
     graph = load_from_pickle(os.path.join(load_dir, "graph.pkl"))
     print("loaded graph")

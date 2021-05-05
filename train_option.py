@@ -23,7 +23,7 @@ from DistributionalModels.InteractionModels.interaction_model import load_hypoth
 from DistributionalModels.distributional_model import load_factored_model
 from DistributionalModels.InteractionModels.samplers import samplers
 from Rollouts.collector import OptionCollector
-from Rollouts.param_buffer import ParamReplayBuffer
+from Rollouts.param_buffer import ParamReplayBuffer, ParamPriorityReplayBuffer
 
 import tianshou as ts
 
@@ -89,7 +89,7 @@ if __name__ == '__main__':
     if args.cuda:
         dataset_model.cuda()
     try:
-        graph = load_graph(args.graph_dir, args.buffer_len)
+        graph = load_graph(args.graph_dir)
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
         actions = PrimitiveOption(None, models, "Action")
@@ -104,12 +104,15 @@ if __name__ == '__main__':
     print(load_option, option_name, args.object)
 
     # hack to fix old versions REMOVE
+    graph.nodes["Action"].option.terminated = True
     # graph.nodes[option_name].option.output_prob_shape = (graph.nodes[option_name].option.dataset_model.delta.output_size(), )
     
     if not load_option:
-        pr.policy, pr.termination, pr.reward, pr.next_option = None, termination, reward, (None if args.true_environment else graph.nodes[option_name].option)
+        pr.policy, pr.termination, pr.reward = None, termination, reward
+        pr.next_option = None if args.true_environment else graph.nodes[option_name].option
+        pr.next_option = pr.next_option if not args.true_actions else graph.nodes["Action"].option # true actions forces the next option to be Action
         print("keys", list(graph.nodes.keys()))
-        option = option_forms[args.option_type](pr, models, args.object, temp_ext=False, relative_actions = args.relative_action, relative_state=args.relative_state) # TODO: make exploration noise more alterable 
+        option = option_forms[args.option_type](pr, models, args.object, temp_ext=args.temporal_extend, relative_actions = args.relative_action, relative_state=args.relative_state) # TODO: make exploration noise more alterable 
         if args.object == "Action" or args.object == "Raw":
             option.discrete = not args.continuous
         else:
@@ -131,7 +134,7 @@ if __name__ == '__main__':
 
     args.option = option
     if not load_option:
-        policy = TSPolicy(num_inputs, action_space, max_action, **vars(args)) # default args?
+        policy = TSPolicy(num_inputs, action_space, max_action, discrete_actions=option.discrete_actions, **vars(args)) # default args?
         if args.true_environment and args.env == "Nav2D": option.param_process = environment.param_process
         # policy.algo_policy.load_state_dict(torch.load("data/TSTestPolicy.pt"))
     else:
@@ -149,10 +152,20 @@ if __name__ == '__main__':
     else:
         graph.load_environment_model(environment_model)
     
-    # TODO: only initializes with ReplayBuffer at the moment, but could extend to prioritized replay buffer, vector replay buffer if multithread possible
-    train_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(args.buffer_len, 1), exploration_noise=True, option=option, use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment) # for now, no preprocess function
+    # debugging lines
+    torch.set_printoptions(precision=4)
+    np.set_printoptions(precision=4)
+    
+    # TODO: only initializes with ReplayBuffer, prioritizedReplayBuffer at the moment, but could extend to vector replay buffer if multithread possible
+    if len(args.prioritized_replay) > 0:
+        trainbuffer = ParamPriorityReplayBuffer(args.buffer_len, stack_num=1, alpha=args.prioritized_replay[0], beta=args.prioritized_replay[1])
+    else:
+        trainbuffer = ParamReplayBuffer(args.buffer_len, stack_num=1)
+
+    train_collector = OptionCollector(option.policy, environment, trainbuffer, exploration_noise=True, option=option, use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment) # for now, no preprocess function
     MAXEPISODELEN = 100
-    test_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment, test=True)
+    print_test = True
+    test_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment, test=True, print_test=print_test)
     # test_collector = ts.data.Collector(option.policy, environment)
     print("Check option discrete", option.object_name, option.discrete)
     trained = trainRL(args, train_collector, test_collector, environment, environment_model, option, names, graph)
