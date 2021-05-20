@@ -215,10 +215,18 @@ def render_dump(obj_dumps):
     frame[pos[0]-1:pos[0]+1, pos[1]-1:pos[1]+1] = 1.0 * 255
     return frame
 
-def printframe(state, name='frame'):
+def printframe(state, name='frame', waittime=100):
     cv2.imshow(name, state)
-    if cv2.waitKey(100) & 0xFF == ord('q'):
+    if cv2.waitKey(waittime) & 0xFF == ord('q'):
         pass
+
+def saveframe(state, pth='data/', count=-1, name='frame'):
+    try:
+        os.makedirs(pth)
+    except OSError:
+        pass
+    imio.imsave(os.path.join(pth), state)
+
 
 
 if __name__ == '__main__':

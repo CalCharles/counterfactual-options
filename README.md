@@ -86,6 +86,9 @@ Gym tests:
 # sac
 python train_option.py --gpu 1 --hidden-sizes 128 128 128 --env gymenvPendulum-v0 --learning-type sac --actor-lr 1e-4 --critic-lr 1e-3 --tau .005 --num-steps 10 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 7000 --buffer-len 100000
 
+# ddpg
+python train_option.py --gpu 1 --hidden-sizes 128 128 128 --env gymenvPendulum-v0 --learning-type ddpg --actor-lr 1e-4 --critic-lr 1e-3 --tau .005 --num-steps 10 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 7000 --buffer-len 100000
+
 # dqn
 python train_option.py --gpu 1 --hidden-sizes 128 128 128 --env gymenvCartPole-v0 --learning-type dqn --actor-lr 1e-4 --critic-lr 1e-3 --tau 100 --num-steps 10 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 2000 --buffer-len 50000
 
@@ -103,26 +106,79 @@ python train_option.py --object Raw --option-type raw --true-environment --env N
 
 
 Running Tianshou
+# generate random data
+python generate_breakout_data.py data/random 3000
+
 # train the paddle motion model
-python construct_hypothesis_model.py --record-rollouts data/random/ --log-interval 500 --hidden-sizes 1024 1024 --predict-dynamics --action-shift --batch-size 10 --pretrain-iters 10000 --epsilon-schedule 3000 --num-iters 20000 --interaction-binary -1 -8 -16 --train --save-dir data/interaction_ln > train_hypothesis.txt
-
-# train the paddle policy with HER and DQN
-python train_option.py --dataset-dir data/interaction_ln/ --object Paddle --option-type model --buffer-len 500000 --num-steps 75 --gamma .99 --batch-size 16 --record-rollouts data/paddle --num-iters 4000 --terminal-type comb --reward-type comb --parameterized-lambda 0 --epsilon-close 1 --time-cutoff 75 --set-time-cutoff  --hidden-sizes 128 128 --learning-type herdqn --grad-epoch 75 --pretrain-iters 1000 --lr 1e-4 --epsilon .1 --epsilon-schedule 200 --select-positive .5 --gpu 1 --resample-timer 20 --tau 2500 --log-interval 25 --reward-constant -2 --max-steps 30 --save-graph data/paddle_graph --save-interval 100 > logs/train_paddle.txt
-
-# test the paddle policy
-python test_option.py --dataset-dir data/interaction_ln/ --graph-dir data/paddle_graph --object Paddle --buffer-len 500000 --gamma .99 --record-rollouts data/paddle_test --test-trials 20 --num-iters 10 --terminal-type comb --reward-type comb --parameterized-lambda 0 --epsilon-close 1 --time-cutoff 50 --set-time-cutoff --gpu 1 --reward-constant -1 --max-steps 30 > logs/test_paddle.txt
-
-
-# train the ball bounce interaction model
-python construct_hypothesis_model.py --record-rollouts data/paddle/ --hidden-sizes 512 512 --batch-size 64 --pretrain-iters 100000 --interaction-iters 100000 --epsilon-schedule 1000 --num-iters 200000 --posttrain-iters 0 --log-interval 1000 --num-frames 100000 --interaction-binary -1 -13 -13 --graph-dir data/paddle_graph/ --train --gpu 2  --save-dir data/interaction_bpI > logs/ball_paddle_interactionI.txt
+python construct_hypothesis_model.py --env SelfBreakout --record-rollouts data/random/ --log-interval 500 --hidden-sizes 1024 1024 --predict-dynamics --action-shift --batch-size 10 --pretrain-iters 10000 --epsilon-schedule 3000 --num-iters 20000 --interaction-binary -1 -8 -16 --train --interaction-prediction .3 --save-dir data/interaction_ln > logs/action_paddle_interaction.txt
 
 # Run "test" to fill in parameter values for the hypothesis model
-python construct_hypothesis_model.py --record-rollouts data/paddle/ --hidden-sizes 512 512 --batch-size 64 --epsilon-schedule 1000 --log-interval 1000 --num-frames 100000 --interaction-binary -1 -13 -13 --graph-dir data/paddle_graph/ --gpu 2  --dataset-dir data/interaction_bpI --save-dir data/interaction_bpIv > logs/ball_paddle_interactionIv.txt
+python construct_hypothesis_model.py --env SelfBreakout --record-rollouts data/random/ --batch-size 64 --predict-dynamics --epsilon-schedule 1000 --action-shift --log-interval 1000 --num-frames 100000 --interaction-binary -1 -8 -16 --graph-dir data/action_graph/ --gpu 2  --dataset-dir data/interaction_ap --save-dir data/interaction_apv > logs/action_paddle_interactionv.txt
 
-# train the ball policy with SAC and HER
+# train the paddle policy with HER and DQN
+python train_option.py --dataset-dir data/interaction_apv/ --object Paddle --option-type model --buffer-len 500000 --num-steps 75 --gamma .99 --batch-size 16 --record-rollouts data/paddle --num-iters 4000 --terminal-type comb --reward-type comb --parameterized-lambda 0 --epsilon-close 1 --time-cutoff 75 --set-time-cutoff  --hidden-sizes 128 128 --learning-type herdqn --grad-epoch 75 --pretrain-iters 1000 --lr 1e-4 --epsilon .1 --epsilon-schedule 200 --select-positive .5 --gpu 1 --resample-timer 20 --tau 2500 --log-interval 25 --reward-constant -2 --max-steps 30 --print-test --save-graph data/paddle_graph --save-interval 100 > logs/train_paddle.txt
+
+# test the paddle policy
+python test_option.py --dataset-dir data/interaction_apv/ --graph-dir data/paddle_graph --object Paddle --buffer-len 500000 --gamma .99 --record-rollouts data/paddle_test --test-trials 20 --num-iters 10 --terminal-type comb --reward-type comb --parameterized-lambda 0 --epsilon-close 1 --time-cutoff 50 --set-time-cutoff --gpu 1 --reward-constant -1 --max-steps 30 --print-test > logs/test_paddle.txt
+
+# train the ball bounce interaction model
+# note: alter feature_explorer.py ATM to speed up paddle-ball interaction
+python construct_hypothesis_model.py --env SelfBreakout --record-rollouts data/paddle/ --hidden-sizes 512 512 --batch-size 64 --pretrain-iters 100000 --interaction-iters 100000 --epsilon-schedule 1000 --num-iters 200000 --posttrain-iters 0 --log-interval 1000 --num-frames 100000 --interaction-binary -1 -13 -13 --graph-dir data/paddle_graph/ --train --gpu 2  --save-dir data/interaction_pbI --interaction-prediction.3 > logs/paddle_ball_interactionI.txt
+
+# Run "test" to fill in parameter values for the hypothesis model
+python construct_hypothesis_model.py --env SelfBreakout --record-rollouts data/paddle/ --hidden-sizes 512 512 --batch-size 64 --epsilon-schedule 1000 --log-interval 1000 --num-frames 100000 --interaction-binary -1 -13 -13 --graph-dir data/paddle_graph/ --gpu 2  --dataset-dir data/interaction_pbI --save-dir data/interaction_pbIv > logs/paddle_ball_interactionIv.txt
+
+# train ball bouncing with SAC and negative true rewards
+CUDA_VISIBLE_DEVICES=1 python train_option.py --dataset-dir data/interaction_pbIv/ --object Ball --option-type model --buffer-len 500000 --num-steps 250 --gamma .99 --batch-size 64 --record-rollouts data/ball --num-iters 1000 --terminal-type comb --reward-type tcomb --interaction-lambda 100 --parameterized-lambda 100 --true-reward-lambda 100 --epsilon-close .5 --time-cutoff 150 --train  --hidden-sizes 256 256 --learning-type sac --grad-epoch 150 --pretrain-iters 10000 --lr 1e-4 --epsilon .05 --behavior-type greedyQ --select-positive .5 --gpu 1 --resample-timer 150 --tau .001 --log-interval 50 --reward-constant 0 --graph-dir data/paddle_graph --interaction-probability 1 --max-steps 100 --relative-state --relative-action 4 --pretest-trials 20 --prioritized-replay 0.6 0.4 --temporal-extend 6 --sac-alpha .5 --lookahead 4 --print-test --save-graph data/ball_bounce_graph --save-interval 100 > logs/train_ball_bounce.txt
+
+# train with retargeted actions and PPO:
+python train_option.py --dataset-dir data/interaction_bpIv/ --object Ball --option-type model --buffer-len 500000 --num-steps 128 --gamma .99 --batch-size 128 --record-rollouts data/ball --num-iters 2000 --terminal-type comb --reward-type comb --parameterized-lambda 10 --epsilon-close .5 --time-cutoff 150 --train --hidden-sizes 512 512 --learning-type ppo --grad-epoch 64 --pretrain-iters 10000 --lr 1e-4 --epsilon 0 --select-positive .5 --gpu 1 --resample-timer 150 --tau .005 --log-interval 25 --reward-constant -.1 --graph-dir data/paddle_graph --interaction-probability 1 --max-steps 50 --pretest-trials 20 --relative-state --relative-action 6 --discretize-actions
+
+# train ball bouncing with SAC-HER velocity
+# 10, 100 reward
+python train_option.py --dataset-dir data/interaction_pbIv/ --object Ball --option-type model --buffer-len 500000 --num-steps 250 --gamma .99 --batch-size 64 --record-rollouts data/ball --num-iters 5000 --terminal-type comb --reward-type tcomb --interaction-lambda 100 --parameterized-lambda 1000 --true-reward-lambda 100 --epsilon-close .5 --time-cutoff 150 --train  --hidden-sizes 256 256 --learning-type hersac --grad-epoch 150 --pretrain-iters 10000 --lr 1e-4 --epsilon 0 --behavior-type greedyQ --select-positive .3 --gpu 2 --resample-timer 150 --tau .001 --log-interval 50 --reward-constant 0 --graph-dir data/paddle_graph --interaction-probability 1 --max-steps 100 --relative-state --relative-action 4 --pretest-trials 20 --prioritized-replay 0.2 0.4 --temporal-extend 6 --sac-alpha .3 --lookahead 4 --print-test --force-mask 0 0 1 1 0 --use-interact --max-hindsight 50 --param-interaction --save-graph data/ball_vel_graph --save-interval 100 > logs/param_tests/train_ball_velocity10.txt
+
+# test SAC-HER velocity model
+python test_option.py --dataset-dir data/interaction_pbIv/ --graph-dir data/ball_vel100_graph --object Ball --buffer-len 500000 --gamma .99 --record-rollouts data/paddle_test --test-trials 20 --num-iters 10 --terminal-type comb --reward-type tcomb --interaction-lambda 100 --parameterized-lambda 1000 --true-reward-lambda 100 --epsilon-close 1 --time-cutoff 150 --set-time-cutoff --relative-state --relative-action 4 --gpu 1 --reward-constant -1 --max-steps 100 --print-test --interaction-probability 1 --force-mask 0 0 1 1 0 --use-interact --max-hindsight 50 --param-interaction > logs/param_tests/test_ball_velocity.txt
+
+
+
+# training ball bouncing with SAC-HER positions
+python train_option.py --dataset-dir data/interaction_pbIv/ --object Ball --option-type model --buffer-len 500000 --num-steps 250 --gamma .99 --batch-size 64 --record-rollouts data/ball --num-iters 5000 --terminal-type comb --reward-type tcomb --interaction-lambda 100 --parameterized-lambda 2000 --true-reward-lambda 100 --epsilon-close 1 --time-cutoff 500 --train  --hidden-sizes 256 256 --learning-type hersac --grad-epoch 50 --pretrain-iters 10000 --lr 1e-4 --epsilon 0 --behavior-type greedyQ --select-positive .3 --gpu 2 --resample-timer 50 --tau .001 --log-interval 50 --reward-constant 0 --graph-dir data/paddle_graph --interaction-probability 0 --max-steps 100 --relative-state --relative-action 4 --pretest-trials 20 --prioritized-replay 0.2 0.4 --temporal-extend 6 --sac-alpha .3 --lookahead 4 --print-test --force-mask 1 1 0 0 0 --sample-continuous --max-hindsight 50 > logs/train_ball_positione1.txt
+
+python train_option.py --dataset-dir data/interaction_pbIv/ --object Ball --option-type model --buffer-len 500000 --num-steps 250 --gamma .99 --batch-size 64 --record-rollouts data/ball --num-iters 5000 --terminal-type comb --reward-type tcomb --interaction-lambda 100 --parameterized-lambda 2000 --true-reward-lambda 100 --epsilon-close 2 --time-cutoff 500 --train  --hidden-sizes 256 256 --learning-type hersac --grad-epoch 50 --pretrain-iters 10000 --lr 1e-4 --epsilon 0 --behavior-type greedyQ --select-positive .3 --gpu 2 --resample-timer 50 --tau .001 --log-interval 50 --reward-constant 0 --graph-dir data/paddle_graph --interaction-probability 0 --max-steps 100 --relative-state --relative-action 4 --pretest-trials 20 --prioritized-replay 0.2 0.4 --temporal-extend 6 --sac-alpha .3 --lookahead 4 --print-test --force-mask 1 1 0 0 0 --sample-continuous --max-hindsight 50 > logs/train_ball_positione2.txt
+
+python train_option.py --dataset-dir data/interaction_pbIv/ --object Ball --option-type model --buffer-len 500000 --num-steps 250 --gamma .99 --batch-size 64 --record-rollouts data/ball --num-iters 5000 --terminal-type comb --reward-type tcomb --interaction-lambda 100 --parameterized-lambda 2000 --true-reward-lambda 100 --epsilon-close 3 --time-cutoff 500 --train  --hidden-sizes 256 256 --learning-type hersac --grad-epoch 50 --pretrain-iters 10000 --lr 1e-4 --epsilon 0 --behavior-type greedyQ --select-positive .3 --gpu 2 --resample-timer 50 --tau .001 --log-interval 50 --reward-constant 0 --graph-dir data/paddle_graph --interaction-probability 0 --max-steps 100 --relative-state --relative-action 4 --pretest-trials 20 --prioritized-replay 0.2 0.4 --temporal-extend 6 --sac-alpha .3 --lookahead 4 --print-test --force-mask 1 1 0 0 0 --sample-continuous --max-hindsight 50 > logs/train_ball_positione3.txt
+
+python train_option.py --dataset-dir data/interaction_pbIv/ --object Ball --option-type model --buffer-len 500000 --num-steps 250 --gamma .99 --batch-size 64 --record-rollouts data/ball --num-iters 5000 --terminal-type comb --reward-type tcomb --interaction-lambda 100 --parameterized-lambda 2000 --true-reward-lambda 100 --epsilon-close .5 --time-cutoff 500 --train  --hidden-sizes 256 256 --learning-type hersac --grad-epoch 50 --pretrain-iters 10000 --lr 1e-4 --epsilon 0 --behavior-type greedyQ --select-positive .3 --gpu 2 --resample-timer 50 --tau .001 --log-interval 50 --reward-constant 0 --graph-dir data/paddle_graph --interaction-probability 0 --max-steps 100 --relative-state --relative-action 4 --pretest-trials 20 --prioritized-replay 0.2 0.4 --temporal-extend 6 --sac-alpha .3 --lookahead 4 --print-test --force-mask 1 1 0 0 0 --sample-continuous --max-hindsight 50 > logs/train_ball_positione5.txt
+
+python train_option.py --dataset-dir data/interaction_pbIv/ --object Ball --option-type model --buffer-len 500000 --num-steps 250 --gamma .99 --batch-size 64 --record-rollouts data/ball --num-iters 5000 --terminal-type comb --reward-type tcomb --interaction-lambda 100 --parameterized-lambda 2000 --true-reward-lambda 100 --epsilon-close 10 --time-cutoff 500 --train  --hidden-sizes 256 256 --learning-type hersac --grad-epoch 50 --pretrain-iters 10000 --lr 1e-4 --epsilon 0 --behavior-type greedyQ --select-positive .3 --gpu 2 --resample-timer 50 --tau .001 --log-interval 50 --reward-constant 0 --graph-dir data/paddle_graph --interaction-probability 0 --max-steps 100 --relative-state --relative-action 4 --pretest-trials 20 --prioritized-replay 0.2 0.4 --temporal-extend 6 --sac-alpha .3 --lookahead 4 --print-test --force-mask 1 1 0 0 0 --max-hindsight 50 --ring-schedule 100000 --epsilon-min 2 > logs/train_ball_positiones10-2.txt
+
+<!-- # train the ball policy with SAC and HER
 python train_option.py --dataset-dir data/interaction_bpIv/ --object Ball --option-type model --buffer-len 500000 --num-steps 250 --gamma .99 --batch-size 32 --record-rollouts data/ball --num-iters 2000 --terminal-type comb --reward-type comb --parameterized-lambda 10 --epsilon-close .5 --time-cutoff 150 --train  --hidden-sizes 512 512 --learning-type sac --grad-epoch 100 --pretrain-iters 10000 --lr 1e-4 --epsilon .1 --epsilon-schedule 25000 --behavior-type greedyQ --select-positive .5 --gpu 1 --resample-timer 150 --tau .005 --log-interval 50 --reward-constant -.01 --graph-dir data/paddle_graph --interaction-probability 1 --max-steps 50 --relative-state --relative-action 4 --temporal-extend 6 --pretest-trials 20 > train_ball.txt
 
 # train ball with true actions and PPO:
 python train_option.py --dataset-dir data/interaction_bpIv/ --object Ball --option-type model --buffer-len 50000 --num-steps 128 --gamma .99 --batch-size 128 --record-rollouts data/ball --num-iters 4000 --pretrain-iters 10000 --terminal-type comb --reward-type comb --parameterized-lambda 10 --epsilon-close .5 --time-cutoff 128 --train  --hidden-sizes 512 512 --learning-type ppo --grad-epoch 64 --lr 1e-4 --epsilon 0 --select-positive .5 --gpu 1 --resample-timer 150 --tau .005 --log-interval 25 --reward-constant -.1 --graph-dir data/paddle_graph --interaction-probability 1 --max-steps 50 --relative-state --true-actions 
 
-python train_option.py --gpu 1 --hidden-sizes 64 64 --env gymenvCartPole-v0 --learning-type ppo --actor-lr 1e-3 --num-steps 64 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 20000 --buffer-len 20000 --grad-epoch 48 --log-interval 25
+python train_option.py --gpu 1 --hidden-sizes 64 64 --env gymenvCartPole-v0 --learning-type ppo --actor-lr 1e-3 --num-steps 64 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 20000 --buffer-len 20000 --grad-epoch 48 --log-interval 25 -->
+
+
+
+
+# Pushing domain
+python generate_push_data.py data/pusher/pusher_random --num-frames 3000 --pushgripper
+
+# train the gripper motion model
+python construct_hypothesis_model.py --record-rollouts data/pusher/pusher_random/ --env Pushing --log-interval 500 --hidden-sizes 1024 1024 --predict-dynamics --action-shift --batch-size 10 --pretrain-iters 10000 --epsilon-schedule 3000 --num-iters 20000 --interaction-binary -1 -8 -16 --train --interaction-prediction .3 --save-dir data/pusher/interaction_ag > logs/pusher/action_gripper_interaction.txt
+
+# Run "test" to fill in parameter values for the hypothesis model
+python construct_hypothesis_model.py --record-rollouts data/pusher/pusher_random --env Pushing --batch-size 64 --predict-dynamics --epsilon-schedule 1000 --action-shift --log-interval 1000 --num-frames 100000 --interaction-binary -1 -8 -16 --graph-dir data/action_graph/ --gpu 2  --dataset-dir data/pusher/interaction_ag --save-dir data/pusher/interaction_agv > logs/pusher/action_gripper_interactionv.txt
+
+# train the gripper policy with HER and DQN
+python train_option.py --dataset-dir data/pusher/interaction_agv/ --object Gripper --option-type model --buffer-len 500000 --num-steps 75 --gamma .99 --batch-size 16 --record-rollouts data/pusher/gripper --num-iters 4000 --terminal-type comb --reward-type comb --parameterized-lambda 0 --epsilon-close 1 --time-cutoff 75 --set-time-cutoff  --hidden-sizes 128 128 --learning-type herdqn --grad-epoch 75 --pretrain-iters 1000 --lr 1e-4 --epsilon .1 --epsilon-schedule 200 --select-positive .5 --gpu 1 --resample-timer 20 --tau 2500 --log-interval 25 --reward-constant -2 --max-steps 30 --print-test --pretest-trials 20 --save-graph data/pusher/gripper_graph --save-interval 100 > logs/pusher/train_gripper.txt
+
+# test gripper policy
+python test_option.py --dataset-dir data/pusher/interaction_agv/ --env Pushing --graph-dir data/pusher/gripper_graph --object Gripper --buffer-len 500000 --gamma .99 --record-rollouts data/pusher/gripper_test --test-trials 20 --num-iters 10 --terminal-type comb --reward-type comb --parameterized-lambda 0 --epsilon-close 1 --time-cutoff 50 --set-time-cutoff --gpu 1 --reward-constant -1 --max-steps 30 --print-test > logs/pusher/test_gripper.txt
+
+# train block motion model
+python construct_hypothesis_model.py --env Pushing --record-rollouts data/pusher/gripper --hidden-sizes 512 512 --batch-size 64 --pretrain-iters 10000 --interaction-iters 50000 --epsilon-schedule 1000 --num-iters 100000 --posttrain-iters 0 --log-interval 1000 --num-frames 100000 --interaction-binary -1 -13 -13 --graph-dir data/pusher/gripper_graph/ --train --gpu 2   --interaction-prediction .3 --save-dir data/pusher/interaction_gbI > logs/pusher/gripper_block_interaction.txt

@@ -4,32 +4,40 @@ import cv2
 import argparse
 import sys
 sys.path.insert(0, "/home/calcharles/research/contingency-options/")
-from Pushing.objects import *
+from Environments.Pushing.objects import *
 import imageio as imio
 import os, copy
 from Environments.environment_specification import RawEnvironment
+from gym import spaces
 
 class Pushing(RawEnvironment):
-    def __init__(self, pushgripper=False, frameskip=5, reset_max=300):
+    def __init__(self, pushgripper=False, frameskip=3, reset_max=300):
         super().__init__()
-        self.actionObj = Action()
+        self.num_actions = 5
+        self.action_space = spaces.Discrete(self.num_actions)
+        self.observation_space = spaces.Box(low=0, high=255, shape=(84, 84), dtype=np.uint8)
+        self.done = False
+        self.reward = 0
+        self.seed_counter = -1
+        self.discrete_actions = True
+        self.actions = Action(2)
         self.gripper = CartesianGripper(2)
         self.stick = Stick(2)
-        # self.ball = Sphere(2)
-        self.ball = Block(2)
+        # self.block = Sphere(2)
+        self.block = Block(2)
         self.target = Target(2)
+        self.pushgripper = pushgripper
         if pushgripper:
             self.gripper = CartesianPusher(2)
-            self.objects = [self.actionObj, self.gripper, self.ball, self.target]
+            self.objects = [self.actions, self.gripper, self.block, self.target]
         else:
-            self.objects = [self.actionObj, self.gripper, self.stick, self.ball, self.target]
-        self.num_actions = 5
+            self.objects = [self.actions, self.gripper, self.stick, self.block, self.target]
         self.frameskip = frameskip
         self.render()
         self.reset()
         self.reset_counter = 0
         self.reset_max = reset_max
-        self.reward = -.01
+        self.reward = 0
         self.distance_reward = False
         self.name = "Pusher"
 
@@ -50,6 +58,14 @@ class Pushing(RawEnvironment):
         for o in self.objects:
             self.reset_object(o)
         self.reset_counter = 0
+        return self.get_state()
+
+    def get_state(self, render=True):
+        extracted_state = {**{obj.name: np.array(obj.getMidpoint().tolist() + obj.getVel().tolist() + [obj.getAttribute()]) for obj in self.objects}, **{'Reward': [self.reward], 'Done': [self.done]}}
+        rawframe = None
+        if render:
+            rawframe = self.render()
+        return {"raw_state": rawframe, "factored_state": extracted_state}
 
     def render(self):
         frame = np.zeros((84,84))
@@ -76,53 +92,38 @@ class Pushing(RawEnvironment):
 
             elif o.isSphere:
                 Y,X = np.ogrid[:84,:84]
-                d = np.sqrt((X-o.center[1])**2 + (Y-o.center[0])**2)
+                d = np.sqrt((X-o.pos[1])**2 + (Y-o.pos[0])**2)
                 mask = d <= o.radius
                 frame[mask] = 1.0 / (len(self.objects)-1) * i
             # print(1.0 / (len(self.objects)) * (i + 1))
         self.frame = frame
         return self.frame
     
-    def write_objects(self, object_dumps, save_path):
-        if self.recycle > 0:
-            state_path = os.path.join(save_path, str((self.itr % self.recycle)//2000))
-            count = self.itr % self.recycle
-        else:
-            state_path = os.path.join(save_path, str(self.itr//2000))
-            count = self.itr
-        try:
-            os.makedirs(state_path)
-        except OSError:
-            pass
+    def toString(self, extracted_state):
+        estring = ""
         for i, obj in enumerate(self.objects):
-            # self.obj_rec[i].append([obj.name, obj.pos, obj.attribute])
-            object_dumps.write(obj.name + ":" + " ".join(map(str, obj.getMidpoint())) + " " + str(float(obj.attribute)) + "\t") # TODO: attributes are limited to single floats
-        object_dumps.write("\n") # TODO: recycling does not stop object dumping
-        imio.imsave(os.path.join(state_path, "state" + str(count % 2000) + ".png"), (self.frame * 255.0).astype('uint8'))
-        if len(self.all_dir) > 0:
-            state_path = os.path.join(save_path, self.all_dir)
-            try:
-                os.makedirs(state_path)
-            except OSError:
-                pass
-            imio.imsave(os.path.join(state_path, "state" + str(count) + ".png"), (self.frame * 255.0).astype('uint8'))
+            estring += obj.name + ":" + " ".join(map(str, extracted_state[obj.name])) + "\t" # TODO: attributes are limited to single floats
+        estring += "Reward:" + str(self.reward) + "\t"
+        estring += "Done:" + str(int(self.done)) + "\t"
+        return estring
 
+    def clear_interactions(self):
+        for o in self.objects:
+            o.interaction_trace = list()
 
+    def zero_velocities(self):
+        for o in self.objects:
+            o.vel = np.array([0] * o.dim)
 
     def step(self, action, render=True, frameskip=2):
         if self.reset_counter == 1:
             self.reward = 0
-        for i in range(self.frameskip):
-            self.actionObj.attribute = action
-            self.gripper.applyAction(self.actionObj)
-            if len(self.save_path) != 0 and i == self.frameskip-1:
-                if self.itr != 0:
-                    object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'a')
-                else:
-                    object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
-                self.write_objects(object_dumps, self.save_path)
-                object_dumps.close()
 
+        self.clear_interactions()
+        for i in range(self.frameskip):
+            self.zero_velocities()
+            self.actions.attribute = action
+            self.gripper.applyAction(self.actions)
             for i in range(len(self.objects)):
                 for j in range(len(self.objects)): # objects in order
                     if i != j: # no self-interactions yet
@@ -131,41 +132,41 @@ class Pushing(RawEnvironment):
                         o1.actContact(contact, o2)
             for i in range(len(self.objects)):
                 self.objects[i].move()
-            if self.ball.center[0] < 0 or self.ball.center[0] > 84 or self.ball.center[1] < 0 or self.ball.center[1] > 84:
-                self.reset_object(self.ball)  
-            extracted_state = {obj.name: (obj.getMidpoint(), (obj.getAttribute(), )) for obj in self.objects}
+            if self.block.pos[0] < 0 or self.block.pos[0] > 84 or self.block.pos[1] < 0 or self.block.pos[1] > 84:
+                self.reset_object(self.block)  
+            extracted_state = {**{obj.name: np.array(obj.getMidpoint().tolist() + obj.getVel().tolist() + [obj.getAttribute()]) for obj in self.objects}, **{'Reward': [self.reward], 'Done': [self.done]}}
             rawframe = None
             if render:
                 rawframe = self.render()
-            done = False
+            self.done = False
             if self.distance_reward:
-                # self.reward = -.01 + .005*float(min(self.gripper.center - self.ball.center) <= 7) + .
-                # self.reward = -.0001 * np.linalg.norm(self.ball.center - self.target.center, 1) + -.01 * (1-int(self.ball.moved))
-                # self.reward = 1/self.reset_max*(.05-(.001 * np.linalg.norm(self.ball.center - self.target.center, 1))) + 1/self.reset_max*(.1-(.002 * np.linalg.norm(self.gripper.center - self.ball.center, 1)))
-                # self.reward = 1/self.reset_max*(.5-(.01 * np.linalg.norm(self.ball.center - self.target.center, 1))) + 1/self.reset_max*(2-(.02 * np.linalg.norm(self.gripper.center - self.ball.center, 1))) + 1/self.reset_max * int(self.ball.moved)
-                self.reward = .2 * int(self.ball.moved) # -(.0002 * np.linalg.norm(self.gripper.center - self.ball.center, 1))
-                # print(self.ball.center, int(self.ball.moved), self.reward)
+                # self.reward = -.01 + .005*float(min(self.gripper.center - self.block.center) <= 7) + .
+                # self.reward = -.0001 * np.linalg.norm(self.block.center - self.target.center, 1) + -.01 * (1-int(self.block.moved))
+                # self.reward = 1/self.reset_max*(.05-(.001 * np.linalg.norm(self.block.center - self.target.center, 1))) + 1/self.reset_max*(.1-(.002 * np.linalg.norm(self.gripper.center - self.block.center, 1)))
+                # self.reward = 1/self.reset_max*(.5-(.01 * np.linalg.norm(self.block.center - self.target.center, 1))) + 1/self.reset_max*(2-(.02 * np.linalg.norm(self.gripper.center - self.block.center, 1))) + 1/self.reset_max * int(self.block.moved)
+                self.reward = .2 * int(self.block.moved) # -(.0002 * np.linalg.norm(self.gripper.center - self.block.center, 1))
+                # print(self.block.center, int(self.block.moved), self.reward)
             if self.target.touched:
                 # self.reward = 1
-                self.reward = 100
+                self.reward = 1
                 self.reset()
-                done = True
+                self.done = True
                 break
             if self.reset_counter % self.reset_max == 0 and self.reset_counter > 0:
                 self.reset()
-                done = True
+                self.done = True
                 break
+        full_state = self.get_state()
+        frame, extracted_state = full_state['raw_state'], full_state['factored_state']
+        if len(self.save_path) != 0:
+            if self.itr == 0:
+                object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
+                object_dumps.close()
+            self.write_objects(extracted_state, frame.astype(np.uint8))
         # print(self.reward)
         self.reset_counter += 1
         self.itr += 1
-        return self.frame, extracted_state, done
-
-    def getState(self, render=True):
-        extracted_state = {obj.name: (obj.getMidpoint(), (obj.getAttribute(), )) for obj in self.objects}
-        rawframe = None
-        if render:
-            rawframe = self.render()
-        return rawframe, extracted_state
+        return full_state, self.reward, self.done, {"reset_counter": self.reset_counter}
 
 class RandomPolicy():
     def __init__(self, action_space):
@@ -213,7 +214,8 @@ def demonstrate(save_dir, num_frames, pushgripper=False):
 def run(save_dir, num_frames, policy, pushgripper=False):
     # running with a random policy
     pushingDomain = Pushing(pushgripper, frameskip=3)
-    pushingDomain.set_save(0, save_dir, 0)
+    pushingDomain.set_save(0, save_dir, -1, save_raw= True)
+
     for i in range(num_frames):
         action = policy.act(pushingDomain)
         pushingDomain.step(action)

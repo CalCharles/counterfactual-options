@@ -609,7 +609,7 @@ class NeuralInteractionForwardModel(nn.Module):
         self.network_args.output_normalization_function.cpu()
         if self.selection_binary is not None:
             self.selection_binary = self.selection_binary.cpu()
-        self.iscuda = True
+        self.iscuda = False
 
 
     def cuda(self):
@@ -772,9 +772,9 @@ class NeuralInteractionForwardModel(nn.Module):
             self.run_optimizer(train_args, active_optimizer, self.forward_model, active_loss)
             self.run_optimizer(train_args, passive_optimizer, self.passive_model, passive_loss)
             if i % train_args.log_interval == 0:
-                print(self.environment_model.unflatten_state(batchvals.values.state)[0]["Paddle"],
-                 self.environment_model.unflatten_state(batchvals.values.state)[0]["Action"],
-                 self.environment_model.unflatten_state(batchvals.values.state_diff)[0]["Paddle"])
+                # print(self.environment_model.unflatten_state(batchvals.values.state)[0]["Paddle"],
+                #  self.environment_model.unflatten_state(batchvals.values.state)[0]["Action"],
+                #  self.environment_model.unflatten_state(batchvals.values.state_diff)[0]["Paddle"])
                 print(
                     # self.network_args.normalization_function.reverse(passive_prediction_params[0][0]),
                     # self.network_args.normalization_function.reverse(passive_prediction_params[1][0]), 
@@ -792,7 +792,7 @@ class NeuralInteractionForwardModel(nn.Module):
                     )
                 print(i, ", pl: ", passive_loss.mean().detach().cpu().numpy())
                     # ", al: ", active_loss.mean().detach().cpu().numpy())
-        torch.save(self.passive_model, "data/passive_model.pt")
+        # torch.save(self.passive_model, "data/passive_model.pt")
         # self.passive_model = torch.load("data/passive_model.pt")
         # torch.save(self.forward_model, "data/active_model.pt")
 
@@ -811,6 +811,7 @@ class NeuralInteractionForwardModel(nn.Module):
             weight_lambda = 1000
             weights = trace * weight_lambda + 1
             weights = weights / weights.sum()
+            # print(len(trace), sum(trace), [trace[100*i:100*(i+1)] for i in range(20)])
             for i in range(train_args.interaction_iters):
                 idxes, batchvals = rollouts.get_batch(train_args.batch_size, weights=pytorch_model.unwrap(weights), existing=batchvals)
                 interaction_likelihood = self.interaction_model(self.gamma(batchvals.values.state))
@@ -975,7 +976,7 @@ class NeuralInteractionForwardModel(nn.Module):
                     "\nal2: ", active_l2.mean(dim=0),
                     "\npl2: ", passive_l2.mean(dim=0),
                     "\nae: ", forward_error.mean(dim=0),
-                    "\nal: ", forward_loss.abs().sum(dim=0) / interaction_likelihood.sum(),
+                    "\nal: ", forward_loss.sum(dim=0) / interaction_likelihood.sum(),
                     "\npl: ", passive_error.mean(dim=0)
                     )
                 # REWEIGHTING CODE
@@ -1176,7 +1177,9 @@ class NeuralInteractionForwardModel(nn.Module):
         for state in states:
             # print(self.gamma(self.control_feature.sample_feature(state)))
             sampled_feature = self.control_feature.sample_feature(state)
+            # print(self.gamma(sampled_feature))
             inter, pred_states = self.predict_next_state(sampled_feature)
+            # print(inter, pred_states)
             # if inter.sum() >= 1:
             #     print('int', pytorch_model.unwrap(inter))
             #     print('sam', pytorch_model.unwrap(self.gamma(sampled_feature)))
@@ -1189,9 +1192,11 @@ class NeuralInteractionForwardModel(nn.Module):
         # compare predictions with the actual next state to make sure there are differences
         print(int(np.ceil(len(states)/2000)), batch_pred, next_state_broadcast)
         state_check = (next_state_broadcast - batch_pred).abs()
+        print(state_check[:10])
         # should be able to predict at least one of the next states accurately
         match = state_check.min(dim=1)[0]
         match_keep = match.clone()
+        print(match[:10], self.interaction_prediction)
         match_keep[match <= self.interaction_prediction] = 1
         match_keep[match > self.interaction_prediction] = 0
         if interact: # if the interaction value is less, assume there is no difference because the model is flawed
@@ -1215,7 +1220,7 @@ class NeuralInteractionForwardModel(nn.Module):
         # if the largest difference is larger than the active_epsilon, assign it
         v[test_diff > self.active_epsilon] = 1
         
-        print(v)
+        print(v, v.sum())
         if v.sum() == 0:
             return None, None
 

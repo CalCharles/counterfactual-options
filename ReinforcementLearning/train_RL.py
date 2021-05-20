@@ -156,6 +156,7 @@ def collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, ra
     TODO: integrate into train_RL to reduce code length
     '''
     test_collector.reset()
+    test_collector.hit_miss_queue = deque(maxlen=2000)
     trials = args.test_trials
     if random:
         trials = args.pretest_trials
@@ -169,9 +170,37 @@ def collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, ra
         print("Initial trials: ", trials)
     else:
         print("Iters: ", i, "Steps: ", total_steps)
-    mean_perf, mean_suc = np.array(test_perf).mean(), np.array(suc).mean()
-    print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}")
-    return mean_perf, mean_suc
+    mean_perf, mean_suc, mean_hit = np.array(test_perf).mean(), np.array(suc).mean(), sum(test_collector.hit_miss_queue)/ max(1, len(test_collector.hit_miss_queue))
+    print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}")
+    return mean_perf, mean_suc, mean_hit
+
+def initialize_schedules(args, option):
+    epsilon = args.epsilon
+    if args.epsilon_schedule > 0:
+        epsilon = 1
+        option.policy.set_eps(epsilon)
+    interaction = args.interaction_probability
+    if args.interaction_prediction > 0:
+        interaction = 1
+        option.termination.interaction_probability = interaction
+    epsilon_close = args.epsilon_close
+    if args.ring_schedule > 0:
+        option.termination.epsilon = epsilon_close
+        option.reward.epsilon = epsilon_close
+    return epsilon, interaction, epsilon_close
+
+def step_schedules(args, option, i, epsilon, interaction, epsilon_close):
+    if args.epsilon_schedule > 0:
+        epsilon = args.epsilon + (1-args.epsilon) * (np.exp(-1.0 * (i*args.num_steps)/args.epsilon_schedule))
+        option.policy.set_eps(epsilon)
+    if args.interaction_prediction > 0:
+        interaction = args.interaction_probability + (1-args.interaction_probability) * (np.exp(-1.0 * (i*args.num_steps)/args.interaction_prediction))
+        option.termination.interaction_probability = interaction
+    if args.ring_schedule > 0:
+        epsilon_close = args.epsilon_min + (args.epsilon_close-args.epsilon_min) * (np.exp(-1.0 * (i*args.num_steps)/args.ring_schedule))
+        option.termination.epsilon = epsilon_close
+        option.reward.epsilon = epsilon_close
+    return epsilon, interaction, epsilon_close
 
 
 def trainRL(args, train_collector, test_collector, environment, environment_model, option, names, graph):
@@ -185,7 +214,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
 
     print("start initial test")
     initial_perf, initial_suc = list(), list()
-    initial_perf, initial_suc = collect_test_trials(args, test_collector, 0, 0, initial_perf, initial_suc, random=True)
+    initial_perf, initial_suc, initial_hit = collect_test_trials(args, test_collector, 0, 0, initial_perf, initial_suc, random=True)
 
     # intialize one step for temporal extension
     train_collector.reset_temporal_extension()
@@ -193,10 +222,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
 
     total_steps = 0
     # TODO: might need to put interaction on a schedule also
-    epsilon = args.epsilon
-    if args.epsilon_schedule > 0:
-        epsilon = 1
-        option.policy.set_eps(epsilon)
+    epsilon, interaction, epsilon_close = initialize_schedules(args, option)
     test_perf, suc = deque(maxlen=200), deque(maxlen=200)
     print("begin train loop")
     for i in range(args.num_iters):  # total step
@@ -215,11 +241,11 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                 if args.max_steps > 0: result = test_collector.collect(n_episode=1, n_step=args.max_steps, needs_new_param=needs_new_param)
                 else: result = test_collector.collect(n_episode=1, needs_new_param=needs_new_param)
                 test_perf.append(result["rews"].mean())
-                print(result["n/st"], float(result["n/st"] != args.max_steps and (result["true_done"] < 1 or args.true_environment)))
+                print("num steps, sucess",result["n/st"], float(result["n/st"] != args.max_steps and (result["true_done"] < 1 or args.true_environment)))
                 suc.append(float(result["n/st"] != args.max_steps and (result["true_done"] < 1 or args.true_environment)))
                 needs_new_param = True
             print("Iters: ", i, "Steps: ", total_steps)
-            print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}")
+            print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}", f"Hit Miss: {sum(test_collector.hit_miss_queue)/ len(test_collector.hit_miss_queue)}", f"Hit Miss train: {sum(train_collector.hit_miss_queue)/ len(train_collector.hit_miss_queue)}")
             train_collector.reset_env() # because test collector and train collector share the same environment
             
             # intialize temporal extension
@@ -238,12 +264,10 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
             # error
         # train option.policy with a sampled batch data from buffer
         losses = option.policy.update(args.batch_size, train_collector.buffer)
+        epsilon, interaction, epsilon_close = step_schedules(args, option, i, epsilon, interaction, epsilon_close)
         if i % args.log_interval == 0:
             print(losses)
-            print("epsilon", epsilon)
-        if args.epsilon_schedule > 0:
-            epsilon = args.epsilon + (1-args.epsilon) * (np.exp(-1.0 * (i*args.num_steps)/args.epsilon_schedule))
-            option.policy.set_eps(epsilon)
+            print("epsilons", epsilon, interaction, epsilon_close)
         if args.save_interval > 0 and (i+1) % args.save_interval == 0:
             option.save(args.save_dir)
             graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
@@ -252,7 +276,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
         option.save(args.save_dir)
         graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
     final_perf, final_suc = list(), list()
-    final_perf, final_suc = collect_test_trials(args, test_collector, 0, 0, final_perf, final_suc)
+    final_perf, final_suc, final_hit = collect_test_trials(args, test_collector, 0, 0, final_perf, final_suc)
 
     print("performance comparison", initial_perf, final_perf)
     if initial_perf < final_perf - 2:

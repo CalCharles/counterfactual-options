@@ -3,17 +3,21 @@ import numpy as np
 EPSILON = 2
 
 class ContingentObject():
-    def __init__(self):
+    def __init__(self, dim):
         self.limits = np.array([0,0,0,0])
+        self.vel = np.array([0] * dim)
+        self.dim=dim
         self.isAction = False
         self.isSphere = False
         self.isAABB = False
         self.isRect = False
         self.isGripper = False  
         self.name = ""
-        self.attribute = 1.0
-        self.center = np.array([0,0])
+        self.attribute = 1.0 # TODO: attribute should probably be array
+        self.center = np.array([0] * dim)
         self.moved = False
+        self.interaction_trace = list()
+        self.sides = np.array([0] * (dim)) # length and width of the object
 
     def getContact(self, other):
         pass
@@ -24,8 +28,14 @@ class ContingentObject():
     def move(self):
         pass
 
+    def getPos(self, mid):
+        return [int(mid[0] - (self.sides[0] / 2)), int(mid[1]  - (self.sides[1]/2))]
+
     def getMidpoint(self):
         return self.center
+
+    def getVel(self):
+        return self.vel
 
     def getAttribute(self):
         return self.attribute
@@ -33,26 +43,29 @@ class ContingentObject():
 
 class PhysicalObject(ContingentObject):
     def __init__(self, dim):
-        super().__init__()
+        super().__init__(dim)
         self.vel = np.array([0] * dim)
         self.angular = np.array([0] * dim)
         self.bb  = np.array([0] * (dim * 2))
         self.sides = np.array([0] * (dim)) # length and width of the object
-        self.center = np.array([0]*dim)
+        self.pos = np.array([0]*dim)
         self.dim = dim
         self.radius = 0
 
     def updateBounding(self, center):
-        self.center = center
+        self.pos = center
         self.bb = [center[i] - self.sides[i] / 2.0 for i in range(self.dim)] + [center[i] + self.sides[i] / 2.0 for i in range(self.dim)]
 
     def updateCenter(self):
         for i in range(self.dim):
-            self.center[i] = (self.bb[i] + self.bb[i + self.dim])/2.0
+            self.pos[i] = (self.bb[i] + self.bb[i + self.dim])/2.0
 
     def getMidpoint(self):
         self.updateCenter()
-        return self.center
+        return self.pos
+
+    def getVel(self):
+        return self.vel
 
     def getContact(self, other): # only supporting AABBs and spheres
         if self.isAction:
@@ -75,7 +88,7 @@ class PhysicalObject(ContingentObject):
         ax = (sxl <= oxh and sxh >= oxl)
         ay = (syl <= oyh and syh >= oyl)
         if ax and ay:
-            return self.center - other.center
+            return self.pos - other.pos
         else:
             return None
 
@@ -83,7 +96,7 @@ class PhysicalObject(ContingentObject):
         '''
         gets the contact between two bounding boxes (2d only)
         '''
-        sx, sy = self.center
+        sx, sy = self.pos
         sr = self.radius
         oxl, oyl, oxh, oyh = other.bb
         x = max(oxl, min(sx, oxh))
@@ -91,7 +104,7 @@ class PhysicalObject(ContingentObject):
         d = np.sqrt((x - sx) ** 2 + (y - sy) ** 2)
         # print(d)
         if d < sr:
-            return self.center - other.center
+            return self.pos - other.pos
         else:
             return None
 
@@ -106,7 +119,7 @@ class PhysicalObject(ContingentObject):
             self.bb[:self.dim] += self.vel
             self.bb[-self.dim:] += self.vel
             self.updateCenter()
-            self.vel = np.array([0] * self.dim)
+            # self.vel = np.array([0] * self.dim)
         else:
             self.moved = False
         # TODO: angular velocity
@@ -121,20 +134,21 @@ class PhysicalObject(ContingentObject):
         return None
 
     def pushed(self, other):
-        vec = other.center - self.center
+        vec = other.pos - self.pos
         # mag = np.dot(vec / np.linalg.norm(vec +.001), self.vel)
         # print(vec, mag)
         if np.dot(vec / np.linalg.norm(vec +.001), self.vel) > 0:
             other.setmove(self.vel, 0)
+            other.interaction_trace.append(self.name)
 
 class Action(ContingentObject):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, dim):
+        super().__init__(dim)
         self.name = "Action"
         self.attribute = 0
 
-    def updateBounding(self, center):
-        self.center = [0,0]
+    def updateBounding(self, pos):
+        self.pos = [0,0]
         self.bb = [0] * 4
 
 
@@ -173,16 +187,16 @@ class CartesianGripper(Gripper):
     def applyAction(self, action_obj):
         self.setmove(np.array([0,0]), None)
         if action_obj.attribute == 1:
-            if self.center[0] > self.limits[0]:
+            if self.pos[0] > self.limits[0]:
                 self.setmove(np.array([-1,0]), None)
         if action_obj.attribute == 2:
-            if self.center[0] < self.limits[self.dim]:
+            if self.pos[0] < self.limits[self.dim]:
                 self.setmove(np.array([1,0]), None)
         if action_obj.attribute == 3:
-            if self.center[1] > self.limits[1]:
+            if self.pos[1] > self.limits[1]:
                 self.setmove(np.array([0,-1]), None)
         if action_obj.attribute == 4:
-            if self.center[1] < self.limits[1 + self.dim]:
+            if self.pos[1] < self.limits[1 + self.dim]:
                 self.setmove(np.array([0,1]), None)
 
 class CartesianPusher(Gripper):
@@ -197,32 +211,34 @@ class CartesianPusher(Gripper):
 
     def applyAction(self, action_obj):
         self.setmove(np.array([0,0]), None)
+        self.interaction_trace.append(action_obj.name)
         if action_obj.attribute == 1:
-            if self.center[0] > self.limits[0]:
+            if self.pos[0] > self.limits[0]:
                 self.setmove(np.array([-1,0]), None)
         if action_obj.attribute == 2:
-            if self.center[0] < self.limits[self.dim]:
+            if self.pos[0] < self.limits[self.dim]:
                 self.setmove(np.array([1,0]), None)
         if action_obj.attribute == 3:
-            if self.center[1] > self.limits[1]:
+            if self.pos[1] > self.limits[1]:
                 self.setmove(np.array([0,-1]), None)
         if action_obj.attribute == 4:
-            if self.center[1] < self.limits[1 + self.dim]:
+            if self.pos[1] < self.limits[1 + self.dim]:
                 self.setmove(np.array([0,1]), None)
         # print(action_obj.attribute, self.vel)
     
     def pushed(self, other):
-        vec = other.center - self.center
+        vec = other.pos - self.pos
         total_vel = [0,0]
         # print(vec, other.center, self.center, self.vel, (other.sides + self.sides)/2)
         for i in range(2):
             if np.abs(self.vel[i]) > 0:
                 # if to the correct side and not sliding past
                 o = (i+1)%2
-                if vec[i] * self.vel[i] > 0 and np.abs(other.center[o] - self.center[o]) < (other.sides[o] + self.sides[o])/2:
+                if vec[i] * self.vel[i] > 0 and np.abs(other.pos[o] - self.pos[o]) < (other.sides[o] + self.sides[o])/2:
                     total_vel[i] = self.vel[i]
         # TODO: within gripper no-pushing
         if type(other) != Target:
+            other.interaction_trace.append(self.name)
             other.setmove(np.array(total_vel), 0)
         else:
             total_vel = self.vel.tolist()
@@ -230,7 +246,7 @@ class CartesianPusher(Gripper):
                 if np.abs(self.vel[i]) > 0:
                     # if to the correct side and not sliding past
                     o = (i+1)%2
-                    if vec[i] * self.vel[i] > 0 and np.abs(other.center[o] - self.center[o]) < (other.sides[o] + self.sides[o])/2:
+                    if vec[i] * self.vel[i] > 0 and np.abs(other.pos[o] - self.pos[o]) < (other.sides[o] + self.sides[o])/2:
                         total_vel[i] = 0
             self.setmove(np.array(total_vel), None)
         # mag = np.dot(vec / np.linalg.norm(vec +.001), self.vel)
@@ -292,6 +308,7 @@ class Target(PhysicalObject):
             if type(other) == Block or type(other) == Sphere:
                 self.touched = True
                 self.attribute = 2
+                self.interaction_trace.append(other.name)
 
 
 class Sphere(PhysicalObject):

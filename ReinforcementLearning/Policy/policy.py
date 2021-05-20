@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+from torch.distributions import Independent, Normal
 import torch.optim as optim
 import copy, os, cv2
 from file_management import default_value_arg
@@ -15,9 +16,11 @@ dActor, dCritic = Actor, Critic
 from tianshou.exploration import GaussianNoise, OUNoise
 from tianshou.data import Batch, ReplayBuffer
 import tianshou as ts
+import gym
 from typing import Any, Dict, Tuple, Union, Optional, Callable
 from ReinforcementLearning.learning_algorithms import HER
 from Rollouts.rollouts import ObjDict
+
 
 _actor_critic = ['ddpg', 'sac']
 _double_critic = ['sac']
@@ -29,7 +32,7 @@ class TSPolicy(nn.Module):
     Note that TianShao Policies also support learning
 
     '''
-    def __init__(self, input_shape, action_space, max_action, discrete_actions, **kwargs):
+    def __init__(self, input_shape, paction_space, action_space, max_action, discrete_actions, **kwargs):
         super().__init__()
         args = ObjDict(kwargs)
         self.algo_name = kwargs["learning_type"] # the algorithm being used
@@ -42,18 +45,20 @@ class TSPolicy(nn.Module):
             self.learning_algorithm = HER(ObjDict(kwargs), kwargs['option'])
             self.collect = self.learning_algorithm.record_state # TODO: not sure what to initialize with
             self.sample_buffer = self.learning_algorithm.sample_buffer
-        kwargs["actor"], kwargs["actor_optim"], kwargs['critic'], kwargs['critic_optim'], kwargs['critic2'], kwargs['critic2_optim'] = self.init_networks(args, input_shape, action_space.shape or action_space.n, max_action, discrete_actions)
+        self.action_space = action_space
+        print(paction_space)
+        kwargs["actor"], kwargs["actor_optim"], kwargs['critic'], kwargs['critic_optim'], kwargs['critic2'], kwargs['critic2_optim'] = self.init_networks(args, input_shape, paction_space.shape or paction_space.n, discrete_actions, max_action=max_action)
         kwargs["exploration_noise"] = GaussianNoise(sigma=args.epsilon)
         kwargs["action_space"] = action_space
         kwargs["discrete_actions"] = discrete_actions
         self.algo_policy = self.init_algorithm(**kwargs)
         self.parameterized = kwargs["parameterized"]
         self.param_process = None
-        self.map_action = self.algo_policy.map_action
+        # self.map_action = self.algo_policy.map_action
         self.exploration_noise = self.algo_policy.exploration_noise
         self.grad_epoch = kwargs['grad_epoch']
 
-    def init_networks(self, args, input_shape, action_shape, max_action, discrete_actions):
+    def init_networks(self, args, input_shape, action_shape, discrete_actions, max_action = 1):
         if discrete_actions:
             Actor, Critic = dActor, dCritic
         else:
@@ -64,28 +69,28 @@ class TSPolicy(nn.Module):
         PolicyType = networks[args.policy_type]
         device = 'cpu' if not args.cuda else 'cuda:' + str(args.gpu)
         if self.algo_name in _actor_critic:
-            if self.discrete: # handle both discrete and continuous
+            if discrete_actions: # handle both discrete and continuous
                 cinp_shape = input_shape
                 cout_shape = args.hidden_sizes[-1]
                 aout_shape = args.hidden_sizes[-1]
                 hidden_sizes = args.hidden_sizes[:-1]
             else:
-                cimp_shape = int(input_shape + np.prod(action_shape))
+                cinp_shape = int(input_shape + np.prod(action_shape))
                 cout_shape = 1
                 aout_shape = action_shape
                 hidden_sizes = args.hidden_sizes
 
-            actor = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
-            critic = PolicyType(cuda=args.cuda, num_inputs=cimp_shape, num_outputs=1, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
-            critic = Critic(critic, device=device).to(device)
+            actor = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=aout_shape, hidden_sizes = hidden_sizes, preprocess=args.preprocess)
+            critic = PolicyType(cuda=args.cuda, num_inputs=cinp_shape, num_outputs=cout_shape, hidden_sizes = hidden_sizes, preprocess=args.preprocess)
+            if discrete_actions: critic = Critic(critic, last_size=action_shape, device=device).to(device)
+            else: critic = Critic(critic, device=device).to(device)
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
             if self.algo_name in _double_critic:
-                if discrete_actions:
-                    actor = Actor(actor, action_shape, device=device, max_action=max_action).to(device)
-                else:
-                    actor = ActorProb(actor, action_shape, device=device, max_action=max_action, unbounded=True, conditioned_sigma=True).to(device)
-                critic2 = PolicyType(cuda=args.cuda, num_inputs=int(input_shape + np.prod(action_shape)), num_outputs=1, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
-                critic2 = Critic(critic2, device=device).to(device)
+                if discrete_actions: actor = Actor(actor, action_shape, device=device).to(device)
+                else: actor = ActorProb(actor, action_shape, device=device, max_action=max_action, unbounded=True, conditioned_sigma=True).to(device)
+                critic2 = PolicyType(cuda=args.cuda, num_inputs=cinp_shape, num_outputs=cout_shape, hidden_sizes=hidden_sizes, preprocess=args.preprocess)
+                if discrete_actions: critic2 = Critic(critic2, last_size=action_shape, device=device).to(device)
+                else: critic2 = Critic(critic2, device=device).to(device)
                 critic2_optim = torch.optim.Adam(critic2.parameters(), lr=args.critic_lr)
             else:
                 actor = Actor(actor, action_shape, device=device, max_action=max_action).to(device)
@@ -99,11 +104,10 @@ class TSPolicy(nn.Module):
                 net = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=args.hidden_sizes[-1], hidden_sizes = args.hidden_sizes[:-1], preprocess=args.preprocess)
                 actor = Actor(net, action_shape, device=device).to(device)
                 critic = Critic(net, device=device).to(device)
-            # else: # TODO: no continuous PPO handling
-            #     net = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)                
-            #     critic = PolicyType(cuda=args.cuda, num_inputs=int(input_shape + np.prod(action_shape)), num_outputs=1, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
-            #     actor = Actor(net, action_shape, device=device, max_action=max_action).to(device)
-            #     critic = Critic(critic, device=device).to(device)
+            else:
+                net = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes[:-1], preprocess=args.preprocess)
+                actor = ActorProb(net, action_shape, max_action=max_action, device=device).to(device)
+                critic = Critic(PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=1, preprocess=args.preprocess, hidden_sizes=args.hidden_sizes), device=device).to(device)
             actor_optim = torch.optim.Adam(set(actor.parameters()).union(critic.parameters()), lr=args.actor_lr)
         return actor, actor_optim, critic, critic_optim, critic2, critic2_optim
 
@@ -118,10 +122,19 @@ class TSPolicy(nn.Module):
             policy = ts.policy.DQNPolicy(args.critic, args.critic_optim, discount_factor=args.discount_factor, estimation_step=args.lookahead, target_update_freq=int(args.tau))
             policy.set_eps(args.epsilon)
         elif self.algo_name == "ppo": 
-            policy = ts.policy.PPOPolicy(args.actor, args.critic, args.actor_optim, torch.distributions.Categorical, discount_factor=args.discount_factor, max_grad_norm=None,
-                                eps_clip=0.2, vf_coef=0.5, ent_coef=0.01, gae_lambda=0.95, # parameters hardcoded to defaults
-                                reward_normalization=False, dual_clip=None, value_clip=False,
-                                action_space=args.action_space)
+            if args.discrete_actions:
+                policy = ts.policy.PPOPolicy(args.actor, args.critic, args.actor_optim, torch.distributions.Categorical, discount_factor=args.discount_factor, max_grad_norm=None,
+                                    eps_clip=0.2, vf_coef=0.5, ent_coef=0.01, gae_lambda=0.95, # parameters hardcoded to defaults
+                                    reward_normalization=args.reward_normalization, dual_clip=None, value_clip=False,
+                                    action_space=args.action_space)
+
+            else:
+                def dist(*logits):
+                    return Independent(Normal(*logits), 1)
+                policy = ts.policy.PPOPolicy(
+                    args.actor, args.critic, args.actor_optim, dist, discount_factor=args.discount_factor, max_grad_norm=None, eps_clip=0.2, vf_coef=0.5, 
+                    ent_coef=0.01, reward_normalization=args.reward_normalization, advantage_normalization=1, recompute_advantage=0, 
+                    value_clip=False, gae_lambda=0.95, action_space=args.action_space)
         elif self.algo_name == "ddpg": 
             policy = ts.policy.DDPGPolicy(args.actor, args.actor_optim, args.critic, args.critic_optim,
                                                                             tau=args.tau, gamma=args.gamma,
@@ -131,15 +144,15 @@ class TSPolicy(nn.Module):
         elif self.algo_name == "sac":
             if args.discrete_actions:
                 policy = ts.policy.DiscreteSACPolicy(
-                        actor, actor_optim, critic1, critic1_optim, critic2, critic2_optim,
-                        tau=args.tau, gamma=args.gamma, alpha=args.alpha, estimation_step=args.n_step,
-                        reward_normalization=args.rew_norm)
+                        args.actor, args.actor_optim, args.critic, args.critic_optim, args.critic2, args.critic2_optim,
+                        tau=args.tau, gamma=args.gamma, alpha=args.sac_alpha, estimation_step=args.lookahead,
+                        reward_normalization=args.reward_normalization, deterministic_eval=args.deterministic_eval)
             else:
                 policy = ts.policy.SACPolicy(args.actor, args.actor_optim, args.critic, args.critic_optim, args.critic2, args.critic2_optim,
-                                                                            tau=args.tau, gamma=args.gamma, alpha=args.alpha,
+                                                                            tau=args.tau, gamma=args.gamma, alpha=args.sac_alpha,
                                                                             exploration_noise=GaussianNoise(sigma=args.epsilon),
                                                                             estimation_step=args.lookahead, action_space=args.action_space,
-                                                                            action_bound_method='clip')
+                                                                            action_bound_method='clip', deterministic_eval=args.deterministic_eval)
         # support as many algos as possible, at least ddpg, dqn SAC
         return policy
 
@@ -170,6 +183,38 @@ class TSPolicy(nn.Module):
     def restore_buffer(self, buffer, orig_obs, orig_next, rew, done, idices):
         if self.parameterized:
             buffer.obs[idices], buffer.obs_next[idices], buffer.rew[idices], buffer.done[idices] = orig_obs, orig_next, rew, done
+
+    def map_action(self, act: Union[Batch, np.ndarray]) -> Union[Batch, np.ndarray]:
+        """COPIED FROM BASE: Map raw network output to action range in gym's env.action_space.
+
+        This function is called in :meth:`~tianshou.data.Collector.collect` and only
+        affects action sending to env. Remapped action will not be stored in buffer
+        and thus can be viewed as a part of env (a black box action transformation).
+
+        Action mapping includes 2 standard procedures: bounding and scaling. Bounding
+        procedure expects original action range is (-inf, inf) and maps it to [-1, 1],
+        while scaling procedure expects original action range is (-1, 1) and maps it
+        to [action_space.low, action_space.high]. Bounding procedure is applied first.
+
+        :param act: a data batch or numpy.ndarray which is the action taken by
+            policy.forward.
+
+        :return: action in the same form of input "act" but remap to the target action
+            space.
+        """
+        if isinstance(self.action_space, gym.spaces.Box) and \
+                isinstance(act, np.ndarray):
+            # currently this action mapping only supports np.ndarray action
+            if self.algo_policy.action_bound_method == "clip":
+                act = np.clip(act, -1.0, 1.0)  # type: ignore
+            elif self.algo_policy.action_bound_method == "tanh":
+                act = np.tanh(act)
+            if self.algo_policy.action_scaling:
+                assert np.min(act) >= -1.0 and np.max(act) <= 1.0, \
+                    "action scaling only accepts raw action range = [-1, 1]"
+                low, high = self.action_space.low, self.action_space.high
+                act = low + (high - low) * (act + 1.0) / 2.0  # type: ignore
+        return act
 
 
     def forward(self, batch: Batch, state: Optional[Union[dict, Batch, np.ndarray]] = None, input: str = "obs", **kwargs: Any):

@@ -27,14 +27,15 @@ class FeatureExplorer():
         cfslist.reverse()
         print([c.object() for c in cfslist])
         # HACKED LINE TO SPEED UP TRAINING
-        for cfs in [cfslist[0 ]]:
-        # for cfs in cfslist:
+        # for cfs in [cfslist[0 ]]:
+        for cfs in cfslist:
             controllable_entity = cfs.feature_selector.get_entity()[0]
             if controllable_entity not in gamma_tested:
                 delta_tested = set()
                 # HACKED LINE TO SPEED UP TRAINING
-                for name in ["Ball"]:
-                # for name in self.em.object_names:
+                # for name in ["Ball"]:
+                # for name in ["Block"]:
+                for name in self.em.object_names:
                     if name != controllable_entity and name not in delta_tested:
                         entity_selection = self.em.create_entity_selector([controllable_entity, name])
                         model, test, gamma_new, delta_new = self.train(cfs, rollouts, train_args, entity_selection, name)

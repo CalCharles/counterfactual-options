@@ -12,7 +12,7 @@ class ParamReplayBuffer(ReplayBuffer):
     # target, next target is the state of the target object, used for reward and termination
     # true_reward, true_done are the actual dones and rewards
     # option_terminate is for temporal extension, stating if the last object terminated
-    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", "target", "next_target", "true_reward", "true_done", "option_resample", "mapped_act")
+    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", "mask", "target", "next_target", "true_reward", "true_done", "option_resample", "mapped_act")
 
     def __getitem__(self, index: Union[slice, int, List[int], np.ndarray]) -> Batch:
         """Return a data batch: self[index].
@@ -41,9 +41,10 @@ class ParamReplayBuffer(ReplayBuffer):
             obs_next=obs_next,
             info=self.get(indice, "info", Batch()),
             policy=self.get(indice, "policy", Batch()),
-            param = self.param[indice], # only these three lines differ from getitem in ReplayBuffer
-            target = self.target[indice], # only these three lines differ from getitem in ReplayBuffer
-            next_target=self.next_target[indice], # only these three lines differ from getitem in ReplayBuffer
+            param = self.param[indice], # all the below lines differ from replay buffer to handle additional option values
+            mask = self.mask[indice], 
+            target = self.target[indice], 
+            next_target=self.next_target[indice], 
             true_reward=self.true_reward[indice],
             true_done = self.true_done[indice],
             option_resample = self.option_resample[indice],
@@ -51,7 +52,7 @@ class ParamReplayBuffer(ReplayBuffer):
         )
 
 class ParamPriorityReplayBuffer(PrioritizedReplayBuffer): # not using double inheritance so exactly the same as above.
-    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", "target", "next_target", "true_reward", "true_done", "option_resample", "mapped_act")
+    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", "mask", "target", "next_target", "true_reward", "true_done", "option_resample", "mapped_act")
 
     def __getitem__(self, index: Union[slice, int, List[int], np.ndarray]) -> Batch:
         """Return a data batch: self[index].
@@ -80,9 +81,10 @@ class ParamPriorityReplayBuffer(PrioritizedReplayBuffer): # not using double inh
             obs_next=obs_next,
             info=self.get(indice, "info", Batch()),
             policy=self.get(indice, "policy", Batch()),
-            param = self.param[indice], # only these three lines differ from getitem in ReplayBuffer
-            target = self.target[indice], # only these three lines differ from getitem in ReplayBuffer
-            next_target=self.next_target[indice], # only these three lines differ from getitem in ReplayBuffer
+            param = self.param[indice], # all below lines differ from prioritized replay buffer to handle option values
+            mask = self.mask[indice],
+            target = self.target[indice],
+            next_target=self.next_target[indice],
             true_reward=self.true_reward[indice],
             true_done = self.true_done[indice],
             option_resample = self.option_resample[indice],

@@ -38,12 +38,19 @@ def get_args():
                         help='parameter for target network updates (default: 0.95)')
     parser.add_argument('--lookahead', type=int, default=1,
                         help='optimization steps to look ahead (default: 1)')
+    # SAC hyperparameters 
+    parser.add_argument('--sac-alpha', type=float, default=0.2,
+                        help='entropy constant for SAC (default: 0.2)')
+    parser.add_argument('--not-deterministic-eval', action='store_true', default=False,
+                        help='if true, deterministic evaluation for SAC is false')
     # cost function hyperparameters
     parser.add_argument('--gamma', type=float, default=0.99,
                         help='discount factor for rewards (default: 0.99)') 
     # model hyperparameters
     parser.add_argument('--true-actions', action='store_true', default=False,
                         help='short circuits option framework to just take true actions')
+    parser.add_argument('--discretize-actions', action='store_true', default=False,
+                        help='converts a continuous action space to a discrete one (TODO: currently requires relative-action)')
     parser.add_argument('--relative-state', action='store_true', default=False,
                     help='concatenates on the relative state between objects to the input state to RL network')
     parser.add_argument('--relative-action', type=float, default=-1,
@@ -54,6 +61,8 @@ def get_args():
                         help='choose the initialization for the weights')    
     parser.add_argument('--activation', default="relu",
                         help='choose the activation function (TODO: not used at the moment)')    
+    parser.add_argument('--reward-normalization', action='store_true', default=False,
+                        help='have the policy normalize the reward function')
     # dynamics model learning parameters
     parser.add_argument('--predict-dynamics', action='store_true', default=False,
                     help='predict the dynamics instead of the next state')
@@ -84,6 +93,12 @@ def get_args():
     # termination set parameters
     parser.add_argument('--epsilon-close', type=float, default=0.1,
                     help='minimum distance for states to be considered the same')
+    parser.add_argument('--epsilon-min', type=float, default=0.1,
+                    help='minimum distance to end for ring schedule')
+    parser.add_argument('--ring-schedule', type=float, default=0.0,
+                    help='minimum distance for states to be considered the same')
+    parser.add_argument('--param-interaction', action = 'store_true', default=False,
+                    help='Only terminates when the param and interaction co-occur')
     parser.add_argument('--max-steps', type=int, default=-1,
                         help='number of steps before forcing the end of episode flag (default: -1 (not used))')
 
@@ -116,7 +131,7 @@ def get_args():
     parser.add_argument('--ratio', type=float, default=0.9,
                     help='ratio of training samples to testing ones')
     # values for determining if significant things are happening
-    parser.add_argument('--model-error-significance', type=float, default=1,
+    parser.add_argument('--model-error-significance', type=float, default=.5,
                     help='amount of difference in l2 norm to determine that prediction is happening')
     parser.add_argument('--train-reward-significance', type=float, default=5,
                     help='amount of difference in per-episode reward to determine control')
@@ -125,26 +140,39 @@ def get_args():
                     help='For hindsight experience replay, selects the positive reward x percent of the time (default .5)')
     parser.add_argument('--resample-timer', type=int, default=10,
                         help='how often to resample a goal (default: 10)')
+    parser.add_argument('--max-hindsight', type=int, default=-1,
+                        help='most timesteps to look behind for credit assignment (default: -1)')
     parser.add_argument('--resample-interact', action='store_true', default=False,
-                        help='forces HER to resample whenever an interaction occurs')
+                        help='forces HER to resample whenever an interaction occurs TODO: not actually implemented')
+    parser.add_argument('--use-interact', action='store_true', default=False,
+                        help='only resamples HER when an interaction occurs')
 
     #interaction parameters
     parser.add_argument('--interaction-iters', type=int, default=0,
                         help='number of iterations for training the interaction network with true values (default: 0)')
     parser.add_argument('--interaction-binary', type=float, nargs='+', default=list(),
                         help='difference between P,A, Active greater than, passive less than  (default: empty list)')
+    parser.add_argument('--force-mask', type=float, nargs='+', default=list(),
+                        help='a hack to control the parameter mask  (default: empty list)')
     parser.add_argument('--interaction-probability', type=float, default=-1,
                         help='the minimum probability needed to use interaction as termination -1 for not used (default: -1)')
-    parser.add_argument('--interaction-prediction', type=float, default=0.3,
-                        help='the minimum distance to define the active set  (default: 0.3)')
+    parser.add_argument('--interaction-prediction', type=float, default=0,
+                        help=('the minimum distance to define the active set (default: 0.3)' + 
+                            'overloaded to also represent the decay rate for interaction probability for termination per step until interaction-probability from 1'))
     parser.add_argument('--sample-schedule', type=int, default=-1,
                     help='changes sampling after a certain number of calls')
     parser.add_argument('--passive-weighting', action ='store_true', default=False,
                         help='weight with the passive error')
+    parser.add_argument('--sample-continuous', type=int, default=0,
+                        help='use already existing type if 0, false if 1, true if 2')
 
     # reward settings
     parser.add_argument('--parameterized-lambda', type=float, default=.5,
-                        help='the value given to interactions  (default: .5)')
+                        help='the value given to parameter hits  (default: .5)')
+    parser.add_argument('--interaction-lambda', type=float, default=0,
+                        help='the value given to interactions  (default: 0)')
+    parser.add_argument('--true-reward-lambda', type=float, default=0,
+                        help='the value given to true reward negative component (default: 0)')
     parser.add_argument('--reward-constant', type=float, default=-1,
                         help='constant value to add to the reward (default: -1)')
     # Option Chain Parameters
@@ -157,6 +185,8 @@ def get_args():
                     help='minimum number of seen states to use as a parameter')
 
     # logging settings
+    parser.add_argument('--print-test', action='store_true', default=False,
+                        help='prints out values during the test phase of training')
     parser.add_argument('--log-interval', type=int, default=100,
                         help='log interval, one log per n updates (default: 10)')
     parser.add_argument('--save-interval', type=int, default=-1,
@@ -212,6 +242,7 @@ def get_args():
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     args.critic_lr = args.lr if args.critic_lr < 0 else args.critic_lr
     args.actor_lr = args.lr if args.actor_lr < 0 else args.actor_lr
+    args.deterministic_eval = not args.not_deterministic_eval
 
     return args
 

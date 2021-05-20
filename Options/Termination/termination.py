@@ -45,6 +45,7 @@ class ParameterizedStateTermination(Termination):
 			dataset_model.observed_outcomes[self.name], dataset_model.outcome_counts[self.name] = self.discrete_parameters, self.counts 
 
 	def check(self, input_state, state, param, true_done=0): # handling diff/both outside
+		# NOTE: input state is from the current state, state, param are from the next state
 		# param = self.convert_param(param)
 		# if self.use_both:
 			# if len(diff.shape) == 1:
@@ -71,6 +72,7 @@ class InteractionTermination(Termination):
 		self.epsilon = kwargs["epsilon"]
 
 	def check(self, input_state, state, param, true_done=0):
+		# NOTE: input state is from the current state, state, param are from the next state
 		interaction_pred = self.interaction_model(pytorch_model.wrap(input_state))
 		return interaction_pred > 1 - self.epsilon
 
@@ -82,18 +84,29 @@ class CombinedTermination(Termination):
 		self.interaction_model = self.dataset_model.interaction_model
 		self.parameterized_termination = ParameterizedStateTermination(**kwargs)
 		self.interaction_probability = kwargs["interaction_probability"]
+		self.param_interaction = kwargs["param_interaction"]
+		self.inter = 0
 
 	def check(self, input_state, state, param, true_done=0):
+		# NOTE: input state is from the current state, state, param are from the next state
 		# terminates if the parameter matches and interaction is true
 		# has some probability of terminating if interaction is true
-		interaction_pred = self.interaction_model(pytorch_model.wrap(input_state)).squeeze()
+		# print("second", param, state)
+		interaction_pred = pytorch_model.unwrap(self.interaction_model(pytorch_model.wrap(input_state, cuda=self.interaction_model.iscuda)).squeeze())
 		# print(interaction_pred, input_state)
 		inter = interaction_pred > (1 - self.epsilon)
+		self.inter = inter
 		param_term = self.parameterized_termination.check(input_state, state, param)
 		if self.interaction_probability > 0:
-			chances = pytorch_model.wrap(torch.rand(interaction_pred.shape) < self.interaction_probability, cuda=self.dataset_model.iscuda)
-			chosen = inter * chances + param_term * inter
-			chosen[chosen > 1] = 1
+			chances = np.random.random(size=interaction_pred.shape) < self.interaction_probability
+			if not self.param_interaction: param_inter = True
+			else: param_inter = inter
+			# if np.sum(inter):
+			# 	print("checked", inter, self.epsilon, input_state)
+			chosen = inter * chances + param_term * param_inter
+			# print(chances, inter, param_term, chosen)
+			if type(chosen) == np.ndarray:
+				chosen[chosen > 1] = 1
 			# print(pytorch_model.unwrap(chosen), pytorch_model.unwrap(inter), pytorch_model.unwrap(interaction_pred), pytorch_model.unwrap(chances), input_state)
 			# error
 			return pytorch_model.unwrap(chosen)

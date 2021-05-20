@@ -7,6 +7,8 @@ import cv2
 import copy
 import numpy as np
 from typing import Any, Dict, List, Union, Optional, Callable
+from collections import deque
+from file_management import printframe, saveframe
 
 from Rollouts.param_buffer import ParamReplayBuffer
 from tianshou.policy import BasePolicy
@@ -16,6 +18,7 @@ from tianshou.data import Collector, Batch, ReplayBuffer
 from Options.option import Option
 from typing import Any, Dict, Tuple, Union, Optional, Callable
 from tianshou.data import Batch, ReplayBuffer, to_torch_as, to_numpy
+from visualizer import visualize
 
 def print_shape(batch, prefix=""):
     print(prefix, {n: batch[n].shape for n in batch.keys() if type(batch[n]) == np.ndarray})
@@ -35,9 +38,10 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         test = False,
         true_env=False,
         use_rel = False,
-        print_test=False
+        print_test=False,
     ) -> None:
         self.param = None
+        self.mask = None
         self.last_done = True
         self.use_param=use_param
         self.use_rel = use_rel
@@ -54,6 +58,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.force_action = True
         self.new_param = True
         super().__init__(policy, env, buffer, preprocess_fn, exploration_noise)
+        self.hit_miss_queue = deque(maxlen=2000)
         # self.other_buffer = ReplayBuffer.load_hdf5("data/working_rollouts.hdf5")
 
     def reset(self):
@@ -67,7 +72,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         # if self.option: 
         self.data.full_state = obs
         self.reset_temporal_extension()
-        obs = self.option.get_state(obs, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param[0] if self.param is not None else None)
+        obs = self.option.get_state(obs, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param if self.param is not None else None)
         self.data.obs = obs
 
     def _reset_state(self, id: Union[int, List[int]]) -> None:
@@ -85,20 +90,20 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         return (val + 1) % self.buffer.maxsize
 
     def get_param(self, last_done, force): # a new param is needed if: done, resetting
-        mask, self.new_param = None, False
-        if self.use_param: self.param, mask, self.new_param = self.option.get_param(self.data.full_state, last_done, force= force)
-        else: self.param = np.ones(1)
+        self.mask, self.new_param = None, False
+        if self.use_param: self.param, self.mask, self.new_param = self.option.get_param(self.data.full_state, last_done, force= force)
+        else: self.param, self.mask = np.ones(1), np.ones(1)
         # require a new action from temporal extension after new_param
         self.force_action = self.new_param
-        return self.param, mask, self.new_param
+        return self.param, self.mask, self.new_param
 
     def reset_temporal_extension(self):
-        print("reset called")
+        # print("reset called")
         # ensure that data has the correct: param, obs, full_state, option_resample
         self.data.update(full_state=[self.option.environment_model.get_state()])
-        self.param, mask, self.new_param = self.get_param(0, True)
+        self.param, self.mask, self.new_param = self.get_param(0, True)
         self.force_action = False # don't force an action because we will manually run a new action
-        self.data.update(param=self.param, obs=[self.option.get_state(form=1, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param[0])], option_resample=[[True]])
+        self.data.update(param=[self.param], mask = [self.mask], obs=[self.option.get_state(form=1, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param)], option_resample=[[True]])
         act, chain, policy_batch, state, resampled = self.option.sample_action_chain(self.data, None, random=False, force=True)
         self.option.step(self.data["full_state"], chain)
         self.data.update(target=[self.option.get_state(form=1, inp=1)])
@@ -117,12 +122,13 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             indices = np.stack(indices)
 
             # the last state took the last action (not the new, resampled action). The next state is the next full state
-            last_param = self.full_buffer.param[indices[-1]]
+            last_param, mask = self.full_buffer.param[indices[-1]], self.full_buffer.mask[indices[-1]]
             # act might have problems if it is more than one dimensional...
             # print(self.last_resampled_full_state, self.data.full_state, self.option.get_state(self.last_resampled_full_state, form=1, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0).shape)
             next_data.update(full_state=self.last_resampled_full_state, next_full_state =self.data.full_state, act = [self.full_buffer.act[indices[-1]]], mapped_act = [self.full_buffer.mapped_act[indices[-1]]])
             next_data.update(target=self.option.get_state(self.last_resampled_full_state, form=1, inp=1), next_target=self.option.get_state(self.data.full_state, form=1, inp=1))
             next_data.update(obs=self.option.get_state(self.last_resampled_full_state, form=1, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=last_param), obs_next=self.option.get_state(self.data.full_state, form=1, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=last_param))
+            next_data.update(param=[last_param], mask = [mask])
             # reward is the sum of rewards, done is if a done occurred anywhere in the temporal extension (but done should force a resampling)
             next_data.update(rew=[np.sum(self.full_buffer.rew[indices], axis=0)], done = [min(1, np.sum(self.full_buffer.done[indices], axis=0))]) 
             next_data.update(true_reward=[np.sum(self.full_buffer.true_reward[indices], axis=0)], true_done = [np.prod(self.full_buffer.true_done[indices]) * true_done])
@@ -149,6 +155,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         n_episode: Optional[int] = None,
         random: bool = False,
         render: Optional[float] = None,
+        visualize_param: str = "",
         no_grad: bool = True,
         needs_new_param = False
     ) -> Dict[str, Any]:
@@ -216,16 +223,17 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         targets, actions, obs = list(), list(), list()
         if self.param is not None and not needs_new_param: 
             self.data.param = [self.param]
+            self.data.mask = [self.mask]
             self.new_param = False
         else:
-            self.param, mask, self.new_param = self.get_param(self.last_done, True)
+            self.param, self.mask, self.new_param = self.get_param(self.last_done, True)
             # if self.use_param: self.param, mask = self.option.get_param(self.data.full_state, self.last_done, force= True)
             # else: self.param = np.ones(1)
             if self.print_test: print("param", self.use_param, self.param)
             # print("param got", self.param)
         if self.param is not None:
-            self.data.update(param=self.param)
-        self.data.update(obs=[self.option.get_state(inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param[0])])
+            self.data.update(param=[self.param], mask=[self.mask])
+        self.data.update(obs=[self.option.get_state(inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param)])
         if 'state_chain' not in self.data: state_chain = None # support for RNNs while handling feedforward
         else: state_chain = self.data.state_chain
         while True:
@@ -292,19 +300,32 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             dones, rewards, true_done, true_reward = [], [], done, rew
             # if self.option: # seems pointless to support no-option code
             self.option.step(next_full_state, action_chain)
-            obs_next = self.option.get_state(next_full_state, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param[0]) # one environment reliance
+            obs_next = self.option.get_state(next_full_state, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param) # one environment reliance
             next_target = [self.option.get_state(next_full_state, form=1, inp=1)]
             target = [self.option.get_state(self.data.full_state[0], form=1, inp=1)]
-            targets.append(target[0])
+            targets.append(obs_next)
             # print(target, self.option.next_option.get_state(self.data.full_state, form=1,inp=1))
             timed_out = self.option.step_timer(true_done)
-            dones, rewards = self.option.terminate_reward(next_full_state, self.param, action_chain)
+            # print(self.param, self.mask)
+            dones, rewards = self.option.terminate_reward(self.data.full_state[0], next_full_state, self.param, action_chain, mask=self.mask)
             done, rew = dones[-1], rewards[-1]
+            if done:
+                # if self.option.termination.param_interaction:
+                p = self.param * self.mask
+                os = self.option.get_state(next_full_state, form = 1, inp=1) * self.mask
+                if np.linalg.norm(os - p, ord  = 1) <= self.option.termination.epsilon:
+                    print("hit target", self.option.get_state(self.data.full_state[0], form = 1, inp=0), self.option.get_state(next_full_state, form = 1, inp=0), self.param, self.option.termination.inter)
+                    self.hit_miss_queue.append(1)
+                else:
+                    print("missed target", self.option.get_state(self.data.full_state[0], form = 1, inp=0), self.option.get_state(next_full_state, form = 1, inp=0), self.param, self.option.termination.inter)
+                    self.hit_miss_queue.append(0)
+
             rews += rew
             self.last_done = done
             self.data.update(next_target=next_target, target=target)
             # print("obs", [obs_next], "next full", [next_full_state], "done", [true_done], "reward", [true_reward], "rew", [rew], "done", [done], info, self.param, "lists", dones, rewards)
-            self.data.update(obs_next=[obs_next], next_full_state=[next_full_state], true_done=[true_done], true_reward=[true_reward], rew=[rew], done=[done], info=info, param=self.param, dones=dones, rewards=rewards) # edited
+            self.data.update(obs_next=[obs_next], next_full_state=[next_full_state], true_done=[true_done], true_reward=[true_reward], 
+            rew=[rew], done=[done], info=info, param=[self.param], mask=[self.mask], dones=dones, rewards=rewards) # edited
             if self.preprocess_fn:
                 self.data.update(self.preprocess_fn(
                     obs_next=self.data.obs_next,
@@ -312,7 +333,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                     done=self.data.done,
                     info=self.data.info,
                 ))
-
+            # print("prerender", self.option.get_state(self.data.full_state[0], form = 1, inp=0))
             if render:
                 self.env.render()
                 if render > 0 and not np.isclose(render, 0):
@@ -324,21 +345,34 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             # add data into the buffer
             # print(ready_env_ids)
             # print(self.data)
-            # print(self.buffer)
+            # print(self.data)
             # print(self.data.obs.shape, self.data.obs_next.shape, self.data.param.shape, self.data.target.shape, self.data.next_target.shape)
             # print([(k, self.data[k].shape) for k in self.data.keys()])
+            # print("preadd", self.option.get_state(self.data.full_state[0], form = 1, inp=0))
             ptr, ep_rew, ep_len, ep_idx = self.full_buffer.add(
                 self.data, buffer_ids=ready_env_ids)
             full_ptr = ptr
             # print("resampled", resampled)
-            if resampled:
+            # print("normal step")
+            if (resampled and not self.last_done) or done:
                 # print(self.data.act)
+                # print("resampling")
                 next_data, ptr, ep_rew_te, ep_len_te, ep_idx_te = self.aggregate(ptr, done, true_done, ready_env_ids)
                 self.at = self.next_index(ptr[0])
+                # print("resampling", self.option.get_state(self.data.full_state[0], form = 1, inp=0))
                 # print("norm data", {n: self.data[n].shape for n in self.data.keys() if type(self.data[n]) == np.ndarray})
                 # print("te data", {n: next_data[n].shape for n in next_data.keys() if type(next_data[n]) == np.ndarray})
-                if self.policy.collect and not self.test and not random and resampled: self.policy.collect(next_data)
+                # print(self.policy.collect and not self.test and not random and resampled, not self.test, not random)
+                if self.policy.collect and not self.test and not random and resampled: self.policy.collect(next_data, self.data)
             self.full_at= self.next_index(full_ptr[0])
+
+
+            if len(visualize_param) != 0:
+                frame = self.env.render()
+                new_frame = visualize(frame, self.data.target[0], self.param, self.mask)
+                if visualize_param != "nosave":
+                    saveframe(new_frame, pth=visualize_param, count=full_ptr, name="param_frame")
+                printframe(new_frame, waittime=10)
             # print(self.data.param.shape, self.buffer.param.shape, ready_env_ids)
             # print([(k, self.buffer._meta[k].shape) for k in self.buffer._meta.keys()])
             # error
@@ -380,17 +414,19 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 #         ready_env_ids = ready_env_ids[mask]
                 #         self.data = self.data[mask]
                 # print(self.data)
+                # print("param", self.param)
                 self.force_action = True
-                self.param, mask, self.new_param = self.get_param(self.last_done, False) # technically, self.last_done is forcing
+                self.param, self.mask, self.new_param = self.get_param(self.last_done, False) # technically, self.last_done is forcing
                 # if self.use_param: self.param, mask, new_param = self.option.get_param(self.data.full_state, self.last_done) # set the param
                 # if not self.test: print("done called: param", self.param, obs_next, rewards, dones, self.option.get_state(next_full_state, form=1, inp=0), self.option.timer, true_done)
                 # print("episode occurred", episode_count, step_count)
             if np.any(true_done):
+                print("reached done")
                 obs_reset = self.env.reset(env_ind_global)
                 # print("param at done", self.param)
                 if self.preprocess_fn:
                     obs_reset = self.preprocess_fn(obs=obs_reset).get("obs", obs_reset)
-                self.data.obs_next[env_ind_local] = self.option.get_state(obs_reset, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param[0]) # obs_reset
+                self.data.obs_next[env_ind_local] = self.option.get_state(obs_reset, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param) # obs_reset
                 for i in env_ind_local:
                     self._reset_state(i)
                 true_done_trigger += 1
@@ -427,6 +463,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             act_stack = np.expand_dims(actions, axis=1)
         # print(self.data)
         # print(targets[0].shape, self.data.target.shape, act_stack.shape)
+        # print(np.stack(targets, axis=0), act_stack.shape)
         if self.print_test: print("targets, actions", np.concatenate((np.stack(targets, axis=0), act_stack), axis=1))
         return {
             "n/ep": episode_count,

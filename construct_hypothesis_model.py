@@ -1,9 +1,20 @@
 import os, torch
 from arguments import get_args
 from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
-from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEnvironmentModel
+
 from EnvironmentModels.environment_model import ModelRollouts, FeatureSelector, ControllableFeature
+
+from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEnvironmentModel
 from Environments.SelfBreakout.breakout_screen import Screen
+
+from EnvironmentModels.Nav2D.Nav2D_environment_model import Nav2DEnvironmentModel
+from Environments.Nav2D.Nav2D import Nav2D
+
+from EnvironmentModels.Pushing.pushing_environment_model import PushingEnvironmentModel
+from Environments.Pushing.screen import Pushing
+
+from EnvironmentModels.Gym.gym_environment_model import GymEnvironmentModel
+
 from Counterfactual.counterfactual_dataset import CounterfactualStateDataset
 from Counterfactual.passive_active_dataset import HackedPassiveActiveDataset
 from Options.option_graph import OptionGraph, OptionNode, load_graph, OptionEdge
@@ -16,17 +27,37 @@ import numpy as np
 if __name__ == '__main__':
     args = get_args()
     torch.cuda.set_device(args.gpu)
-    environment = Screen(frameskip=args.frameskip)
-    environment_model = BreakoutEnvironmentModel(environment)
+    if args.env == "SelfBreakout":
+        args.continuous = False
+        environment = Screen()
+        environment.seed(args.seed)
+        environment_model = BreakoutEnvironmentModel(environment)
+    elif args.env == "Nav2D":
+        args.continuous = False
+        environment = Nav2D()
+        environment.seed(args.seed)
+        environment_model = Nav2DEnvironmentModel(environment)
+        if args.true_environment:
+            args.preprocess = environment.preprocess
+    elif args.env.find("Pushing") != -1:
+        args.continuous = False
+        environment = Pushing(pushgripper=True)
+        if args.env == "StickPushing":
+            environment = Pushing(pushgripper=False)
+        environment.seed(args.seed)
+        environment_model = PushingEnvironmentModel(environment)
+        if args.true_environment:
+            args.preprocess = environment.preprocess
+
     try:
-        graph = load_graph(args.graph_dir, args.num_frames)
+        graph = load_graph(args.graph_dir)
         controllable_feature_selectors = graph.cfs
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
         actions = PrimitiveOption(None, (None, environment_model), "Action")
         nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}
         afs = environment_model.construct_action_selector() 
-        controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
+        controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions-1],1)]
         graph = OptionGraph(nodes, dict(), controllable_feature_selectors)
     graph.load_environment_model(environment_model)
     environment_model.shapes_dict["all_state_next"] = [args.num_samples, environment_model.state_size]
@@ -84,6 +115,7 @@ if __name__ == '__main__':
                 success = True
             # save the cfs
         if success:
+            hypothesis_model.cpu()
             hypothesis_model.save(args.save_dir)
     else: # if not training, determine and save the active set selection binary
         hypothesis_model = load_hypothesis_model(args.dataset_dir)
@@ -139,6 +171,7 @@ if __name__ == '__main__':
         controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
         hypothesis_model.determine_active_set(rollouts)
         hypothesis_model.collect_samples(rollouts)
+        hypothesis_model.cpu()
         hypothesis_model.save(args.save_dir)
         print(hypothesis_model.selection_binary)
 

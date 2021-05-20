@@ -17,18 +17,20 @@ from ReinforcementLearning.train_RL import Logger
 def testRL(args, test_collector, environment, environment_model, option, names, graph):
     test_perf, suc = deque(maxlen=200), deque(maxlen=200)
     option.policy.set_eps(0.0)
+    total_steps = 0
     for i in range(args.num_iters):
         print("testing collection")
         # option.policy.set_eps(0.05)
         test_collector.reset()
         for j in range(args.test_trials):
-            if args.max_steps > 0: result = test_collector.collect(n_episode=1, n_step=args.max_steps, new_param=True)
+            if args.max_steps > 0: result = test_collector.collect(n_episode=1, n_step=args.max_steps)
             print(result["n/st"])
+            total_steps += result["n/st"]
             test_perf.append(result["rews"].mean())
             suc.append(float(result["n/st"] != args.max_steps and result["true_done"] < 1))
         print("Iters: ", i, "Steps: ", total_steps)
         print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}")
-        train_collector.reset_env() # because test collector and train collector share the same environment
+        test_collector.reset_env() # because test collector and train collector share the same environment
 
 
 # def testRL(args, rollouts, logger, environment, environment_model, option, names, graph):

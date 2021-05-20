@@ -1,4 +1,4 @@
-import os
+import os, sys
 import torch
 import numpy as np
 from arguments import get_args
@@ -8,6 +8,9 @@ from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEn
 from Environments.SelfBreakout.breakout_screen import Screen
 from EnvironmentModels.Nav2D.Nav2D_environment_model import Nav2DEnvironmentModel
 from Environments.Nav2D.Nav2D import Nav2D
+from EnvironmentModels.Pushing.pushing_environment_model import PushingEnvironmentModel
+from Environments.Pushing.screen import Pushing
+
 from EnvironmentModels.Gym.gym_environment_model import GymEnvironmentModel
 
 from Rollouts.rollouts import ObjDict
@@ -28,6 +31,7 @@ from Rollouts.param_buffer import ParamReplayBuffer, ParamPriorityReplayBuffer
 import tianshou as ts
 
 if __name__ == '__main__':
+    print(sys.argv)
     args = get_args()
     torch.cuda.set_device(args.gpu)
     args.concatenate_param = True
@@ -47,6 +51,15 @@ if __name__ == '__main__':
         environment_model = Nav2DEnvironmentModel(environment)
         if args.true_environment:
             args.preprocess = environment.preprocess
+    elif args.env.find("Pushing") != -1:
+        args.continuous = False
+        environment = Pushing(pushgripper=True)
+        if args.env == "StickPushing":
+            environment = Pushing(pushgripper=False)
+        environment.seed(args.seed)
+        environment_model = PushingEnvironmentModel(environment)
+        if args.true_environment:
+            args.preprocess = environment.preprocess
     elif args.env[:6] == "gymenv":
         args.continuous = True
         from Environments.Gym.gym import Gym
@@ -62,11 +75,26 @@ if __name__ == '__main__':
     else:
         args.parameterized = True
         dataset_model = load_hypothesis_model(args.dataset_dir)
+        torch.cuda.empty_cache()
+        dataset_model.cpu()
+        print(dataset_model.interaction_model.model[0].weight.data, dataset_model.passive_model.mean.model[0].weight.data)
         dataset_model.environment_model = environment_model
         # HACKED BELOW
-        dataset_model.control_min = [cfs.feature_range[0] for cfs in dataset_model.cfselectors]
-        dataset_model.control_max = [cfs.feature_range[1] for cfs in dataset_model.cfselectors]
+        # dataset_model.control_min = [cfs.feature_range[0] for cfs in dataset_model.cfselectors]
+        # dataset_model.control_max = [cfs.feature_range[1] for cfs in dataset_model.cfselectors]
         # HACKED ABOVE
+
+    # hacked forced velocity mask
+    if len(args.force_mask) > 0:
+        dataset_model.selection_binary = pytorch_model.wrap(np.array(args.force_mask),cuda=args.cuda)
+    if args.sample_continuous != 0:
+        dataset_model.sample_continuous = False if args.sample_continuous == 1 else True 
+    # dataset_model.selection_binary[0] = 0
+    # dataset_model.selection_binary[1] = 0
+    # hacked forced location mask
+    # dataset_model.selection_binary[2] = 0
+    # dataset_model.selection_binary[3] = 0
+    # dataset_model.sample_continuous = True
 
     # extra line for older dataset models
     # dataset_model.sample_continuous = False
@@ -86,8 +114,9 @@ if __name__ == '__main__':
     # dataset_model = load_factored_model(args.dataset_dir)
     sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule)
     pr, models = ObjDict(), (dataset_model, environment_model, sampler) # policy_reward, featurizers
-    if args.cuda:
-        dataset_model.cuda()
+    if args.cuda: dataset_model.cuda()
+    else: dataset_model.cpu()
+    print(dataset_model.iscuda, dataset_model.interaction_model.model[0].weight.data)
     try:
         graph = load_graph(args.graph_dir)
         print("loaded graph from ", args.graph_dir)
@@ -95,8 +124,11 @@ if __name__ == '__main__':
         actions = PrimitiveOption(None, models, "Action")
         nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}
         graph = OptionGraph(nodes, dict(), dataset_model.controllable)
-    termination = terminal_forms[args.terminal_type](name=args.object, min_use=args.min_use, dataset_model=dataset_model, epsilon=args.epsilon_close, interaction_probability=args.interaction_probability, env=environment)
-    reward = reward_forms[args.reward_type](epsilon=args.epsilon_close, parameterized_lambda=args.parameterized_lambda, reward_constant= args.reward_constant, interaction_model=dataset_model.interaction_model, interaction_minimum=dataset_model.interaction_minimum, env=environment) # using the same epsilon for now, but that could change
+    termination = terminal_forms[args.terminal_type](name=args.object, min_use=args.min_use, dataset_model=dataset_model, epsilon=args.epsilon_close, 
+                                                    interaction_probability=args.interaction_probability, env=environment, param_interaction=args.param_interaction)
+    reward = reward_forms[args.reward_type](epsilon=args.epsilon_close, parameterized_lambda=args.parameterized_lambda, interaction_lambda = args.interaction_lambda, 
+                                            reward_constant= args.reward_constant, interaction_model=dataset_model.interaction_model, interaction_minimum=dataset_model.interaction_minimum,
+                                            env=environment, true_reward_lambda=args.true_reward_lambda) # using the same epsilon for now, but that could change
     print (dataset_model.name)
     option_name = dataset_model.name.split("->")[0]
     names = [args.object, option_name]
@@ -104,15 +136,15 @@ if __name__ == '__main__':
     print(load_option, option_name, args.object)
 
     # hack to fix old versions REMOVE
-    graph.nodes["Action"].option.terminated = True
+    # graph.nodes["Action"].option.terminated = True
+    # graph.nodes["Paddle"].option.discretize_actions = False
     # graph.nodes[option_name].option.output_prob_shape = (graph.nodes[option_name].option.dataset_model.delta.output_size(), )
-    
     if not load_option:
         pr.policy, pr.termination, pr.reward = None, termination, reward
         pr.next_option = None if args.true_environment else graph.nodes[option_name].option
         pr.next_option = pr.next_option if not args.true_actions else graph.nodes["Action"].option # true actions forces the next option to be Action
         print("keys", list(graph.nodes.keys()))
-        option = option_forms[args.option_type](pr, models, args.object, temp_ext=args.temporal_extend, relative_actions = args.relative_action, relative_state=args.relative_state) # TODO: make exploration noise more alterable 
+        option = option_forms[args.option_type](pr, models, args.object, temp_ext=args.temporal_extend, relative_actions = args.relative_action, relative_state=args.relative_state, discretize_acts=args.discretize_actions, device=args.gpu) # TODO: make exploration noise more alterable 
         if args.object == "Action" or args.object == "Raw":
             option.discrete = not args.continuous
         else:
@@ -124,17 +156,19 @@ if __name__ == '__main__':
 
     if not args.true_environment:
         action_space = option.action_space if args.relative_action < 0 else option.relative_action_space
+        paction_space = option.policy_action_space if args.discretize_actions else action_space # if converting continuous to discrete, otherwise the same
         num_inputs = int(np.prod(option.input_shape))
-        max_action = option.action_max
+        max_action = option.action_max if option.discrete_actions else 1 # might have problems with discretized actions
     else:
         action_space = environment.action_space
+        paction_space = environment.action_space
         num_inputs = environment.observation_space.shape
         max_action = environment.action_space.n if environment.discrete_actions else environment.action_space.high[0]
     option.time_cutoff = args.time_cutoff
 
     args.option = option
     if not load_option:
-        policy = TSPolicy(num_inputs, action_space, max_action, discrete_actions=option.discrete_actions, **vars(args)) # default args?
+        policy = TSPolicy(num_inputs, paction_space, action_space, max_action, discrete_actions=option.discrete_actions, **vars(args)) # default args?
         if args.true_environment and args.env == "Nav2D": option.param_process = environment.param_process
         # policy.algo_policy.load_state_dict(torch.load("data/TSTestPolicy.pt"))
     else:
@@ -142,8 +176,9 @@ if __name__ == '__main__':
         policy.option = policy
 
     if args.cuda:
-        policy.cuda()
         option.cuda()
+        option.set_device(args.gpu)
+        policy.cuda()
         dataset_model.cuda()
     if not load_option:
         option.policy = policy
@@ -153,8 +188,8 @@ if __name__ == '__main__':
         graph.load_environment_model(environment_model)
     
     # debugging lines
-    torch.set_printoptions(precision=4)
-    np.set_printoptions(precision=4)
+    torch.set_printoptions(precision=2)
+    np.set_printoptions(precision=2)
     
     # TODO: only initializes with ReplayBuffer, prioritizedReplayBuffer at the moment, but could extend to vector replay buffer if multithread possible
     if len(args.prioritized_replay) > 0:
@@ -164,14 +199,14 @@ if __name__ == '__main__':
 
     train_collector = OptionCollector(option.policy, environment, trainbuffer, exploration_noise=True, option=option, use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment) # for now, no preprocess function
     MAXEPISODELEN = 100
-    print_test = True
-    test_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment, test=True, print_test=print_test)
+    test_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment, test=True, print_test=args.print_test)
     # test_collector = ts.data.Collector(option.policy, environment)
     print("Check option discrete", option.object_name, option.discrete)
     trained = trainRL(args, train_collector, test_collector, environment, environment_model, option, names, graph)
     if trained and not args.true_environment: # if trained, add control feature to the graph
         graph.cfs += dataset_model.cfselectors
     if args.train and args.save_interval > 0:
+        option.cpu()
         option.save(args.save_dir)
     if len(args.save_graph) > 0:
         print(args.object)

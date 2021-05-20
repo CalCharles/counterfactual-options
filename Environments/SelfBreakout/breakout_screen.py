@@ -13,7 +13,7 @@ class Screen(RawEnvironment):
         super(Screen, self).__init__()
         self.num_actions = 4
         self.action_space = spaces.Discrete(self.num_actions)
-        self.observation_space = spaces.Box(low=0, high=255, shape=(84, 84, 3), dtype=np.uint8)
+        self.observation_space = spaces.Box(low=0, high=255, shape=(84, 84), dtype=np.uint8)
 
         self.done = False
         self.reward = 0
@@ -58,6 +58,9 @@ class Screen(RawEnvironment):
 
         self.render_frame()
         return self.get_state()
+
+    def render(self):
+        return self.render_frame()
 
     def render_frame(self):
         self.frame = np.zeros((84,84), dtype = 'uint8')
@@ -122,6 +125,8 @@ class Screen(RawEnvironment):
             # self.ball.move()
             for ani_obj in self.animate:
                 ani_obj.move()
+            if last_loss != self.ball.losses:
+                self.reward += -1 # negative reward for dropping the ball since done is not triggered
             # if last_loss != self.ball.losses:
             #     self.done = True
             if self.ball.losses == 5:
@@ -143,7 +148,7 @@ class Screen(RawEnvironment):
             if self.itr == 0:
                 object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
                 object_dumps.close()
-            self.write_objects(extracted_state, frame)
+            self.write_objects(extracted_state, frame.astype(np.uint8))
         return {"raw_state": self.frame, "factored_state": extracted_state}, self.reward, self.done, {"lives": 5 - self.ball.losses}
 
     def run(self, policy, iterations = 10000, render=False, save_path = "runs/", save_raw = True, duplicate_actions=1):

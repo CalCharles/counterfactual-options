@@ -265,11 +265,14 @@ class ControllableFeature():
     def sample_feature(self, states):
         all_states = []
         num = int((self.feature_range[1] - self.feature_range[0] ) / self.feature_step)
-        for f in np.linspace(*self.feature_range, num):
+        # for f in np.linspace(*self.feature_range, num):
+        f = self.feature_range[0]
+        while f <= self.feature_range[1]:
             assigned_states = states.clone()
             self.assign_feature(assigned_states, f)
             assign_feature(assigned_states, (self.feature_selector.flat_features[0], f))
             all_states.append(assigned_states)
+            f += self.feature_step
         if len(states.shape) == 1: # a single flattened state
             return torch.stack(all_states, dim=0) # if there are no batches, then this is the 0th dim
         return torch.stack(all_states, dim=1) # if we have a batch of states, then this is the 1st dim
@@ -407,13 +410,14 @@ def assign_feature(states, assignment, edit=False, clipped=None):
             cstates = states[:, :, assignment[0]].clamp(clipped[0], clipped[1])
             states[:, :, assignment[0]] = cstates
 
-def discretize_actions(action_space): # converts a continuous action space into a discrete one
+def discretize_actions(action_shape): # converts a continuous action space into a discrete one
     # takes action +- 1, 0 at each dimension, for every combination
     # creates combinatorially many combinations of this
     # action space is assumed to be the tuple shape of the space
+    # TODO: assume action space of the form (n,)
     actions = list()
     def append_str(i, bs):
-        if i == len(action_space): actions.append(bs)
+        if i == action_shape[0]: actions.append(bs)
         else:
             bsn1 = copy.copy(bs)
             bsn1.append(-1)

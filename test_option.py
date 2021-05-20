@@ -8,6 +8,8 @@ from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEn
 from Environments.SelfBreakout.breakout_screen import Screen
 from EnvironmentModels.Nav2D.Nav2D_environment_model import Nav2DEnvironmentModel
 from Environments.Nav2D.Nav2D import Nav2D
+from EnvironmentModels.Pushing.pushing_environment_model import PushingEnvironmentModel
+from Environments.Pushing.screen import Pushing
 from EnvironmentModels.Gym.gym_environment_model import GymEnvironmentModel
 
 from Rollouts.rollouts import ObjDict
@@ -48,6 +50,15 @@ if __name__ == '__main__':
         environment_model = Nav2DEnvironmentModel(environment)
         if args.true_environment:
             args.preprocess = environment.preprocess
+    elif args.env.find("Pushing") != -1:
+        args.continuous = False
+        environment = Pushing(pushgripper=True)
+        if args.env == "StickPushing":
+            environment = Pushing(pushgripper=False)
+        environment.seed(args.seed)
+        environment_model = PushingEnvironmentModel(environment)
+        if args.true_environment:
+            args.preprocess = environment.preprocess
     elif args.env[:6] == "gymenv":
         args.continuous = True
         from Environments.Gym.gym import Gym
@@ -65,9 +76,13 @@ if __name__ == '__main__':
         dataset_model = load_hypothesis_model(args.dataset_dir)
         dataset_model.environment_model = environment_model
         # HACKED BELOW
-        dataset_model.control_min = [cfs.feature_range[0] for cfs in dataset_model.cfselectors]
-        dataset_model.control_max = [cfs.feature_range[1] for cfs in dataset_model.cfselectors]
+        # dataset_model.control_min = [cfs.feature_range[0] for cfs in dataset_model.cfselectors]
+        # dataset_model.control_max = [cfs.feature_range[1] for cfs in dataset_model.cfselectors]
         # HACKED ABOVE
+    if len(args.force_mask) > 0:
+        dataset_model.selection_binary = pytorch_model.wrap(np.array(args.force_mask),cuda=args.cuda)
+    if args.sample_continuous != 0:
+        dataset_model.sample_continuous = False if args.sample_continuous == 1 else True 
 
     # dataset_model = load_factored_model(args.dataset_dir)
     sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule)
@@ -76,8 +91,11 @@ if __name__ == '__main__':
         dataset_model.cuda()
     # print(dataset_model.observed_outcomes)
     graph = load_graph(args.graph_dir)
-    termination = terminal_forms[args.terminal_type](name=args.object, min_use=args.min_use, dataset_model=dataset_model, epsilon=args.epsilon_close, interaction_probability=args.interaction_probability, env=environment)
-    reward = reward_forms[args.reward_type](epsilon=args.epsilon_close, parameterized_lambda=args.parameterized_lambda, reward_constant= args.reward_constant, interaction_model=dataset_model.interaction_model, interaction_minimum=dataset_model.interaction_minimum, env=environment) # using the same epsilon for now, but that could change
+    termination = terminal_forms[args.terminal_type](name=args.object, min_use=args.min_use, dataset_model=dataset_model, epsilon=args.epsilon_close, 
+                                                    interaction_probability=args.interaction_probability, env=environment, param_interaction=args.param_interaction)
+    reward = reward_forms[args.reward_type](epsilon=args.epsilon_close, parameterized_lambda=args.parameterized_lambda, interaction_lambda = args.interaction_lambda, 
+                                            reward_constant= args.reward_constant, interaction_model=dataset_model.interaction_model, interaction_minimum=dataset_model.interaction_minimum,
+                                            env=environment, true_reward_lambda=args.true_reward_lambda) # using the same epsilon for now, but that could change
     print (dataset_model.name)
     option_name = dataset_model.name.split("->")[0]
     names = [args.object, option_name]
@@ -91,8 +109,8 @@ if __name__ == '__main__':
 
     policy = option.policy
     if args.cuda:
-        policy.cuda()
         option.cuda()
+        option.set_device(args.gpu)
         dataset_model.cuda()
     graph.load_environment_model(environment_model)
 
