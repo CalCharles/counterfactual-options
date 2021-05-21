@@ -121,7 +121,7 @@ if __name__ == '__main__':
         graph = load_graph(args.graph_dir)
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
-        actions = PrimitiveOption(None, models, "Action")
+        actions = PrimitiveOption(None, models, "Action", action_featurizer = dataset_model.controllable)
         nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}
         graph = OptionGraph(nodes, dict(), dataset_model.controllable)
     termination = terminal_forms[args.terminal_type](name=args.object, min_use=args.min_use, dataset_model=dataset_model, epsilon=args.epsilon_close, 

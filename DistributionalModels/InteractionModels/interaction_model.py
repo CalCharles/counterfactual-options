@@ -1145,7 +1145,7 @@ class NeuralInteractionForwardModel(nn.Module):
 
     def predict_next_state(self, state):
         # returns the interaction value and the predicted next state (if interaction is low there is more error risk)
-        # state is either a single flattened state, or batch x state size
+        # state is either a single flattened state, or batch x state size, or factored_state with sufficient keys
         rv = self.network_args.output_normalization_function.reverse
         inter = self.interaction_model(self.gamma(state))
         intera = inter.clone()
@@ -1232,7 +1232,7 @@ class NeuralInteractionForwardModel(nn.Module):
         self.cfselectors = list()
         for ff in self.feature_selector.flat_features:
             factored = self.environment_model.flat_to_factored(ff)
-            single_selector = FeatureSelector([ff], {factored[0]: factored[1]}, {factored[0]: np.array([factored[1], ff])})
+            single_selector = FeatureSelector([ff], {factored[0]: factored[1]}, {factored[0]: np.array([factored[1], ff])}, factored[0])
             rng = self.determine_range(rollouts, single_selector)
             print(rng)
             self.cfselectors.append(ControllableFeature(single_selector, rng, 1, self))
