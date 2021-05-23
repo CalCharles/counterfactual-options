@@ -216,6 +216,15 @@ class TSPolicy(nn.Module):
                 act = low + (high - low) * (act + 1.0) / 2.0  # type: ignore
         return act
 
+    def reverse_map_action(self, mapped_act):
+        # reverse the effect of map_action, not one to one because information might be lost (ignores clipping)
+        if self.algo_policy.action_scaling:
+            low, high = self.action_space.low, self.action_space.high
+            act = ((mapped_act - low) / (high - low)) * 2 - 1
+        if self.algo_policy.action_bound_method == "tanh":
+            act = np.arctanh(act)
+        return act
+
 
     def forward(self, batch: Batch, state: Optional[Union[dict, Batch, np.ndarray]] = None, input: str = "obs", **kwargs: Any):
         '''
@@ -267,7 +276,9 @@ class TSPolicy(nn.Module):
         '''
         for i in range(self.grad_epoch):
             use_buffer = buffer
-            if self.is_her: use_buffer = self.sample_buffer(buffer)
+            if self.is_her:
+                use_buffer = self.sample_buffer(buffer)
+                # print(len(use_buffer))
             if use_buffer is None:
                 return {}
             batch, indice = use_buffer.sample(sample_size)
@@ -284,6 +295,7 @@ class TSPolicy(nn.Module):
             #     p = np.argwhere(param == 10.0)[0]
             #     print(done, target, target_last, pos, pos_last, p)
             # print(type(batch["obs_next"]), batch["obs_next"].shape, self.param_process)
+            # print(len(batch))
             batch = self.algo_policy.process_fn(batch, use_buffer, indice)
             # for o,on,r,d,a in zip(batch.obs, batch.obs_next, batch.rew, batch.done, batch.act):
             #     print(r,d,a)

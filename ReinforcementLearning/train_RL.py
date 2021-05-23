@@ -150,7 +150,7 @@ def TSTrainRL(args, rollouts, logger, environment, environment_model, option, le
             print(losses, result['rews'].mean())
     train_collector.buffer.save_hdf5("data/working_rollouts.hdf5")
 
-def collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, random=False):
+def collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, action_record=None, random=False, option=None):
     '''
     TODO: still need an objective measure for performance
     TODO: integrate into train_RL to reduce code length
@@ -162,8 +162,9 @@ def collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, ra
         trials = args.pretest_trials
     #     trials = args.test_trials * 10
     for j in range(trials):
-        if args.max_steps > 0: result = test_collector.collect(n_episode=1, n_step=args.max_steps, needs_new_param=True, random=random)
-        else: result = test_collector.collect(n_episode=1, needs_new_param=True, random=random)
+        if option: option.timer = 0
+        if args.max_steps > 0: result = test_collector.collect(n_episode=1, n_step=args.max_steps, needs_new_param=True, random=random, action_record = action_record)
+        else: result = test_collector.collect(n_episode=1, needs_new_param=True, random=random, action_record=action_record)
         test_perf.append(result["rews"].mean())
         suc.append(float(result["n/st"] != args.max_steps and result["true_done"] < 1))
     if random:
@@ -207,14 +208,15 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     # full_state = environment_model.get_state()
     last_done = 0 # assumes that the first state is not done
     print("collect data from random policy")
-    train_collector.collect(n_step=args.pretrain_iters, random=True) # param doesn't matter with random actions
+    action_record = None if len(args.record_rollouts) == 0 else list()
+    train_collector.collect(n_step=args.pretrain_iters, random=True, action_record=action_record) # param doesn't matter with random actions
 
     # intialize one step for temporal extension
     train_collector.reset_temporal_extension()
 
     print("start initial test")
     initial_perf, initial_suc = list(), list()
-    initial_perf, initial_suc, initial_hit = collect_test_trials(args, test_collector, 0, 0, initial_perf, initial_suc, random=True)
+    initial_perf, initial_suc, initial_hit = collect_test_trials(args, test_collector, 0, 0, initial_perf, initial_suc, random=True, action_record=action_record, option=option)
 
     # intialize one step for temporal extension
     train_collector.reset_temporal_extension()
@@ -228,7 +230,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     for i in range(args.num_iters):  # total step
         # print("training collection")
         # full_state = environment_model.get_state()
-        collect_result = train_collector.collect(n_step=args.num_steps) # TODO: make n-episode a usable parameter for collect
+        collect_result = train_collector.collect(n_step=args.num_steps, action_record=action_record) # TODO: make n-episode a usable parameter for collect
         total_steps, last_done = collect_result['n/st'] + total_steps, collect_result["done"]
         # once if the collected episodes' mean returns reach the threshold,
         # or every 1000 steps, we test it on test_collector
@@ -238,14 +240,15 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
             test_collector.reset()
             needs_new_param = False
             for j in range(args.test_trials):
-                if args.max_steps > 0: result = test_collector.collect(n_episode=1, n_step=args.max_steps, needs_new_param=needs_new_param)
-                else: result = test_collector.collect(n_episode=1, needs_new_param=needs_new_param)
+                option.timer = 0 # keep the option from cutting off due to time, but also TODO: don't hack this in
+                if args.max_steps > 0: result = test_collector.collect(n_term=1, n_step=args.max_steps, needs_new_param=needs_new_param, action_record=action_record, visualize_param=args.visualize_param)
+                else: result = test_collector.collect(n_term=1, needs_new_param=needs_new_param, action_record=action_record, visualize_param=args.visualize_param)
                 test_perf.append(result["rews"].mean())
                 print("num steps, sucess",result["n/st"], float(result["n/st"] != args.max_steps and (result["true_done"] < 1 or args.true_environment)))
                 suc.append(float(result["n/st"] != args.max_steps and (result["true_done"] < 1 or args.true_environment)))
                 needs_new_param = True
             print("Iters: ", i, "Steps: ", total_steps)
-            print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}", f"Hit Miss: {sum(test_collector.hit_miss_queue)/ len(test_collector.hit_miss_queue)}", f"Hit Miss train: {sum(train_collector.hit_miss_queue)/ len(train_collector.hit_miss_queue)}")
+            print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}", f"Hit Miss: {sum(test_collector.hit_miss_queue)/ max(1, len(test_collector.hit_miss_queue))}", f"Hit Miss train: {sum(train_collector.hit_miss_queue)/ max(1, len(train_collector.hit_miss_queue))}")
             train_collector.reset_env() # because test collector and train collector share the same environment
             
             # intialize temporal extension
@@ -265,7 +268,13 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
         # train option.policy with a sampled batch data from buffer
         losses = option.policy.update(args.batch_size, train_collector.buffer)
         epsilon, interaction, epsilon_close = step_schedules(args, option, i, epsilon, interaction, epsilon_close)
-        if i % args.log_interval == 0:
+        if i % args.log_interval == 3:
+            # np.set_printoptions(threshold = 1000000, linewidth = 230)
+            # print(np.concatenate((train_collector.buffer.obs[:300,4:7], train_collector.buffer.obs_next[:300,4:7], train_collector.buffer.param[:300, 1:2], np.expand_dims(train_collector.buffer.terminate[:300], 1),
+            # np.expand_dims(train_collector.buffer.done[:300], 1), np.expand_dims(train_collector.buffer.rew[:300], 1), np.expand_dims(train_collector.buffer.true_done[:300], 1)), axis=1))
+            # print(np.concatenate((option.policy.learning_algorithm.replay_buffer.obs[:300,4:7], option.policy.learning_algorithm.replay_buffer.obs_next[:300,4:7], option.policy.learning_algorithm.replay_buffer.param[:300, 1:2], np.expand_dims(option.policy.learning_algorithm.replay_buffer.terminate[:300], 1),
+            # np.expand_dims(option.policy.learning_algorithm.replay_buffer.done[:300], 1), np.expand_dims(option.policy.learning_algorithm.replay_buffer.rew[:300], 1)), axis=1))
+            # error
             print(losses)
             print("epsilons", epsilon, interaction, epsilon_close)
         if args.save_interval > 0 and (i+1) % args.save_interval == 0:
@@ -275,6 +284,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     if args.save_interval > 0:
         option.save(args.save_dir)
         graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
+        save_to_pickle(os.path.join(args.record_rollouts, "action_record.pkl"), action_record)
     final_perf, final_suc = list(), list()
     final_perf, final_suc, final_hit = collect_test_trials(args, test_collector, 0, 0, final_perf, final_suc)
 

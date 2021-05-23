@@ -101,6 +101,16 @@ def get_args():
                     help='Only terminates when the param and interaction co-occur')
     parser.add_argument('--max-steps', type=int, default=-1,
                         help='number of steps before forcing the end of episode flag (default: -1 (not used))')
+    parser.add_argument('--param-recycle', type=float, default=0.0,
+                    help='probability of choosing the same param after termination')
+    # sampler parameters
+    parser.add_argument('--sample-continuous', type=int, default=0,
+                        help='use already existing values if 0, false if 1, true if 2')
+    # done check parameters
+    parser.add_argument('--use-termination', action = 'store_true', default=False,
+                    help='returns done when the option terminates')
+    parser.add_argument('--not-true-done-stopping', action = 'store_true', default=False,
+                    help='if true, will NOT end episode when the environment ends the episode')
 
     # Learning settings
     parser.add_argument('--seed', type=int, default=4,
@@ -140,8 +150,8 @@ def get_args():
                     help='For hindsight experience replay, selects the positive reward x percent of the time (default .5)')
     parser.add_argument('--resample-timer', type=int, default=10,
                         help='how often to resample a goal (default: 10)')
-    parser.add_argument('--max-hindsight', type=int, default=-1,
-                        help='most timesteps to look behind for credit assignment (default: -1)')
+    parser.add_argument('--max-hindsight', type=int, default=500,
+                        help='most timesteps to look behind for credit assignment (default: 500)')
     parser.add_argument('--resample-interact', action='store_true', default=False,
                         help='forces HER to resample whenever an interaction occurs TODO: not actually implemented')
     parser.add_argument('--use-interact', action='store_true', default=False,
@@ -163,8 +173,6 @@ def get_args():
                     help='changes sampling after a certain number of calls')
     parser.add_argument('--passive-weighting', action ='store_true', default=False,
                         help='weight with the passive error')
-    parser.add_argument('--sample-continuous', type=int, default=0,
-                        help='use already existing type if 0, false if 1, true if 2')
 
     # reward settings
     parser.add_argument('--parameterized-lambda', type=float, default=.5,
@@ -217,6 +225,9 @@ def get_args():
                         help='shows an image with the focus at each timestep like a video')
     parser.add_argument('--single-save-dir', default="",
                         help='saves all images to a single directory with name all')
+    parser.add_argument('--visualize-param', default="",
+                        help='generates images of the parameterized option, default is empty string for no visualization, "nosave" will not save the visualized param')
+    
     # environmental variables
     parser.add_argument('--gpu', type=int, default=0,
                         help='gpu number to use (default: 0)')
@@ -230,6 +241,9 @@ def get_args():
                         help='runs the algorithm without time cutoff to set it')
     parser.add_argument('--time-cutoff', type=int, default=-1,
                         help='sets the duration to switch to the next option (default -1 means no time cutoff)')
+    # ONLY FOR BREAKOUT
+    parser.add_argument('--drop-stopping', action = 'store_true', default=False,
+                    help='returns done when the ball is dropped')
 
     # load variables
     parser.add_argument('--load-weights', action ='store_true', default=False,

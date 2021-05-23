@@ -2,6 +2,7 @@ import numpy as np
 import os, cv2, time, copy, itertools
 import torch
 from Rollouts.rollouts import Rollouts, ObjDict
+from tianshou.data import Batch
 from Networks.network import ConstantNorm
 
 class EnvironmentModel():
@@ -366,8 +367,17 @@ class FeatureSelector():
 
 
     def get_relative(self, states):
-        if type(states) is dict: # factored features
-            return [states[names[0]][i] - states[names[1]][i] for names, i in self.relative_indexes]
+        # print("states", states, self.relative_indexes)
+        if type(states) is dict or type(states) is Batch: # factored features
+            if type(states[self.names[0]]) == np.ndarray:
+                cat = lambda x, a: np.concatenate(x, axis=a)
+            elif type(states[self.names[0]]) == torch.Tensor:
+                cat = lambda x, a: torch.cat(x, dim=a)
+            if len(states[self.names[0]].shape) == 1: # only support internal dimension up to 2
+                return cat([states[names[0]][i] - states[names[1]][i] for names, i in self.relative_indexes.items()], 0)
+            if len(states[self.names[0]].shape) == 2: # only support internal dimension up to 2
+                return cat([states[names[0]][:, i] - states[names[1]][:, i] for names, i in self.relative_indexes.items()], 1)
+            # return [states[names[0]][i] - states[names[1]][i] for names, i in self.relative_indexes.items()]
         elif len(states.shape) == 1: # a single flattened state
             return states[self.relative_flat_indexes[:,0]] - states[self.relative_flat_indexes[:,1]]
         elif len(states.shape) == 2: # a batch of flattened state
@@ -377,18 +387,22 @@ class FeatureSelector():
 
 
     def __call__(self, states):
-        if type(states) is dict: # factored features, returns a flattened state to match the other calls
+        if type(states) is dict or type(states) is Batch: # factored features, returns a flattened state to match the other calls
             # ks = self.factored_features.keys()
             # return {name: states[name][idxes] for name, idxes in self.factored_features}
             # TODO: Above lines are old code, if new code breaks revert back, otherwise remove
+            if not hasattr(self, "names"): 
+                pnames = list(self.factored_features.keys())
+                self.names = [n for n in ["Action", "Paddle", "Ball", "Block", 'Done', "Reward"] if n in pnames] # TODO: above lines are hack, remove
+            print(states[self.names[0]], type(states[self.names[0]]) is torch.Tensor, type(states[self.names[0]]) == torch.tensor)
             if type(states[self.names[0]]) == np.ndarray:
                 cat = lambda x, a: np.concatenate(x, axis=a)
-            elif type(states[self.names[0]]) == torch.tensor:
+            elif type(states[self.names[0]]) == torch.Tensor:
                 cat = lambda x, a: torch.cat(x, dim=a)
             if len(states[self.names[0]].shape) == 1: # only support internal dimension up to 2
                 return cat([states[name][self.factored_features[name]] for name in self.names], 0)
             if len(states[self.names[0]].shape) == 2: # only support internal dimension up to 2
-                return cat([states[name][self.factored_features[name]] for name in self.names], 1)
+                return cat([states[name][:, self.factored_features[name]] for name in self.names], 1)
         elif len(states.shape) == 1: # a single flattened state
             return states[self.flat_features]
         elif len(states.shape) == 2: # a batch of flattened state

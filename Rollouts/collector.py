@@ -39,10 +39,13 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         true_env=False,
         use_rel = False,
         print_test=False,
+        param_recycle = False,
     ) -> None:
+        self.param_recycle = param_recycle
         self.param = None
         self.mask = None
         self.last_done = True
+        self.last_term = True
         self.use_param=use_param
         self.use_rel = use_rel
         self.option = option
@@ -89,9 +92,9 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
     def next_index(self, val):
         return (val + 1) % self.buffer.maxsize
 
-    def get_param(self, last_done, force): # a new param is needed if: done, resetting
+    def get_param(self, last_term, force): # a new param is needed if: terminated, resetting
         self.mask, self.new_param = None, False
-        if self.use_param: self.param, self.mask, self.new_param = self.option.get_param(self.data.full_state, last_done, force= force)
+        if self.use_param: self.param, self.mask, self.new_param = self.option.get_param(self.data.full_state, last_term, force= force)
         else: self.param, self.mask = np.ones(1), np.ones(1)
         # require a new action from temporal extension after new_param
         self.force_action = self.new_param
@@ -110,7 +113,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.last_resampled_idx = self.full_at
         self.last_resampled_full_state = self.data.full_state
 
-    def aggregate(self, ptr, done, true_done, ready_env_ids):
+    def aggregate(self, ptr, ready_env_ids):
         # get the indices between the last resampled and ptr
         ep_rew, ep_len, ep_idx = None, None, None
         next_data = copy.deepcopy(self.data)
@@ -130,14 +133,15 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             next_data.update(obs=self.option.get_state(self.last_resampled_full_state, form=1, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=last_param), obs_next=self.option.get_state(self.data.full_state, form=1, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=last_param))
             next_data.update(param=[last_param], mask = [mask])
             # reward is the sum of rewards, done is if a done occurred anywhere in the temporal extension (but done should force a resampling)
-            next_data.update(rew=[np.sum(self.full_buffer.rew[indices], axis=0)], done = [min(1, np.sum(self.full_buffer.done[indices], axis=0))]) 
-            next_data.update(true_reward=[np.sum(self.full_buffer.true_reward[indices], axis=0)], true_done = [np.prod(self.full_buffer.true_done[indices]) * true_done])
+            next_data.update(rew=[np.sum(self.full_buffer.rew[indices], axis=0)], done = [bool(min(1, np.sum(self.full_buffer.done[indices])))], terminate = [min(1, np.sum(self.full_buffer.terminate[indices]))]) 
+            next_data.update(true_reward=[np.sum(self.full_buffer.true_reward[indices], axis=0)], true_done = [bool(min(1, np.sum(self.full_buffer.true_done[indices])))])
             # print("adding", next_data.act, next_data.mapped_act, next_data.obs, next_data.obs_next)
             # print("from", self.data.act, self.data.mapped_act, self.data.obs, self.data.obs_next)
-            # print(next_data.rew, next_data.done, self.data.rew, self.data.done)
+            # print(next_data.rew, next_data.done, next_data.terminate, self.data.rew, self.data.done)
             # print_shape(next_data, "next_data")
             # print_shape(self.data, "data")
             self.last_resampled_idx = ptr[0]
+            # print(next_data.obs_next[0,4:7], next_data.true_done, next_data.done)
             ptr, ep_rew, ep_len, ep_idx = self.buffer.add(
                     next_data, buffer_ids=ready_env_ids)
             self.at = ptr # might have some issues with this assignment
@@ -149,15 +153,18 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.last_resampled_full_state = self.data.full_state # TODO: figure out whether to use full_state or next_full_state
         return next_data, self.at, ep_rew, ep_len, ep_idx
 
+
     def collect(
         self,
         n_step: Optional[int] = None,
         n_episode: Optional[int] = None,
+        n_term: Optional[int] = None,
         random: bool = False,
         render: Optional[float] = None,
         visualize_param: str = "",
         no_grad: bool = True,
-        needs_new_param = False
+        needs_new_param = False,
+        action_record: Optional[list] = None
     ) -> Dict[str, Any]:
         """Collect a specified number of step or episode.
 
@@ -205,6 +212,9 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             assert n_episode > 0
             ready_env_ids = np.arange(min(self.env_num, n_episode))
             self.data = self.data[:min(self.env_num, n_episode)]
+        if n_term is not None:
+            assert n_term > 0
+            self.data = self.data[:min(self.env_num, n_term)]
         if not (n_step or n_episode):
             raise TypeError("Please specify at least one (either n_step or n_episode) "
                             "in AsyncCollector.collect().")
@@ -213,6 +223,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
 
         step_count = 0
         episode_count = 0
+        term_count = 0
         episode_rews = []
         episode_lens = []
         episode_start_indices = []
@@ -226,7 +237,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             self.data.mask = [self.mask]
             self.new_param = False
         else:
-            self.param, self.mask, self.new_param = self.get_param(self.last_done, True)
+            self.param, self.mask, self.new_param = self.get_param(False, True)
             # if self.use_param: self.param, mask = self.option.get_param(self.data.full_state, self.last_done, force= True)
             # else: self.param = np.ones(1)
             if self.print_test: print("param", self.use_param, self.param)
@@ -276,6 +287,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 # if self.exploration_noise:
                 #     act = self.policy.exploration_noise(act, self.data)
                 self.data.update(policy=policy, act=[act], mapped_act=[action_chain[-1]], option_resample=[resampled])
+            if action_record is not None:
+                action_record.append(action_chain[-1])
             self.force_action=False
             actions.append(act)
             # get bounded and remapped actions first (not saved into buffer)
@@ -296,8 +309,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             next_full_state = obs_next[0] # only handling one environment
             timed_out = False
 
-
-            dones, rewards, true_done, true_reward = [], [], done, rew
+            dones, rewards, terminations, true_done, true_reward = [], [], [], done, rew
             # if self.option: # seems pointless to support no-option code
             self.option.step(next_full_state, action_chain)
             obs_next = self.option.get_state(next_full_state, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param) # one environment reliance
@@ -307,12 +319,13 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             # print(target, self.option.next_option.get_state(self.data.full_state, form=1,inp=1))
             timed_out = self.option.step_timer(true_done)
             # print(self.param, self.mask)
-            dones, rewards = self.option.terminate_reward(self.data.full_state[0], next_full_state, self.param, action_chain, mask=self.mask)
-            done, rew = dones[-1], rewards[-1]
-            if done:
+            dones, rewards, terminations = self.option.terminate_reward(self.data.full_state[0], next_full_state, self.param, action_chain, mask=self.mask)
+            done, rew, term = dones[-1], rewards[-1], terminations[-1]
+            if term or done:
                 # if self.option.termination.param_interaction:
                 p = self.param * self.mask
                 os = self.option.get_state(next_full_state, form = 1, inp=1) * self.mask
+                # print("terminate or done", term, done)
                 if np.linalg.norm(os - p, ord  = 1) <= self.option.termination.epsilon:
                     print("hit target", self.option.get_state(self.data.full_state[0], form = 1, inp=0), self.option.get_state(next_full_state, form = 1, inp=0), self.param, self.option.termination.inter)
                     self.hit_miss_queue.append(1)
@@ -321,11 +334,12 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                     self.hit_miss_queue.append(0)
 
             rews += rew
-            self.last_done = done
+            # if self.print_test: print(rews, rew)
             self.data.update(next_target=next_target, target=target)
             # print("obs", [obs_next], "next full", [next_full_state], "done", [true_done], "reward", [true_reward], "rew", [rew], "done", [done], info, self.param, "lists", dones, rewards)
-            self.data.update(obs_next=[obs_next], next_full_state=[next_full_state], true_done=[true_done], true_reward=[true_reward], 
-            rew=[rew], done=[done], info=info, param=[self.param], mask=[self.mask], dones=dones, rewards=rewards) # edited
+            # print("next term", term)
+            self.data.update(obs_next=[obs_next], next_full_state=[next_full_state], true_done=true_done, true_reward=true_reward, 
+            rew=[rew], done=[done], terminate=[term], info=info, param=[self.param], mask=[self.mask], dones=dones, rewards=rewards, terminations=terminations) # edited
             if self.preprocess_fn:
                 self.data.update(self.preprocess_fn(
                     obs_next=self.data.obs_next,
@@ -343,6 +357,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             #     self.data.update(act=[self.other_buffer[self.at].act])
 
             # add data into the buffer
+            # print(obs_next[4:7], true_done, done, term, rew, (resampled and not self.last_done and not self.last_term) or done or term)
             # print(ready_env_ids)
             # print(self.data)
             # print(self.data)
@@ -354,25 +369,34 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             full_ptr = ptr
             # print("resampled", resampled)
             # print("normal step")
-            if (resampled and not self.last_done) or done:
+            if (resampled and not self.last_done and not self.last_term) or done or term:
                 # print(self.data.act)
                 # print("resampling")
-                next_data, ptr, ep_rew_te, ep_len_te, ep_idx_te = self.aggregate(ptr, done, true_done, ready_env_ids)
+                next_data, ptr, ep_rew_te, ep_len_te, ep_idx_te = self.aggregate(ptr, ready_env_ids)
                 self.at = self.next_index(ptr[0])
                 # print("resampling", self.option.get_state(self.data.full_state[0], form = 1, inp=0))
                 # print("norm data", {n: self.data[n].shape for n in self.data.keys() if type(self.data[n]) == np.ndarray})
                 # print("te data", {n: next_data[n].shape for n in next_data.keys() if type(next_data[n]) == np.ndarray})
                 # print(self.policy.collect and not self.test and not random and resampled, not self.test, not random)
+                # if not random:
+                #     print("add true done", self.data.true_done, next_data.true_done, self.policy.collect and not self.test and not random and resampled)
                 if self.policy.collect and not self.test and not random and resampled: self.policy.collect(next_data, self.data)
-            self.full_at= self.next_index(full_ptr[0])
+            self.full_at = self.next_index(full_ptr[0])
 
+            self.last_done = np.any(done)
+            self.last_term = np.any(term)
 
             if len(visualize_param) != 0:
-                frame = self.env.render()
+                frame = np.array(self.env.render()).squeeze()
                 new_frame = visualize(frame, self.data.target[0], self.param, self.mask)
                 if visualize_param != "nosave":
                     saveframe(new_frame, pth=visualize_param, count=full_ptr, name="param_frame")
                 printframe(new_frame, waittime=10)
+            # if self.visualize:
+            #     frame = np.array(self.env.render()).squeeze()
+            #     # print(np.array(frame).shape)
+            #     printframe(frame, waittime=10)
+
             # print(self.data.param.shape, self.buffer.param.shape, ready_env_ids)
             # print([(k, self.buffer._meta[k].shape) for k in self.buffer._meta.keys()])
             # error
@@ -415,8 +439,17 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 #         self.data = self.data[mask]
                 # print(self.data)
                 # print("param", self.param)
+            if np.any(done) or np.any(term):
+                # print("getting new param", done, term, self.option.timer)
                 self.force_action = True
-                self.param, self.mask, self.new_param = self.get_param(self.last_done, False) # technically, self.last_done is forcing
+                if np.any(term):
+                    term_count += 1
+                if np.random.rand() > self.param_recycle:
+                    self.param, self.mask, self.new_param = self.get_param(True, False) # technically, self.last_done is forcing
+                else:
+                    self.new_param = True # treat this as a new param even though it is the same
+                if self.print_test: print("new param", self.use_param, self.param)
+
                 # if self.use_param: self.param, mask, new_param = self.option.get_param(self.data.full_state, self.last_done) # set the param
                 # if not self.test: print("done called: param", self.param, obs_next, rewards, dones, self.option.get_state(next_full_state, form=1, inp=0), self.option.timer, true_done)
                 # print("episode occurred", episode_count, step_count)
@@ -437,10 +470,13 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             self.new_param = False
 
             if (n_step and step_count >= n_step):
+                if self.test: self.hit_miss_queue.append(0)
                 # print("stbreak", step_count, episode_count)
                 break
             if (n_episode and episode_count >= n_episode):
                 # print("epbreak", step_count, episode_count)
+                break
+            if (n_term and term_count >= n_term):
                 break
 
         # generate statistics
@@ -453,11 +489,11 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             self.data = Batch(**{k: dict() for k in ParamReplayBuffer._reserved_keys})
             # self.reset_env()
 
-        if episode_count > 0:
-            rews, lens, idxs = list(map(
-                np.concatenate, [episode_rews, episode_lens, episode_start_indices]))
-        else:
-            rews, lens, idxs = np.array(rews), np.array([], int), np.array([], int)
+        # if episode_count > 0:
+        #     rews, lens, idxs = list(map(
+        #         np.concatenate, [episode_rews, episode_lens, episode_start_indices]))
+        # else:
+        rews, lens, idxs = np.array(rews), np.array([], int), np.array([], int)
         act_stack = np.stack(actions, axis=0)
         if len(act_stack.shape) < 2:
             act_stack = np.expand_dims(actions, axis=1)
@@ -465,8 +501,9 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         # print(targets[0].shape, self.data.target.shape, act_stack.shape)
         # print(np.stack(targets, axis=0), act_stack.shape)
         if self.print_test: print("targets, actions", np.concatenate((np.stack(targets, axis=0), act_stack), axis=1))
-        return {
+        return { # TODO: some of these don't return valid values
             "n/ep": episode_count,
+            "n/tr": term_count,
             "n/st": step_count,
             "rews": rews,
             "lens": lens,

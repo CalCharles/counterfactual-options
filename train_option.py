@@ -18,6 +18,7 @@ from ReinforcementLearning.train_RL import trainRL
 from ReinforcementLearning.Policy.policy import TSPolicy, pytorch_model
 from EnvironmentModels.environment_model import FeatureSelector
 from Options.Termination.termination import terminal_forms
+from Options.done_model import DoneModel
 from Options.option_graph import OptionGraph, OptionNode, load_graph
 from Options.option import Option, PrimitiveOption, option_forms
 from Options.Reward.reward import reward_forms
@@ -41,7 +42,7 @@ if __name__ == '__main__':
     args.preprocess = None
     if args.env == "SelfBreakout":
         args.continuous = False
-        environment = Screen()
+        environment = Screen(drop_stopping=args.drop_stopping)
         environment.seed(args.seed)
         environment_model = BreakoutEnvironmentModel(environment)
     elif args.env == "Nav2D":
@@ -121,7 +122,7 @@ if __name__ == '__main__':
         graph = load_graph(args.graph_dir)
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
-        actions = PrimitiveOption(None, models, "Action", action_featurizer = dataset_model.controllable)
+        actions = PrimitiveOption(None, models, "Action", action_featurizer = dataset_model.controllable[0])
         nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}
         graph = OptionGraph(nodes, dict(), dataset_model.controllable)
     termination = terminal_forms[args.terminal_type](name=args.object, min_use=args.min_use, dataset_model=dataset_model, epsilon=args.epsilon_close, 
@@ -129,6 +130,7 @@ if __name__ == '__main__':
     reward = reward_forms[args.reward_type](epsilon=args.epsilon_close, parameterized_lambda=args.parameterized_lambda, interaction_lambda = args.interaction_lambda, 
                                             reward_constant= args.reward_constant, interaction_model=dataset_model.interaction_model, interaction_minimum=dataset_model.interaction_minimum,
                                             env=environment, true_reward_lambda=args.true_reward_lambda) # using the same epsilon for now, but that could change
+    done_model = DoneModel(use_termination = args.use_termination, time_cutoff=args.time_cutoff, true_done_stopping = not args.not_true_done_stopping)
     print (dataset_model.name)
     option_name = dataset_model.name.split("->")[0]
     names = [args.object, option_name]
@@ -136,11 +138,14 @@ if __name__ == '__main__':
     print(load_option, option_name, args.object)
 
     # hack to fix old versions REMOVE
+    action_option = graph.nodes["Action"].option
+    action_option.action_featurizer = dataset_model.controllable[0]
     # graph.nodes["Action"].option.terminated = True
     # graph.nodes["Paddle"].option.discretize_actions = False
     # graph.nodes[option_name].option.output_prob_shape = (graph.nodes[option_name].option.dataset_model.delta.output_size(), )
+    
     if not load_option:
-        pr.policy, pr.termination, pr.reward = None, termination, reward
+        pr.policy, pr.termination, pr.reward, pr.done_model = None, termination, reward, done_model
         pr.next_option = None if args.true_environment else graph.nodes[option_name].option
         pr.next_option = pr.next_option if not args.true_actions else graph.nodes["Action"].option # true actions forces the next option to be Action
         print("keys", list(graph.nodes.keys()))
@@ -197,7 +202,9 @@ if __name__ == '__main__':
     else:
         trainbuffer = ParamReplayBuffer(args.buffer_len, stack_num=1)
 
-    train_collector = OptionCollector(option.policy, environment, trainbuffer, exploration_noise=True, option=option, use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment) # for now, no preprocess function
+    train_collector = OptionCollector(option.policy, environment, trainbuffer, exploration_noise=True, 
+                        option=option, use_param=args.parameterized, use_rel=args.relative_state, 
+                        true_env=args.true_environment, param_recycle=args.param_recycle) # for now, no preprocess function
     MAXEPISODELEN = 100
     test_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment, test=True, print_test=args.print_test)
     # test_collector = ts.data.Collector(option.policy, environment)

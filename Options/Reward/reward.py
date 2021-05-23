@@ -61,7 +61,7 @@ class TrueNegativeCombinedReward(Reward):
 			new_true = true_reward.copy()
 			new_true[true_reward > 0] = 0
 		else:
-			new_true = 0 if true_reward > 0 else true_reward
+			new_true = 0 if true_reward > 0 else 1
 		return self.combined.get_reward(input_state, state, param, true_reward) + self.rlambda * np.squeeze(true_reward * new_true)
 
 class CombinedReward(Reward):

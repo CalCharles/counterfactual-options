@@ -115,7 +115,9 @@ if __name__ == '__main__':
     graph.load_environment_model(environment_model)
 
     MAXEPISODELEN = 150
-    test_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment, test=True, print_test=True)
+    test_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, 
+        use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment, test=True, 
+        print_test=True, param_recycle = args.param_recycle)
 
     # if args.set_time_cutoff:
     # option.time_cutoff = -1

@@ -12,7 +12,7 @@ class ParamReplayBuffer(ReplayBuffer):
     # target, next target is the state of the target object, used for reward and termination
     # true_reward, true_done are the actual dones and rewards
     # option_terminate is for temporal extension, stating if the last object terminated
-    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", "mask", "target", "next_target", "true_reward", "true_done", "option_resample", "mapped_act")
+    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", "mask", "target", "next_target", "terminate", "true_reward", "true_done", "option_resample", "mapped_act")
 
     def __getitem__(self, index: Union[slice, int, List[int], np.ndarray]) -> Batch:
         """Return a data batch: self[index].
@@ -38,6 +38,7 @@ class ParamReplayBuffer(ReplayBuffer):
             act=self.act[indice],
             rew=self.rew[indice],
             done=self.done[indice],
+            terminate = self.terminate[indice],
             obs_next=obs_next,
             info=self.get(indice, "info", Batch()),
             policy=self.get(indice, "policy", Batch()),
@@ -52,7 +53,7 @@ class ParamReplayBuffer(ReplayBuffer):
         )
 
 class ParamPriorityReplayBuffer(PrioritizedReplayBuffer): # not using double inheritance so exactly the same as above.
-    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", "mask", "target", "next_target", "true_reward", "true_done", "option_resample", "mapped_act")
+    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", "mask", "target", "next_target", "terminate", "true_reward", "true_done", "option_resample", "mapped_act")
 
     def __getitem__(self, index: Union[slice, int, List[int], np.ndarray]) -> Batch:
         """Return a data batch: self[index].
@@ -78,6 +79,7 @@ class ParamPriorityReplayBuffer(PrioritizedReplayBuffer): # not using double inh
             act=self.act[indice],
             rew=self.rew[indice],
             done=self.done[indice],
+            terminate = self.terminate[indice],
             obs_next=obs_next,
             info=self.get(indice, "info", Batch()),
             policy=self.get(indice, "policy", Batch()),

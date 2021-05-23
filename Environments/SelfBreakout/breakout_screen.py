@@ -9,12 +9,13 @@ from Environments.environment_specification import RawEnvironment
 from gym import spaces
 
 class Screen(RawEnvironment):
-    def __init__(self, frameskip = 1):
+    def __init__(self, frameskip = 1, drop_stopping=False):
         super(Screen, self).__init__()
         self.num_actions = 4
         self.action_space = spaces.Discrete(self.num_actions)
         self.observation_space = spaces.Box(low=0, high=255, shape=(84, 84), dtype=np.uint8)
 
+        self.drop_stopping = drop_stopping
         self.done = False
         self.reward = 0
         self.seed_counter = -1
@@ -127,8 +128,8 @@ class Screen(RawEnvironment):
                 ani_obj.move()
             if last_loss != self.ball.losses:
                 self.reward += -1 # negative reward for dropping the ball since done is not triggered
-            # if last_loss != self.ball.losses:
-            #     self.done = True
+            if last_loss != self.ball.losses and self.drop_stopping:
+                self.done = True
             if self.ball.losses == 5:
                 self.average_points_per_life = self.total_score / 5.0
                 self.done = True
