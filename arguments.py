@@ -53,12 +53,18 @@ def get_args():
                         help='converts a continuous action space to a discrete one (TODO: currently requires relative-action)')
     parser.add_argument('--relative-state', action='store_true', default=False,
                     help='concatenates on the relative state between objects to the input state to RL network')
+    parser.add_argument('--relative-param', type=int, default=0,
+                        help='adds the difference between object state and param to the network (2 should be masked, 1 unmasked) (default: 0, not used)')
+    parser.add_argument('--param-first', action='store_true', default=False,
+                    help='concatenates on the parameter as the first part of the input')
     parser.add_argument('--relative-action', type=float, default=-1,
                     help='the model computes actions relative to the current object position (-1 is not used)')
     parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256],
                         help='sizes of the internal hidden layers')
     parser.add_argument('--init-form', default="none",
                         help='choose the initialization for the weights')    
+    parser.add_argument('--use-layer-norm', action='store_true', default=False,
+                    help='uses layer norm in the network')
     parser.add_argument('--activation', default="relu",
                         help='choose the activation function (TODO: not used at the moment)')    
     parser.add_argument('--reward-normalization', action='store_true', default=False,
@@ -70,7 +76,7 @@ def get_args():
                     help='shift the actions back one time step so the action is applied at the last time step')
     # Meta-Hyperparameters
     parser.add_argument('--policy-type', default="basic",
-                        help='choose the model form for the policy, which is defined in Policy.policy')
+                        help='choose the model form for the policy, which is defined in Policy.policy, overloaded to also specify the kind of network when training the hypothesis model')
     parser.add_argument('--terminal-type', default="param",
                         help='choose the way the terminal condition is defined, in Option.Termination.termination')
     parser.add_argument('--reward-type', default="bin",
@@ -91,6 +97,8 @@ def get_args():
     parser.add_argument('--epsilon-schedule', type=float, default=-1,
                     help='uses exp (-steps/epsilon-schedule) to compute epsilon at a given step, -1 for no schedule')
     # termination set parameters
+    parser.add_argument('--max-distance-epsilon', type=float, default=-1,
+                    help='minimum distance for multi-instanced reward/termination (default: -1)')
     parser.add_argument('--epsilon-close', type=float, default=0.1,
                     help='minimum distance for states to be considered the same')
     parser.add_argument('--epsilon-min', type=float, default=0.1,
@@ -103,6 +111,12 @@ def get_args():
                         help='number of steps before forcing the end of episode flag (default: -1 (not used))')
     parser.add_argument('--param-recycle', type=float, default=0.0,
                     help='probability of choosing the same param after termination')
+    parser.add_argument('--norm-variance', type=float, default=5.0,
+                    help='variance used for normalization')
+    parser.add_argument('--base-variance', type=float, default=1e-2,
+                    help='add a small variance to limit overfitting to easy to predict parts')
+    parser.add_argument('--multi-instanced', action = 'store_true', default=False,
+                    help='if interaction trains to predict a vector')
     # sampler parameters
     parser.add_argument('--sample-continuous', type=int, default=0,
                         help='use already existing values if 0, false if 1, true if 2')
@@ -164,13 +178,19 @@ def get_args():
                         help='difference between P,A, Active greater than, passive less than  (default: empty list)')
     parser.add_argument('--force-mask', type=float, nargs='+', default=list(),
                         help='a hack to control the parameter mask  (default: empty list)')
+    parser.add_argument('--interaction-weight', type=float, default=1000,
+                        help='the weight given to interaction values compared to normal values (default: 1000)')
     parser.add_argument('--interaction-probability', type=float, default=-1,
                         help='the minimum probability needed to use interaction as termination -1 for not used (default: -1)')
     parser.add_argument('--interaction-prediction', type=float, default=0,
                         help=('the minimum distance to define the active set (default: 0.3)' + 
                             'overloaded to also represent the decay rate for interaction probability for termination per step until interaction-probability from 1'))
+    parser.add_argument('--active-epsilon', type=float, default=.5,
+                        help='the minimum distance for a single dimension in the active set default .5 ')
     parser.add_argument('--sample-schedule', type=int, default=-1,
                     help='changes sampling after a certain number of calls')
+    parser.add_argument('--passive-error-cutoff', type=float, default=2,
+                        help='the cutoff for error to weight the value (default: 2)')
     parser.add_argument('--passive-weighting', action ='store_true', default=False,
                         help='weight with the passive error')
 
@@ -250,6 +270,9 @@ def get_args():
                         help='load the options for the existing network')
     parser.add_argument('--load-network', default="",
                         help='path to network')
+    parser.add_argument('--change-option', action ='store_true', default=False,
+                        help='switch the option but keep the policy')
+
     args = parser.parse_args()
 
     args.discount_factor = args.gamma # TianShou Support

@@ -122,6 +122,7 @@ class Pushing(RawEnvironment):
         self.clear_interactions()
         for i in range(self.frameskip):
             self.zero_velocities()
+            # print("before", i, self.get_state()['factored_state'])
             self.actions.attribute = action
             self.gripper.applyAction(self.actions)
             for i in range(len(self.objects)):
@@ -132,8 +133,10 @@ class Pushing(RawEnvironment):
                         o1.actContact(contact, o2)
             for i in range(len(self.objects)):
                 self.objects[i].move()
+            # self.zero_velocities()
             if self.block.pos[0] < 0 or self.block.pos[0] > 84 or self.block.pos[1] < 0 or self.block.pos[1] > 84:
                 self.reset_object(self.block)  
+            # print("after", self.get_state()['factored_state'])
             extracted_state = {**{obj.name: np.array(obj.getMidpoint().tolist() + obj.getVel().tolist() + [obj.getAttribute()]) for obj in self.objects}, **{'Reward': [self.reward], 'Done': [self.done]}}
             rawframe = None
             if render:

@@ -9,6 +9,7 @@ import numpy as np
 from typing import Any, Dict, List, Union, Optional, Callable
 from collections import deque
 from file_management import printframe, saveframe
+from Networks.network import pytorch_model
 
 from Rollouts.param_buffer import ParamReplayBuffer
 from tianshou.policy import BasePolicy
@@ -229,6 +230,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         episode_start_indices = []
         rews = 0
         true_done_trigger = 0
+        closest = list()
 
         self.data.update(full_state=[self.option.environment_model.get_state()])
         targets, actions, obs = list(), list(), list()
@@ -260,6 +262,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 # print("rand:", resampled)
                 # else:
                 #     action_chain=[self._action_space[i].sample() for i in ready_env_ids] #line makes no sense
+                if type(act) == np.ndarray: act = act.squeeze()
                 self.data.update(act=[act], mapped_act=[action_chain[-1]], true_action=[action_chain[0]], option_resample=[[resampled]])
                 if state_chain is not None: self.data.update(state_chain = state_chain)
                 # act = [action_chain[-1]]
@@ -286,10 +289,12 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 # else: act = to_numpy(result.act)
                 # if self.exploration_noise:
                 #     act = self.policy.exploration_noise(act, self.data)
+                if type(act) == np.ndarray: act = act.squeeze() 
                 self.data.update(policy=policy, act=[act], mapped_act=[action_chain[-1]], option_resample=[resampled])
             if action_record is not None:
                 action_record.append(action_chain[-1])
             self.force_action=False
+            # print(act)
             actions.append(act)
             # get bounded and remapped actions first (not saved into buffer)
             # if self.use_forced_actions:
@@ -317,22 +322,57 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             target = [self.option.get_state(self.data.full_state[0], form=1, inp=1)]
             targets.append(obs_next)
             # print(target, self.option.next_option.get_state(self.data.full_state, form=1,inp=1))
-            timed_out = self.option.step_timer(true_done)
             # print(self.param, self.mask)
+            # print(self.option.object_name, self.option.reward)
             dones, rewards, terminations = self.option.terminate_reward(self.data.full_state[0], next_full_state, self.param, action_chain, mask=self.mask)
             done, rew, term = dones[-1], rewards[-1], terminations[-1]
+            timed_out = self.option.step_timer(done)
+            # if term or done or self.option.termination.inter:
             if term or done:
                 # if self.option.termination.param_interaction:
                 p = self.param * self.mask
-                os = self.option.get_state(next_full_state, form = 1, inp=1) * self.mask
-                # print("terminate or done", term, done)
-                if np.linalg.norm(os - p, ord  = 1) <= self.option.termination.epsilon:
-                    print("hit target", self.option.get_state(self.data.full_state[0], form = 1, inp=0), self.option.get_state(next_full_state, form = 1, inp=0), self.param, self.option.termination.inter)
-                    self.hit_miss_queue.append(1)
-                else:
-                    print("missed target", self.option.get_state(self.data.full_state[0], form = 1, inp=0), self.option.get_state(next_full_state, form = 1, inp=0), self.param, self.option.termination.inter)
-                    self.hit_miss_queue.append(0)
+                if self.option.dataset_model.multi_instanced:
+                    pos = self.option.get_state(self.data.full_state[0], form = 1, inp=1)
+                    os = self.option.get_state(next_full_state, form = 1, inp=1)
+                    instanced = self.option.dataset_model.split_instances(os)
+                    pinst = self.option.dataset_model.split_instances(pos)
+                    hit = pytorch_model.unwrap(self.option.dataset_model.interaction_model.instance_labels(self.option.get_state(self.data.full_state[0], form=1, inp=0)))
+                    hit[hit < self.option.dataset_model.interaction_minimum] = 0
+                    hit = hit.nonzero()[1]
+                    inverse_mask = self.mask.copy()
+                    inverse_mask[self.mask == 0] = -1
+                    inverse_mask[self.mask == 1] = 0
+                    inverse_mask *= -1
+                    # print(inverse_mask, self.param, np.abs((instanced - self.param) * inverse_mask).shape, np.abs((instanced - self.param) * inverse_mask)[0], instanced[0])
+                    remasked = np.abs((instanced - self.param) * inverse_mask)
+                    diff = np.sum(np.abs(remasked), axis=1)
+                    idxes = np.argmin(diff, axis=0)
+                    pos, os = pinst[idxes], instanced[idxes]
+                    phit, hit = pinst[hit], instanced[hit]
+                    hitv = hit[-1] if len(hit) > 0 else hit
+                    # print(pos, os)
+                    ep_close = self.option.termination.terminator.epsilon
+                    inter = self.option.termination.inter
+                    # print("terminate or done", term, done)
 
+                    if term:
+                        print("hit target", phit, hitv, pos[-1], os[-1], self.param, inter, term, done)
+                        self.hit_miss_queue.append(1)
+                    else:
+                        print("missed target", phit, hitv, pos[-1], os[-1], self.param, inter, term, done)
+                        self.hit_miss_queue.append(0)
+                else:
+                    os = self.option.get_state(next_full_state, form = 1, inp=1) * self.mask
+                    ep_close = self.option.termination.epsilon_close
+                    inter = self.option.termination.inter
+                    # print("terminate or done", term, done)
+                    if np.linalg.norm(os - p, ord  = 1) <= ep_close:
+                        print("hit target", self.option.get_state(self.data.full_state[0], form = 1, inp=0), self.option.get_state(next_full_state, form = 1, inp=0), self.param, inter, term, done)
+                        self.hit_miss_queue.append(1)
+                    else:
+                        print("missed target", self.option.get_state(self.data.full_state[0], form = 1, inp=0), self.option.get_state(next_full_state, form = 1, inp=0), self.param, inter, term, done)
+                        self.hit_miss_queue.append(0)
+            # print("rew", rew)
             rews += rew
             # if self.print_test: print(rews, rew)
             self.data.update(next_target=next_target, target=target)
@@ -369,7 +409,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             full_ptr = ptr
             # print("resampled", resampled)
             # print("normal step")
-            if (resampled and not self.last_done and not self.last_term) or done or term:
+            if (resampled and not self.last_done and not self.last_term) or done or term or (self.option.dataset_model.multi_instanced and pytorch_model.unwrap(self.option.dataset_model.interaction_model(pytorch_model.wrap(self.option.get_state(self.data.full_state[0]), cuda=self.option.iscuda)))):
                 # print(self.data.act)
                 # print("resampling")
                 next_data, ptr, ep_rew_te, ep_len_te, ep_idx_te = self.aggregate(ptr, ready_env_ids)
@@ -380,18 +420,19 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 # print(self.policy.collect and not self.test and not random and resampled, not self.test, not random)
                 # if not random:
                 #     print("add true done", self.data.true_done, next_data.true_done, self.policy.collect and not self.test and not random and resampled)
-                if self.policy.collect and not self.test and not random and resampled: self.policy.collect(next_data, self.data)
+                if self.policy.collect and not self.test and not random: self.policy.collect(next_data, self.data)
             self.full_at = self.next_index(full_ptr[0])
 
             self.last_done = np.any(done)
             self.last_term = np.any(term)
 
+            if self.print_test: print(self.data.obs.squeeze(), self.data.act.squeeze())
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()
                 new_frame = visualize(frame, self.data.target[0], self.param, self.mask)
                 if visualize_param != "nosave":
                     saveframe(new_frame, pth=visualize_param, count=full_ptr, name="param_frame")
-                printframe(new_frame, waittime=10)
+                printframe(new_frame, waittime=1)
             # if self.visualize:
             #     frame = np.array(self.env.render()).squeeze()
             #     # print(np.array(frame).shape)
@@ -454,7 +495,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 # if not self.test: print("done called: param", self.param, obs_next, rewards, dones, self.option.get_state(next_full_state, form=1, inp=0), self.option.timer, true_done)
                 # print("episode occurred", episode_count, step_count)
             if np.any(true_done):
-                print("reached done")
+                # print("reached done", done, true_done, dones, term)
                 obs_reset = self.env.reset(env_ind_global)
                 # print("param at done", self.param)
                 if self.preprocess_fn:
@@ -494,13 +535,15 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         #         np.concatenate, [episode_rews, episode_lens, episode_start_indices]))
         # else:
         rews, lens, idxs = np.array(rews), np.array([], int), np.array([], int)
+        # print(actions)
         act_stack = np.stack(actions, axis=0)
         if len(act_stack.shape) < 2:
             act_stack = np.expand_dims(actions, axis=1)
+        # if self.print_test: print("actions, ", act_stack.squeeze())
         # print(self.data)
         # print(targets[0].shape, self.data.target.shape, act_stack.shape)
         # print(np.stack(targets, axis=0), act_stack.shape)
-        if self.print_test: print("targets, actions", np.concatenate((np.stack(targets, axis=0), act_stack), axis=1))
+        # if self.print_test: print("targets, actions", np.concatenate((np.stack(targets, axis=0), act_stack), axis=1))
         return { # TODO: some of these don't return valid values
             "n/ep": episode_count,
             "n/tr": term_count,

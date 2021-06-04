@@ -3,11 +3,56 @@ import numpy as np
 import os, cv2, time, torch
 from ReinforcementLearning.Policy.policy import pytorch_model
 
+def invert_mask(mask):
+	inverse_mask = mask.copy()
+	inverse_mask[mask == 0] = -1
+	inverse_mask[mask == 1] = 0
+	inverse_mask *= -1
+	return inverse_mask
+
+def compute_instance_indexes(instanced, param, inverse_mask, multi=-1):
+	# multi returns a single state if -1, or any state within range multi otherwise
+	if len(instanced.shape) == 3: # batch of values
+		remasked = list()
+		if len(param.shape) == 2:
+			for par, ins in zip(param, instanced):
+				remasked.append((ins - par) * inverse_mask)
+		else:
+			for ins in instanced:
+				remasked.append((ins - param) * inverse_mask)
+		remasked = np.stack(remasked, axis=0)
+		diff = np.sum(np.abs(remasked), axis=2) # batch x obj
+		if multi < 0:
+			idxes = np.argmin(diff, axis=1)
+			idxes = idxes
+		else:
+			# binarize diff
+			diff[diff <= multi] = 1
+			diff[diff > multi] = 0
+			idxes = diff.nonzero()
+		# print(diff, idxes, remasked.shape, instanced.shape, param.shape)
+	else:
+		remasked = (instanced - param) * inverse_mask
+		diff = np.sum(np.abs(remasked), axis=1)
+		if multi < 0:
+			idxes = np.argmin(diff, axis=0)
+			idxes = idxes
+		else:
+			# binarize diff
+			diff[diff <= multi] = 1
+			diff[diff > multi] = 0
+			idxes = diff.nonzero()
+			idxes = ([0], idxes[0])
+	# print(idxes)
+	return idxes
+		# print(instanced[idxes], param)
+
+
 class Termination():
 	def __init__(self, **kwargs):
 		pass
 
-	def check(self, state, param):
+	def check(self, input_state, state, param, mask, true_done=0):
 		return True
 
 class ParameterizedStateTermination(Termination):
@@ -44,7 +89,7 @@ class ParameterizedStateTermination(Termination):
 			self.discrete_parameters, self.counts = assign_dict(dataset_model.observed_outcomes[self.name], dataset_model.outcome_counts[self.name])
 			dataset_model.observed_outcomes[self.name], dataset_model.outcome_counts[self.name] = self.discrete_parameters, self.counts 
 
-	def check(self, input_state, state, param, true_done=0): # handling diff/both outside
+	def check(self, input_state, state, param, mask, true_done=0): # handling diff/both outside
 		# NOTE: input state is from the current state, state, param are from the next state
 		# param = self.convert_param(param)
 		# if self.use_both:
@@ -61,9 +106,9 @@ class ParameterizedStateTermination(Termination):
 		# 		return (diff - param).norm(p=1, dim=1) <= self.epsilon
 		# else:
 		if len(state.shape) == 1:
-			return np.linalg.norm(state - param, ord  = 1) <= self.epsilon
+			return np.linalg.norm((state - param) * mask, ord  = 1) <= self.epsilon
 		else:
-			return np.linalg.norm(state - param, ord =1, axis=1 ) <= self.epsilon
+			return np.linalg.norm((state - param) * mask, ord =1, axis=1 ) <= self.epsilon
 
 class InteractionTermination(Termination):
 	def __init__(self, **kwargs):
@@ -71,7 +116,7 @@ class InteractionTermination(Termination):
 		self.interaction_model = kwargs["dataset_model"]
 		self.epsilon = kwargs["epsilon"]
 
-	def check(self, input_state, state, param, true_done=0):
+	def check(self, input_state, state, param, mask, true_done=0):
 		# NOTE: input state is from the current state, state, param are from the next state
 		interaction_pred = self.interaction_model(pytorch_model.wrap(input_state))
 		return interaction_pred > 1 - self.epsilon
@@ -80,23 +125,26 @@ class CombinedTermination(Termination):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 		self.dataset_model = kwargs["dataset_model"]
-		self.epsilon = kwargs["epsilon"]
+		self.epsilon = self.dataset_model.interaction_prediction
+		self.epsilon_close = kwargs["epsilon"]
 		self.interaction_model = self.dataset_model.interaction_model
 		self.parameterized_termination = ParameterizedStateTermination(**kwargs)
 		self.interaction_probability = kwargs["interaction_probability"]
 		self.param_interaction = kwargs["param_interaction"]
 		self.inter = 0
+		self.inter_pred = 0
 
-	def check(self, input_state, state, param, true_done=0):
+	def check(self, input_state, state, param, mask, true_done=0):
 		# NOTE: input state is from the current state, state, param are from the next state
 		# terminates if the parameter matches and interaction is true
 		# has some probability of terminating if interaction is true
 		# print("second", param, state)
 		interaction_pred = pytorch_model.unwrap(self.interaction_model(pytorch_model.wrap(input_state, cuda=self.interaction_model.iscuda)).squeeze())
 		# print(interaction_pred, input_state)
+		self.inter_pred = interaction_pred
 		inter = interaction_pred > (1 - self.epsilon)
 		self.inter = inter
-		param_term = self.parameterized_termination.check(input_state, state, param)
+		param_term = self.parameterized_termination.check(input_state, state, param, mask)
 		if self.interaction_probability > 0:
 			chances = np.random.random(size=interaction_pred.shape) < self.interaction_probability
 			if not self.param_interaction: param_inter = True
@@ -113,16 +161,108 @@ class CombinedTermination(Termination):
 		# print(inter, param_term, state, (state - param), self.parameterized_termination.epsilon)
 		return pytorch_model.unwrap(inter) * param_term
 
+class InstancedTermination(Termination):
+	def __init__(self, **kwargs): # TODO: for now, operates under fixed mask assumption
+		# self.mask = kwargs["mask"]
+		# self.inverse_mask = mask.copy()
+		# self.inverse_mask[mask == 0] = -1
+		# self.inverse_mask[mask == 1] = 0
+		# self.inverse_mask *= -1
+		self.terminator = terminal_forms[kwargs["terminal_type"][4:]](**kwargs)
+		self.dataset_model = kwargs["dataset_model"]
+		self.inter = self.terminator.inter
+
+	def check(self, input_state, state, param, mask, true_done=0):
+		'''
+		finds out of the desired instance now has the desired value,
+		Finds the instance by matching the values of the instance NOT masked (inverse mask)
+		'''
+		instanced = self.dataset_model.split_instances(state)
+		inverse_mask = invert_mask(mask)
+		indexes = compute_instance_indexes(instanced, param, inverse_mask, multi=-1)
+		output = self.terminator.check(input_state, instanced[idxes], param, mask, true_done)
+		self.inter = self.terminator.inter
+		return output
+
+class ProximityInstancedTermination(Termination):
+	def __init__(self, **kwargs): # TODO: for now, operates under fixed mask assumption
+		# self.mask = kwargs["mask"]
+		# self.inverse_mask = mask.copy()
+		# self.inverse_mask[mask == 0] = -1
+		# self.inverse_mask[mask == 1] = 0
+		# self.inverse_mask *= -1
+		self.terminator = ParameterizedStateTermination(**kwargs)
+		self.dataset_model = kwargs["dataset_model"]
+		self.inter = 0 # this method performs interaction checking, but does not use it
+		self.max_distance_epsilon = max(kwargs["max_distance_epsilon"], 1)
+		self.epsilon = kwargs['epsilon']
+
+
+	def check(self, input_state, state, param, mask, true_done=0):
+		instanced = self.dataset_model.split_instances(state)
+		inverse_mask = invert_mask(mask)
+		batch_idx, inst_idx = compute_instance_indexes(instanced, param, inverse_mask, multi=self.max_distance_epsilon)
+		inter_bin = pytorch_model.unwrap(self.dataset_model.interaction_model.instance_labels(pytorch_model.wrap(input_state, cuda=self.dataset_model.iscuda)))
+		inter_bin[inter_bin < self.dataset_model.interaction_prediction] = 0
+		inter_bin[inter_bin >= self.dataset_model.interaction_prediction] = 1
+		# inter_bin = inter_bin.nonzero()
+		batched = False
+		if len(instanced.shape) == 3:
+			batched = True
+		if batched:
+			ctr = 0
+			output =list()
+			for i in range(instanced.shape[0]):
+				# if len(batch_idx) - 1 < ctr: # No close indexes left, should not be possible with blocks since they don't move
+				# 	output.append(False)
+				if np.sum(inter_bin[i]) == 0: # there are no interactions for this instance in the batch
+					output.append(False)
+				else: 
+					bi, ii = batch_idx[ctr], inst_idx[ctr]
+					if i < bi:
+						output.append(False)
+						continue
+					curr_output = list()
+					while bi == i:
+						# print(inter_bin.shape, i, ii)
+						if inter_bin[i, ii] == 1:
+						# print(batch_idx, inst_idx, bi, ii, instanced[bi, ii], param, mask)
+							curr_output.append(np.linalg.norm((instanced[bi, ii] - param) * mask, ord =1) <= self.epsilon)
+						if ctr + 1 >= len(batch_idx):
+							break
+						ctr += 1
+						bi, ii = batch_idx[ctr], inst_idx[ctr]
+					outf = np.max(curr_output) if len(curr_output) > 0 else False
+					output.append(outf)
+			output = np.stack(output, axis=0)
+		else:
+			inter_bin = inter_bin.squeeze()
+			output = list()
+			if np.sum(inter_bin) == 0: # no interactions
+				output = False
+			else:
+				for idx in inst_idx:
+					# print(inter_bin.shape, idx)
+					if inter_bin[idx] == 1:
+						print("done", mask, instanced[idx], param, np.linalg.norm((instanced[idx] - param) * mask, ord =1), self.epsilon, np.linalg.norm((instanced[idx] - param) * mask, ord =1) <= self.epsilon)
+						output.append(np.linalg.norm((instanced[idx] - param) * mask, ord =1) <= self.epsilon)
+				output = np.max(output) if len(output) > 0 else False
+		self.inter = pytorch_model.unwrap(self.dataset_model.interaction_model(input_state) > self.dataset_model.interaction_prediction)
+		# if not batched:
+		# 	print("termination", output, self.inter)
+		return output
+
+
 class TrueTermination(Termination):
-	def check(self, input_state, state, param, true_done=0):
+	def check(self, input_state, state, param, mask, true_done=0):
 		return true_done
 
 class EnvFnTermination(Termination):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
-		self.term_fn = kwargs["env"].check_done
+		self.term_fn = kwargs["environment"].check_done
 
-	def check(self, input_state, state, param, true_done=0):
+	def check(self, input_state, state, param, mask, true_done=0):
 		return self.term_fn(input_state, state, param)
 
-terminal_forms = {'param': ParameterizedStateTermination, 'comb': CombinedTermination, 'true': TrueTermination, 'env': EnvFnTermination}
+terminal_forms = {'param': ParameterizedStateTermination, 'comb': CombinedTermination, 'inst': InstancedTermination, 'proxist': ProximityInstancedTermination, 'true': TrueTermination, 'env': EnvFnTermination}

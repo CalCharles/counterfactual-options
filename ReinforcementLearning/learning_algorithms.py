@@ -82,6 +82,7 @@ class HER(LearningOptimizer):
         # self.replay_buffer = ParamReplayBuffer(args.buffer_len, 1)
 
         self.last_done = 0
+        self.last_res = 0
         self.select_positive = args.select_positive
         self.resample_timer = args.resample_timer
         self.use_interact = not args.true_environment and args.use_interact
@@ -98,31 +99,52 @@ class HER(LearningOptimizer):
                 
         # ptr, ep_rew, ep_len, ep_idx = self.replay_buffer.add(full_batch, buffer_ids=[0]) # TODO: hacked buffer IDs because parallelism not supported
         self.replay_queue.append(copy.deepcopy(full_batch))
+        # self.last_true_done += 1 
         # print("shapes", full_batch.param.shape, self.replay_buffer.param.shape)
         # self.rollouts.append(**self.option.get_state_dict(state, next_state, action_chain, rl_outputs, param, rewards, dones))
         self.last_done += 1
+        self.last_res += 1
         # print(self.last_done)
         # if dones[-1] == 1: # option terminated, resample
-        if (self.last_done == self.resample_timer and self.resample_timer > 0) or np.any(full_batch.terminate): # either end of episode or end of timer
+        # print("adding", self.last_res, self.resample_timer, (self.last_res == self.resample_timer and self.resample_timer > 0), np.any(full_batch.terminate))
+        if (self.last_res == self.resample_timer and self.resample_timer > 0) or np.any(full_batch.terminate): # either end of episode or end of timer
             # if ((self.last_done == self.resample_timer and self.resample_timer > 0)):
             #     print("resetting")
             interacting = True
-            interact = self.option.dataset_model.interaction_model(self.option.get_state(full_batch.full_state)) # edit interaction model to take numpy arrays
+            # interact = self.option.dataset_model.interaction_model(self.option.get_state(full_batch.full_state)) # edit interaction model to take numpy arrays
             if self.use_interact:
                 interact = self.option.dataset_model.interaction_model(self.option.get_state(full_batch.full_state)) # edit interaction model to take numpy arrays
                 # interact = self.option.dataset_model.interaction_model(self.option.get_state(next_state))
                 interacting = self.option.dataset_model.check_interaction(interact)
                 # print(interacting, interact)
             # print("DONE REACHED!!", self.use_interact, interacting, self.last_done)
+            
+            # print(interacting, self.last_res, self.resample_timer)
             if interacting:
                 # indexes = (self.rollouts.at - self.last_done) % self.rollouts.length
                 # indexes = np.array([(ptr[0] + 1 - self.last_done + i) % self.replay_buffer.maxsize for i in range(self.last_done)])
                 mask = full_batch.mask[0]
-                param = self.option.get_state(full_batch["next_full_state"][0], inp=1) * mask
+                if self.option.dataset_model.multi_instanced: # if multiinstanced, param should not be masked, and needs to be defined by the instance, not just the object state
+                    dataset_model = self.option.dataset_model
+                    instances = dataset_model.split_instances(self.option.get_state(single_batch["next_full_state"][0], inp=1))
+                    interact_bin = dataset_model.interaction_model.instance_labels(self.option.get_state(full_batch.full_state[0]))
+                    # print(interact_bin, dataset_model.check_interaction(interact_bin))
+                    idx = pytorch_model.unwrap(dataset_model.check_interaction(interact_bin).nonzero())
+                    # if len(idx) > 1: # only choose one target
+                    idx = idx[0][1]
+                    param = instances[idx]
+                    # print(param, idx, instances.shape)
+                else:
+                    param = self.option.get_state(full_batch["next_full_state"][0], inp=1) * mask
+                # if self.min_hindsight < 0:
+                #     num_back = max(self.min_hindsight, self.last_true_done * float(self.min_hindsight > 0))
+                # else:
+                num_back = min(self.max_hindsight, self.last_done)
                 num_vals = self.last_done
                 # broadcast_object_state = np.stack([param.copy() for _ in range(num_vals)], axis=0)
                 rv_search = list()
-                for i in range(1, min(self.max_hindsight, self.last_done)+1): # go back in the replay queue, but stop if last_done is hit
+                # max_val = max(self.min_hindsight, self.last_true_done * float(self.min_hindsight > 0))
+                for i in range(1, num_back+1): # go back in the replay queue, but stop if last_done is hit
                     full_state = self.replay_queue[-i]
                     full_state.update(param=[param.copy()], obs = self.option.assign_param(full_state.obs, param),
                         obs_next = self.option.assign_param(full_state.obs_next, param))
@@ -131,9 +153,10 @@ class HER(LearningOptimizer):
                     true_done = full_state.true_done
                     true_reward = full_state.true_reward
                     # print(input_state, object_state, param, true_done)
-                    term = self.option.termination.check(input_state, object_state * mask, param, true_done)
+                    term = self.option.termination.check(input_state, object_state, param, mask, true_done)
                     done = self.option.done_model.check(term, 1, true_done)
-                    rew = self.option.reward.get_reward(input_state, object_state * mask, param, true_reward)                    # print(done, term, true_done, input_state.shape, object_state.shape)
+                    rew = self.option.reward.get_reward(input_state, object_state, param, mask, true_reward)
+                    # print(done, term, true_done, input_state.shape, object_state.shape)
                     full_state.update(done=done, terminate=term, rew=rew)
                     rv_search.append(full_state)
                 for i in range(1, len(rv_search)+1):
@@ -179,9 +202,18 @@ class HER(LearningOptimizer):
             # #         self.option.dataset_model.interaction_model(self.option.get_state(full_batch.next_full_state)), self.option.get_state(full_batch.full_state),
             # #         self.option.get_state(full_batch.next_full_state),
             # #         self.option.get_state(single_batch.full_state), self.option.get_state(single_batch.next_full_state))
-            self.last_done = 0 # resamples as long as any done/resample time is reached, not just an interacting one
+            self.last_res = 0
+            if np.any(full_batch.terminate):
+                self.last_done = 0 # resamples as long as any done is reached, not just an interacting one
+                del self.replay_queue
+                self.replay_queue = list()
+        if np.any(full_batch.true_done[0]):
+            self.last_res = 0
+            self.last_done = 0
+            self.last_true_done = 0
             del self.replay_queue
             self.replay_queue = list()
+
     def sample_buffer(self, buffer):
         if np.random.random() > self.select_positive or len(self.replay_buffer) == 0:
         # print(len(buffer), len(self.replay_buffer))

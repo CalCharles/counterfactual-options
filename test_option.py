@@ -17,6 +17,7 @@ from ReinforcementLearning.test_RL import testRL
 from ReinforcementLearning.Policy.policy import TSPolicy, pytorch_model
 from EnvironmentModels.environment_model import FeatureSelector
 from Options.Termination.termination import terminal_forms
+from Options.done_model import DoneModel
 from Options.option_graph import OptionGraph, OptionNode, load_graph
 from Options.option import Option, PrimitiveOption, option_forms
 from Options.Reward.reward import reward_forms
@@ -91,20 +92,55 @@ if __name__ == '__main__':
         dataset_model.cuda()
     # print(dataset_model.observed_outcomes)
     graph = load_graph(args.graph_dir)
-    termination = terminal_forms[args.terminal_type](name=args.object, min_use=args.min_use, dataset_model=dataset_model, epsilon=args.epsilon_close, 
-                                                    interaction_probability=args.interaction_probability, env=environment, param_interaction=args.param_interaction)
-    reward = reward_forms[args.reward_type](epsilon=args.epsilon_close, parameterized_lambda=args.parameterized_lambda, interaction_lambda = args.interaction_lambda, 
-                                            reward_constant= args.reward_constant, interaction_model=dataset_model.interaction_model, interaction_minimum=dataset_model.interaction_minimum,
-                                            env=environment, true_reward_lambda=args.true_reward_lambda) # using the same epsilon for now, but that could change
+    # TODO: none of these are actually being used lol
+    tt = args.terminal_type[:4] if args.terminal_type.find('inst') != -1 else args.terminal_type
+    rt = args.reward_type[:4] if args.reward_type.find('inst') != -1 else args.reward_type
+    ep, args.epsilon = args.epsilon, args.epsilon_close
+    termination = terminal_forms[tt](name=args.object, dataset_model=dataset_model, environment=environment, **vars(args))
+    print(rt, reward_forms[rt])
+    reward = reward_forms[rt](dataset_model=dataset_model, interaction_minimum=dataset_model.interaction_minimum, environment=environment, **vars(args)) # using the same epsilon for now, but that could change
+    args.epsilon, args.epsilon_close = ep, args.epsilon
+    done_model = DoneModel(use_termination = args.use_termination, time_cutoff=args.time_cutoff, true_done_stopping = not args.not_true_done_stopping)
     print (dataset_model.name)
+
+    # hack to fix old versions REMOVE
+    action_option = graph.nodes["Action"].option
+    action_option.action_featurizer = dataset_model.controllable[0]
+    print(graph.nodes.keys())
+    graph.nodes["Paddle"].option.param_first = False
+    # graph.nodes["Ball"].option.param_first = False
+    dataset_model.object_dim = 5
+    dataset_model.multi_instanced = False
+    # hacks above
+
+
     option_name = dataset_model.name.split("->")[0]
     names = [args.object, option_name]
     load_option = args.object in graph.nodes
     print(load_option, args.object)
-    option = graph.nodes[args.object].option
-    option.assign_models(models)
+    last_option = graph.nodes[args.object].option
+    if args.change_option:
+        pr.policy, pr.termination, pr.reward, pr.done_model = None, termination, reward, done_model
+        pr.next_option = None if args.true_environment else graph.nodes[option_name].option
+        pr.next_option = pr.next_option if not args.true_actions else graph.nodes["Action"].option # true actions forces the next option to be Action
+        print("keys", list(graph.nodes.keys()))
+        option = option_forms[args.option_type](pr, models, args.object, temp_ext=args.temporal_extend, relative_actions = args.relative_action, relative_state=args.relative_state, discretize_acts=args.discretize_actions, device=args.gpu) # TODO: make exploration noise more alterable 
+        if args.object == "Action" or args.object == "Raw":
+            option.discrete = not args.continuous
+        else:
+            option.discrete = False # assumes that all non-base options are continuous
+        print(option_name, option.discrete)
+        option.policy = last_option.policy
+        option.policy.option = option
+        graph.nodes[args.object] = OptionNode(args.object, option, action_shape = option.action_shape)
+    else:
+        option.assign_models(models)
     option.termination = termination
     option.reward = reward # the reward function for this option
+
+    np.set_printoptions(threshold = 1000000, linewidth = 150, precision=3)
+
+    print("sample able", dataset_model.sample_able.vals)
 
 
     policy = option.policy
@@ -120,5 +156,10 @@ if __name__ == '__main__':
         print_test=True, param_recycle = args.param_recycle)
 
     # if args.set_time_cutoff:
-    # option.time_cutoff = -1
+    option.time_cutoff = -1
     done_lengths = testRL(args, test_collector, environment, environment_model, option, names, graph)
+    if len(args.save_graph) > 0:
+        option.cpu()
+        option.save(args.save_dir)
+        print(args.object)
+        graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)

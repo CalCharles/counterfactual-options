@@ -48,7 +48,8 @@ class Sampler():
 
     def sample(self, states):
         mask = self.get_binary(states)
-        return self.get_targets(states) * mask, mask 
+        return self.get_targets(states) * mask, mask # TODO: not masking out the target not always precise
+        # return self.get_targets(states), mask 
 
 class RawSampler(Sampler):
     # never actually samples
@@ -75,6 +76,60 @@ class LinearUniformSampling(Sampler):
                 value = self.dataset_model.sample_able.vals[np.random.randint(len(self.dataset_model.sample_able.vals))].copy()
             # print(copy.deepcopy(pytorch_model.unwrap(value)))
             return copy.deepcopy(pytorch_model.unwrap(value))
+
+class InstanceSampling(Sampler):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.nosample_epsilon = .0001
+        self.environment_model = kwargs["environment_model"]
+        self.sample_exposed = True
+
+    def get_targets(self, states):
+        dstates = self.dataset_model.delta(states)
+        values = self.dataset_model.split_instances(dstates)
+        m = pytorch_model.unwrap(self.dataset_model.selection_binary) # mask is hardcoded from selection binary, not sampled
+        inv_m = m.copy()
+        inv_m[m == 0] = -1
+        inv_m[m == 1] = 0
+        inv_m *= -1
+        def find_inst_feature(state_values): # state values has shape [num_instances, state size]
+            found = False
+            sample_able_inst = list()
+            sample_able_all = list()
+            for idx, s in enumerate(state_values):
+                for h in self.dataset_model.sample_able.vals:
+                    if np.linalg.norm(s * m - h) > self.nosample_epsilon:
+                        if self.sample_exposed:
+                            for exp in self.environment_model.environment.exposed_blocks.values():
+                                if np.linalg.norm(exp.getMidpoint() - s[:2]) < self.nosample_epsilon:
+                                    sample_able_inst.append((s, h))
+                                    break
+                        else:
+                            sample_able_inst.append((s, h))
+                        sample_able_all.append((s,h))
+            # s, h = sample_able_inst[np.random.randint(len(sample_able_inst))]
+            if len(sample_able_inst) == 0:
+                print(sample_able_all, sample_able_inst, [exp.getMidpoint() for exp in self.environment_model.environment.exposed_blocks.values()])
+                return sample_able_all[np.random.randint(len(sample_able_all))]
+            return sample_able_inst[np.random.randint(len(sample_able_inst))]
+        if len(values.shape) == 3:
+            params = list()
+            # idxes = list()
+            for v in values:
+                s, val = find_inst_feature(v)
+                mval = val * m + inv_m * s
+                param.append(mval)
+                # idxes.append(idx)
+            return np.stack(param, axis=0)
+        elif len(values.shape) == 2:
+            s, val = find_inst_feature(values)
+            mval = val * m + inv_m * s
+            return mval
+
+    def sample(self, states):
+            mask = self.get_binary(states)
+            val = self.get_targets(states)
+            return val, mask # does not mask out target, justified by behavior
 
 class RandomSubsetSampling(Sampler):
     def __init__(self, **kwargs):
@@ -182,4 +237,4 @@ class GaussianOffCenteredSampling(Sampler):
 # class ReachedSampling
 
 mask_samplers = {"rans": RandomSubsetSampling, "pris": PrioritizedSubsetSampling} # must be 4 characters
-samplers = {"uni": LinearUniformSampling, "gau": GaussianCenteredSampling, "hst": HistorySampling}
+samplers = {"uni": LinearUniformSampling, "gau": GaussianCenteredSampling, "hst": HistorySampling, 'inst': InstanceSampling}

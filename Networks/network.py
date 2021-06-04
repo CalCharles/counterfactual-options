@@ -196,9 +196,14 @@ class BasicMLPNetwork(Network):
         self.hs = kwargs['hidden_sizes']
         self.use_layer_norm = kwargs['use_layer_norm']
 
-        if self.use_layer_norm:
+        if len(self.hs) == 0:
+            if self.use_layer_norm: 
+                self.model = nn.Sequential(nn.LayerNorm(self.num_inputs), nn.Linear(self.num_inputs, self.num_outputs))
+            else:
+                self.model = nn.Sequential(nn.Linear(self.num_inputs, self.num_outputs))
+        elif self.use_layer_norm:
             self.model = nn.Sequential(
-                *([nn.Linear(self.num_inputs, self.hs[0]), nn.ReLU(inplace=True),nn.LayerNorm(self.hs[0])] + 
+                *([nn.LayerNorm(self.num_inputs), nn.Linear(self.num_inputs, self.hs[0]), nn.ReLU(inplace=True),nn.LayerNorm(self.hs[0])] + 
                   sum([[nn.Linear(self.hs[i-1], self.hs[i]), nn.ReLU(inplace=True), nn.LayerNorm(self.hs[i])] for i in range(len(self.hs))], list()) + 
                 [nn.Linear(self.hs[-1], self.num_outputs)])
             )
@@ -214,6 +219,147 @@ class BasicMLPNetwork(Network):
     def forward(self, x):
         x = self.model(x)
         return x
+
+class BasicConvNetwork(Network):    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.hs = kwargs['hidden_sizes']
+        self.use_layer_norm = kwargs['use_layer_norm']
+        self.object_dim = kwargs["object_dim"]
+        self.output_dim = kwargs["output_dim"]
+        include_last = kwargs['include_last']
+
+        if len(self.hs) == 0:
+            layers = [nn.Conv1d(self.object_dim, self.output_dim, 1)]
+        else:
+            if len(self.hs) == 1:
+                layers = [nn.Conv1d(self.object_dim, self.hs[0], 1)]
+            elif self.use_layer_norm:
+                layers = ([nn.Conv1d(self.object_dim, self.hs[0], 1), nn.ReLU(inplace=True),nn.LayerNorm(self.hs[0])] + 
+                  sum([[nn.Conv1d(self.hs[i-1], self.hs[i], 1), nn.ReLU(inplace=True), nn.LayerNorm(self.hs[i])] for i in range(len(self.hs) - 1)], list())
+                    + [nn.Conv1d(self.hs[-2], self.hs[-1], 1), nn.ReLU(inplace=True)])
+            else:
+                layers = ([nn.Conv1d(self.object_dim, self.hs[0], 1), nn.ReLU(inplace=True)] + 
+                      sum([[nn.Conv1d(self.hs[i-1], self.hs[i], 1), nn.ReLU(inplace=True)] for i in range(len(self.hs) - 1)], list())
+                      + [nn.Conv1d(self.hs[-2], self.hs[-1], 1), nn.ReLU(inplace=True)])
+            if include_last: # if we include last, we need a relu after second to last. If we do not include last, we assume that there is a layer afterwards so we need a relu after the second to last
+                layers += [nn.Conv1d(self.hs[-1], self.output_dim, 1)]
+        self.model = nn.Sequential(*layers)
+        self.train()
+        self.reset_parameters()
+
+    def forward(self, x):
+        x = self.model(x)
+        return x
+
+
+class PointNetwork(Network):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # assumes the input is flattened list of input space sized values
+        # needs an object dim
+        self.object_dim = kwargs['object_dim']
+        self.hs = kwargs["hidden_sizes"]
+        self.output_dim = self.hs[-1]
+        kwargs["include_last"] = False
+        self.conv = BasicConvNetwork(**kwargs)
+        kwargs["include_last"] = True
+        kwargs["num_inputs"] = self.output_dim
+        kwargs["hidden_sizes"] = [512] # TODO: hardcoded final hidden sizes for now
+        self.MLP = BasicMLPNetwork(**kwargs)
+        self.model = nn.Sequential(self.conv, self.MLP)
+
+    def forward(self, x):
+        if len(x.shape) == 1:
+            nobj = x.shape[0] // self.object_dim
+            x.view(nobj, self.object_dim)
+        elif len(x.shape) == 2:
+            nobj = x.shape[1] // self.object_dim
+            x.view(-1, nobj, self.object_dim)
+
+        x = self.conv(x)
+        # TODO: could use additive instead of max
+        x = torch.max(x, 2, keepdim=True)[0]
+        x = x.view(-1, self.output_dim)
+        x = self.MLP(x)
+            # print(x)
+            # print(x.sum(dim=0))
+            # error
+
+        return x
+
+class PairNetwork(Network):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # assumes the input is flattened list of input space sized values
+        # needs an object dim
+        self.object_dim = kwargs['object_dim']
+        self.hs = kwargs["hidden_sizes"]
+        self.first_obj_dim = kwargs["first_obj_dim"]
+        if kwargs["first_obj_dim"] > 0: # only supports one to many concatenation, not many to many
+            kwargs["object_dim"] += self.first_obj_dim
+        if kwargs["aggregate_final"]: 
+            self.output_dim = self.hs[-1]
+            kwargs["include_last"] = False
+        else:
+            kwargs["include_last"] = True
+            self.output_dim = kwargs['output_dim']
+        self.conv = BasicConvNetwork(**kwargs)
+        self.aggregate_final = kwargs["aggregate_final"]
+        if kwargs["aggregate_final"]:
+            kwargs["include_last"] = True
+            kwargs["num_inputs"] = self.output_dim
+            kwargs["hidden_sizes"] = [] # TODO: hardcoded final hidden sizes for now
+            self.MLP = BasicMLPNetwork(**kwargs)
+            self.model = nn.Sequential(self.conv, self.MLP)
+        else:
+            self.model = [self.conv]
+
+    def forward(self, x):
+        if len(x.shape) == 1:
+            batch_size = 1
+            output_shape = x.shape[0] - self.first_obj_dim
+            if self.first_obj_dim > 0:
+                fx = x[:self.first_obj_dim] # TODO: always assumes first object dim is the first dimensions
+                x = x[self.first_obj_dim:]
+            nobj = x.shape[0] // self.object_dim
+            x = x.view(nobj, self.object_dim)
+            if self.first_obj_dim > 0:
+                broadcast_fx = torch.stack([fx.clone() for i in range(nobj)], dim=0)
+                x = torch.cat((broadcast_fx, x), dim=1)
+            x = x.transpose(1,0)
+            x = x.unsqueeze(0)
+        elif len(x.shape) == 2:
+            batch_size = x.shape[0]
+            output_shape = x.shape[1] - self.first_obj_dim
+            if self.first_obj_dim > 0:
+                fx = x[:, :self.first_obj_dim] # TODO: always assumes first object dim is the first dimensions
+                x = x[:, self.first_obj_dim:]
+            nobj = x.shape[1] // self.object_dim
+            x = x.view(-1, nobj, self.object_dim)
+            if self.first_obj_dim > 0:
+                broadcast_fx = torch.stack([fx.clone() for i in range(nobj)], dim=1)
+                # print(broadcast_fx.shape, x.shape)
+                x = torch.cat((broadcast_fx, x), dim=2)
+            # torch.set_printoptions(threshold=1000000)
+            # print(x)
+            x = x.transpose(2,1)
+
+
+        x = self.conv(x)
+        if self.aggregate_final:
+            # TODO: could use additive instead of max
+            x = torch.max(x, 2, keepdim=True)[0]
+            # print(x.shape)
+            x = x.view(-1, self.output_dim)
+            x = self.MLP(x)
+        else:
+            x = x.transpose(2,1)
+            # print(output_shape, x.shape)
+            x = x.reshape(batch_size, -1)
+        # print(x.shape)
+        return x
+
 
 class FactoredMLPNetwork(Network):    
     def __init__(self, **kwargs):

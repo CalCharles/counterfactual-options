@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from Networks.network import pytorch_model
+from Networks.network import pytorch_model, BasicMLPNetwork, PointNetwork
 import torch.nn.functional as F
 
 class TSNet(nn.Module):
@@ -32,11 +32,29 @@ class BasicNetwork(TSNet):
         super().__init__(**kwargs)
         state_shape = kwargs["num_inputs"]
         print(self.output_dim)
-        self.model = nn.Sequential(
-            *([nn.Linear(np.prod(state_shape), kwargs["hidden_sizes"][0]), nn.ReLU(inplace=True)] + 
-              sum([[nn.Linear(kwargs["hidden_sizes"][i-1], kwargs["hidden_sizes"][i]), nn.ReLU(inplace=True)] for i in range(len(kwargs["hidden_sizes"]))], list()) + 
-            [nn.Linear(kwargs["hidden_sizes"][-1], self.output_dim)])
-        )
+        kwargs["num_outputs"] = self.output_dim
+        self.model = BasicMLPNetwork(**kwargs)
+        # nn.Sequential(
+        #     *([nn.Linear(np.prod(state_shape), kwargs["hidden_sizes"][0]), nn.ReLU(inplace=True)] + 
+        #       sum([[nn.Linear(kwargs["hidden_sizes"][i-1], kwargs["hidden_sizes"][i]), nn.ReLU(inplace=True)] for i in range(len(kwargs["hidden_sizes"]))], list()) + 
+        #     [nn.Linear(kwargs["hidden_sizes"][-1], self.output_dim)])
+        # )
+        if self.iscuda:
+            self.cuda()
+
+class PointPolicyNetwork(TSNet):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        state_shape = kwargs["num_inputs"]
+        print(self.output_dim)
+        kwargs["aggregate_final"] = True
+        kwargs["num_outputs"] = self.output_dim
+        self.model = PairNetwork(**kwargs)
+        # nn.Sequential(
+        #     *([nn.Linear(np.prod(state_shape), kwargs["hidden_sizes"][0]), nn.ReLU(inplace=True)] + 
+        #       sum([[nn.Linear(kwargs["hidden_sizes"][i-1], kwargs["hidden_sizes"][i]), nn.ReLU(inplace=True)] for i in range(len(kwargs["hidden_sizes"]))], list()) + 
+        #     [nn.Linear(kwargs["hidden_sizes"][-1], self.output_dim)])
+        # )
         if self.iscuda:
             self.cuda()
 
@@ -139,4 +157,4 @@ class GridWorldNetwork(TSNet):
         # return super().forward(instate, state=state, info={})
         return x, state
 
-networks = {'basic': BasicNetwork, 'pixel': PixelNetwork, 'grid': GridWorldNetwork}
+networks = {'basic': BasicNetwork, 'pixel': PixelNetwork, 'grid': GridWorldNetwork, 'point': PointPolicyNetwork}

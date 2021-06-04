@@ -27,6 +27,7 @@ import numpy as np
 if __name__ == '__main__':
     args = get_args()
     torch.cuda.set_device(args.gpu)
+    np.set_printoptions(threshold=300)
     if args.env == "SelfBreakout":
         args.continuous = False
         environment = Screen()
@@ -39,7 +40,7 @@ if __name__ == '__main__':
         environment_model = Nav2DEnvironmentModel(environment)
         if args.true_environment:
             args.preprocess = environment.preprocess
-    elif args.env.find("Pushing") != -1:
+    elif args.env.find("2DPushing") != -1:
         args.continuous = False
         environment = Pushing(pushgripper=True)
         if args.env == "StickPushing":
@@ -48,16 +49,30 @@ if __name__ == '__main__':
         environment_model = PushingEnvironmentModel(environment)
         if args.true_environment:
             args.preprocess = environment.preprocess
+    elif args.env.find("RoboPushing") != -1:
+        from EnvironmentModels.RobosuitePushing.robosuite_pushing_environment_model import RobosuitePushingEnvironmentModel
+        from Environments.RobosuitePushing.robosuite_pushing import RoboPushingEnvironment
 
+        args.continuous = True
+        environment = RoboPushingEnvironment(control_freq=2, horizon=30, renderable=False)
+        environment.seed(args.seed)
+        environment_model = RobosuitePushingEnvironmentModel(environment)
     try:
         graph = load_graph(args.graph_dir)
         controllable_feature_selectors = graph.cfs
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
         actions = PrimitiveOption(None, (None, environment_model), "Action")
-        nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}
-        afs = environment_model.construct_action_selector() 
-        controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions-1],1)]
+        nodes = {'Action': OptionNode('Action', actions, action_shape = environment.action_shape)}
+        afs = environment_model.construct_action_selector()
+        if environment.discrete_actions:
+            controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions-1],1)]
+        else:
+            controllable_feature_selectors = list()
+            for i, af in enumerate(afs):
+                step = (environment.action_space.high[i] - environment.action_space.low[i]) / 3
+                controllable_feature_selectors.append(ControllableFeature(af, [environment.action_space.low[i],environment.action_space.high[i]],step))
+
         graph = OptionGraph(nodes, dict(), controllable_feature_selectors)
     graph.load_environment_model(environment_model)
     environment_model.shapes_dict["all_state_next"] = [args.num_samples, environment_model.state_size]
@@ -73,6 +88,7 @@ if __name__ == '__main__':
     for data_dict, next_data_dict in zip(data, data[1:]):
         insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
         rollouts.append(**insert_dict)
+    # UNCOMMENT above
     # REMOVE LATER: saves rollouts so you don't have to run each time
     # save_to_pickle("data/rollouts.pkl", rollouts)
     # rollouts = load_from_pickle("data/rollouts.pkl")
@@ -101,7 +117,7 @@ if __name__ == '__main__':
             hypothesis_model.train(train, args, control=hypothesis_model.control_feature, target_name=hypothesis_model.name.split("->")[1])
             success = True
         else:
-            model_args = default_model_args(args.predict_dynamics, 10,5) # input and output sizes should not be needed
+            model_args = default_model_args(args.predict_dynamics, 10,5, args.policy_type, var=args.norm_variance, basevar = args.base_variance) # input and output sizes should not be needed
             model_args.hidden_sizes, model_args.interaction_binary, model_args.interaction_prediction, model_args.init_form, model_args.activation = args.hidden_sizes, args.interaction_binary, args.interaction_prediction, args.init_form, args.activation
             model_args['controllable'], model_args['environment_model'] = controllable_feature_selectors, environment_model
             feature_explorer = FeatureExplorer(graph, controllable_feature_selectors, environment_model, model_args) # args should contain the model args, might want subspaces for arguments or something since args is now gigantic
@@ -119,56 +135,20 @@ if __name__ == '__main__':
             hypothesis_model.save(args.save_dir)
     else: # if not training, determine and save the active set selection binary
         hypothesis_model = load_hypothesis_model(args.dataset_dir)
+        hypothesis_model.control_feature = controllable_feature_selectors[0] if environment.discrete_actions else controllable_feature_selectors
+        hypothesis_model.active_epsilon = args.active_epsilon
+        hypothesis_model.environment_model = environment_model
         hypothesis_model.cpu()
         hypothesis_model.cuda()
         delta, gamma = hypothesis_model.delta, hypothesis_model.gamma
         rollouts.cuda()
         passive_error = hypothesis_model.get_prediction_error(rollouts)
-        weights, use_weights, total_live, total_dead, ratio_lambda = hypothesis_model.get_weights(passive_error)     
-        trace = hypothesis_model.generate_interaction_trace(rollouts, [hypothesis_model.control_feature.object()], [hypothesis_model.name.split('->')[1]])
-        ints = hypothesis_model.get_interaction_vals(rollouts)
-        bins, fe, pe = hypothesis_model.get_binaries(rollouts)
-        pred = hypothesis_model.predict_next_state(rollouts.get_values("state"))[1]
-        print(ints.shape, bins.shape, trace.shape, fe.shape, pe.shape)
-        pints, ptrace = pytorch_model.wrap(torch.zeros(ints.shape), cuda=hypothesis_model.iscuda), pytorch_model.wrap(torch.zeros(trace.shape), cuda=args.cuda)
-        pints[ints > .5] = 1
-        ptrace[trace > 0] = 1
-        print(weights.shape, pints.shape, ptrace.shape)
-        print_weights = (pytorch_model.wrap(weights, cuda=hypothesis_model.iscuda) + pints.squeeze() + ptrace).squeeze()
-        print_weights[print_weights > 1] = 1
-        next_state = hypothesis_model.gamma(rollouts.get_values("next_state"))[:,[0,1,5,6,7,8]]
-        comb = torch.cat([ints, bins, trace.unsqueeze(1), fe, pe, next_state, pred], dim=1)
-        np.set_printoptions(precision =3, floatmode='fixed')
-        # for i in range(len(comb[print_weights > 0])):
-        #     print(pytorch_model.unwrap(comb[print_weights > 0][i]))
-
-        bin_error = bins.squeeze()-trace.squeeze()
-        bin_false_positives = bin_error[bin_error > 0].sum()
-        bin_false_negatives = bin_error[bin_error < 0].abs().sum()
-
-        int_bin = ints.clone()
-        int_bin[int_bin >= .5] = 1
-        int_bin[int_bin < .5] = 0
-        int_error = int_bin.squeeze() - trace.squeeze()
-        int_false_positives = int_error[int_error > 0].sum()
-        int_false_negatives = int_error[int_error < 0].abs().sum()
-
-        comb_error = bins.squeeze() + int_bin.squeeze()
-        comb_error[comb_error > 1] = 1
-        comb_error = comb_error - trace.squeeze()
-        comb_false_positives = comb_error[comb_error > 0].sum()
-        comb_false_negatives = comb_error[comb_error < 0].abs().sum()
-
-        for i in range(len(comb[comb_error < 0])):
-            print(pytorch_model.unwrap(comb[comb_error < 0][i]))
-
-        print("bin fp, fn", bin_false_positives, bin_false_negatives)
-        print("int fp, fn", int_false_positives, int_false_negatives)
-        print("com fp, fn", comb_false_positives, comb_false_negatives)
-        print("total, tp", trace.shape[0], trace.sum())
-
-        afs = environment_model.construct_action_selector() 
-        controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
+        weights, use_weights, total_live, total_dead, ratio_lambda = hypothesis_model.get_weights(passive_error, passive_error_cutoff=args.passive_error_cutoff)     
+        # trace = load_from_pickle("data/trace.pkl").cpu().cuda()
+        if args.env != "RoboPushing":
+            hypothesis_model.compute_interaction_stats(rollouts, passive_error_cutoff=args.passive_error_cutoff)
+        # afs = environment_model.construct_action_selector() 
+        # controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
         hypothesis_model.determine_active_set(rollouts)
         hypothesis_model.collect_samples(rollouts)
         hypothesis_model.cpu()

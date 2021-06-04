@@ -236,7 +236,10 @@ class EnvironmentModel():
         return FeatureSelector(a, ad, fs, clean_names)
 
     def construct_action_selector(self):
-        return FeatureSelector([self.indexes['Action'][1] - 1], {'Action': self.object_sizes['Action'] - 1}, {'Action': np.array([self.indexes['Action'][1] - 1, self.object_sizes['Action'] - 1])}, ['Action'])
+        if self.environment.discrete_actions:
+            return FeatureSelector([self.indexes['Action'][1] - 1], {'Action': self.object_sizes['Action'] - 1}, {'Action': np.array([self.indexes['Action'][1] - 1, self.object_sizes['Action'] - 1])}, ['Action'])
+        else:
+            return [FeatureSelector([self.indexes['Action'][0] + i], {'Action': i}, {'Action': np.array([self.indexes['Action'][0] + i, i])}, ['Action']) for i in range( self.object_sizes['Action'])]
 
 def get_selection_list(cfss): # TODO: put this inside ControllableFeature as a static function
 
@@ -249,6 +252,25 @@ def get_selection_list(cfss): # TODO: put this inside ControllableFeature as a s
         possibility_lists.append(fr)
     print( cfs.feature_range, cfs.feature_step)
     return itertools.product(*possibility_lists)
+
+def sample_multiple(controllable_features, states):
+    linspaces = list()
+    for cf in controllable_features:
+        num = int((cf.feature_range[1] - cf.feature_range[0] ) / cf.feature_step) + 1
+        linspaces.append(np.linspace(cf.feature_range[0], cf.feature_range[1], num))
+    ranges = np.meshgrid(*linspaces)
+    ranges = [r.flatten() for r in ranges]
+    vals = np.array(ranges).T
+    all_states = list()
+    for control_values in vals:
+        for cf, f in zip(controllable_features, control_values):
+            assigned_states = states.clone()
+            cf.assign_feature(assigned_states, f)
+            all_states.append(assigned_states)
+    if len(states.shape) == 1: # a single flattened state
+        return torch.stack(all_states, dim=0) # if there are no batches, then this is the 0th dim
+    return torch.stack(all_states, dim=1) # if we have a batch of states, then this is the 1st dim
+
 
 class ControllableFeature():
     def __init__(self, feature_selector, feature_range, feature_step, feature_model=None):
@@ -276,7 +298,7 @@ class ControllableFeature():
         while f <= self.feature_range[1]:
             assigned_states = states.clone()
             self.assign_feature(assigned_states, f)
-            assign_feature(assigned_states, (self.feature_selector.flat_features[0], f))
+            # assign_feature(assigned_states, (self.feature_selector.flat_features[0], f))
             all_states.append(assigned_states)
             f += self.feature_step
         if len(states.shape) == 1: # a single flattened state
@@ -394,12 +416,18 @@ class FeatureSelector():
             if not hasattr(self, "names"): 
                 pnames = list(self.factored_features.keys())
                 self.names = [n for n in ["Action", "Paddle", "Ball", "Block", 'Done', "Reward"] if n in pnames] # TODO: above lines are hack, remove
-            print(states[self.names[0]], type(states[self.names[0]]) is torch.Tensor, type(states[self.names[0]]) == torch.tensor)
+            # print(states[self.names[0]], type(states[self.names[0]]) is torch.Tensor, type(states[self.names[0]]) == torch.tensor)
             if type(states[self.names[0]]) == np.ndarray:
                 cat = lambda x, a: np.concatenate(x, axis=a)
             elif type(states[self.names[0]]) == torch.Tensor:
                 cat = lambda x, a: torch.cat(x, dim=a)
             if len(states[self.names[0]].shape) == 1: # only support internal dimension up to 2
+                if len(self.names) == 1 and len(self.factored_features[self.names[0]].shape) == 0: # TODO: should initialize self.feactored_features as arrays, mking this code wrong
+                    if type(states[self.names[0]]) == np.ndarray:
+                        cat = np.array
+                    elif type(states[self.names[0]]) == torch.Tensor:
+                        cat = torch.tensor
+                    return cat([states[name][self.factored_features[name]] for name in self.names])
                 return cat([states[name][self.factored_features[name]] for name in self.names], 0)
             if len(states[self.names[0]].shape) == 2: # only support internal dimension up to 2
                 return cat([states[name][:, self.factored_features[name]] for name in self.names], 1)

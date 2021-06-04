@@ -12,7 +12,7 @@ def visualize(frame, object_state, param, mask):
 			loc[1] = object_state[1]
 		draw_target(new_frame, loc[:2])
 	if sum(mask[2:4]) > EPSILON:
-		draw_velocity(new_frame, object_state[:2], param[2:4])
+		draw_line(new_frame, object_state[:2], param[2:4])
 	if mask[4] > EPSILON:
 		draw_target(new_frame, object_state[:2])
 	return new_frame

@@ -8,6 +8,11 @@ import os, copy
 from Environments.environment_specification import RawEnvironment
 from gym import spaces
 
+def adjacent(i,j):
+    return [(i-1,j-1), (i, j-1), (i, j+1), (i-1, j), (i-1,j+1),
+            (i, j-2), (i-1, j-2), (i-2, j-2), (i-2, j-1), (i-2, j), (i-2, j+1), (i-2, j+2), (i-1, j+2), (i-2, j+2)]
+
+
 class Screen(RawEnvironment):
     def __init__(self, frameskip = 1, drop_stopping=False):
         super(Screen, self).__init__()
@@ -19,6 +24,7 @@ class Screen(RawEnvironment):
         self.done = False
         self.reward = 0
         self.seed_counter = -1
+        self.exposed_blocks = list()
         self.reset()
         self.average_points_per_life = 0
         self.itr = 0
@@ -27,6 +33,7 @@ class Screen(RawEnvironment):
         self.frameskip = frameskip
         self.total_score = 0
         self.discrete_actions = True
+
 
     def reset(self):
         if self.seed_counter > 0:
@@ -39,11 +46,16 @@ class Screen(RawEnvironment):
         self.actions = Action(np.zeros((2,), dtype = np.int64), 0)
         self.reward = 0
         self.blocks = []
+        self.blocks2D = list()
         for i in range(5):
+            block2D_row = list()
             for j in range(20):
-                self.blocks.append(Block(np.array([22 + i * 2,12 + j * 3]), 1, i * 20 + j))
+                block = Block(np.array([22 + i * 2,12 + j * 3]), 1, i * 20 + j, (i,j))
+                self.blocks.append(block)
                 # self.blocks.append(Block(np.array([32 + i * 2,12 + j * 3]), 1, i * 20 + j))
-
+                block2D_row.append(block)
+            self.blocks2D.append(block2D_row)
+        self.blocks2D = np.array(self.blocks2D)
         self.walls = []
         # Topwall
         self.walls.append(Wall(np.array([4, 4]), 1, "Top"))
@@ -56,7 +68,7 @@ class Screen(RawEnvironment):
         self.counter = 0
         self.points = 0
         self.seed_counter += 1
-
+        self.exposed_blocks = {self.blocks[i].index2D: self.blocks[i] for i in range(len(self.blocks)) if self.blocks[i].pos[0] >= 22 + 4 * 2 - 1}
         self.render_frame()
         return self.get_state()
 
@@ -102,6 +114,7 @@ class Screen(RawEnvironment):
         estring += "Done:" + str(int(self.done)) + "\t"
         return estring
 
+
     def step(self, action, render=True): # TODO: remove render as an input variable
         self.done = False
         last_loss = self.ball.losses
@@ -121,6 +134,12 @@ class Screen(RawEnvironment):
                             self.reward += 1
                             self.total_score += 1
                             hit = True
+                            if obj2.name.find("Block") != -1:
+                                if obj2.index2D in self.exposed_blocks:
+                                    self.exposed_blocks.pop(obj2.index2D)
+                                for i,j in adjacent(*obj2.index2D):
+                                    if 0 <= i < 5 and 0 <= j < 20 and self.blocks2D[i,j].attribute == 1:
+                                        self.exposed_blocks[i,j] = self.blocks2D[i,j]
             # self.paddle.move() # ensure the ball moves after the paddle to ease counterfactual
             # self.ball.interact(self.paddle)
             # self.ball.move()

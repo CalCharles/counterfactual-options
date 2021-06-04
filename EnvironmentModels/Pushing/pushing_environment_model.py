@@ -23,8 +23,11 @@ class PushingEnvironmentModel(EnvironmentModel):
     def get_interaction_trace(self, name):
         trace = []
         for i in range(*self.enumeration[name]):
-            # print(name, self.environment.objects[i].interaction_trace)
+            # print(name, self.environment.objects[i].name, self.environment.objects[i].interaction_trace,
+            #     self.get_factored_state())
             trace.append(self.environment.objects[i].interaction_trace)
+            # if len(self.environment.objects[i].interaction_trace) > 0:
+            #     error
         return trace
 
     def set_interaction_traces(self, factored_state):
@@ -39,6 +42,7 @@ class PushingEnvironmentModel(EnvironmentModel):
             for o in self.environment.objects:
                 for n in self.object_names:
                     if o.name.find(n) != -1:
+                        print(n)
                         factored_state[n] += o.pos.tolist() + o.vel.tolist() + [o.attribute]
                         break
             for n in factored_state.keys():
@@ -54,17 +58,19 @@ class PushingEnvironmentModel(EnvironmentModel):
         '''
         TODO: only sets the active elements, and not the score, reward and other features. This could be an issue in the future.
         '''
+        # print("before", factored_state)
         if seed_counter > 0:
             self.environment.seed_counter = seed_counter
             self.environment.block.reset_seed = seed_counter
-        self.environment.block.pos = np.array(self.environment.block.getPos(factored_state["Block"][:2]))
+        self.environment.block.updateBounding(factored_state["Block"][:2])
         self.environment.block.vel = np.array(factored_state["Block"][2:4]).astype(int)
         # self.environment.block.losses = 0 # ensures that no weirdness happens since ball losses are not stored, though that might be something to keep in attribute...
-        self.environment.gripper.pos = np.array(self.environment.gripper.getPos(factored_state["Gripper"][:2]))
+        self.environment.gripper.updateBounding(factored_state["Gripper"][:2])
         self.environment.gripper.vel = np.array(factored_state["Gripper"][2:4]).astype(int)
         self.environment.actions.attribute = factored_state["Action"][-1]
-        self.environment.target.pos = np.array(self.environment.target.getPos(factored_state["Target"][:2]))
+        self.environment.target.updateBounding(factored_state["Target"][:2])
         self.environment.target.vel = np.array(factored_state["Target"][2:4]).astype(int)
         if not self.environment.pushgripper:
-            self.environment.stick.pos = np.array(self.environment.stick.getPos(factored_state["Stick"][:2]))
+            self.environment.stick.updateBounding(factored_state["Stick"][:2])
         self.environment.render()
+        # print("after", self.get_factored_state())

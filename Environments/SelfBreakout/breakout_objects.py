@@ -151,18 +151,18 @@ class Paddle(animateObject):
 			if other.attribute == 0 or other.attribute == 1:
 				self.vel = np.array([0,0], dtype=np.int64)
 			elif other.attribute == 2:
-				if self.pos[1] == 12:
+				if self.pos[1] == 8:
 					if self.nowall:
-						self.pos = np.array([0,64])
+						self.pos = np.array([0,68])
 					self.vel = np.array([0,0])
 					self.interaction_trace.append("LeftSideWall")
 				else:
 					self.vel = np.array([0,-paddle_velocity])
 				# self.vel = np.array([0,-2])
 			elif other.attribute == 3:
-				if self.pos[1] >= 64:
+				if self.pos[1] >= 68:
 					if self.nowall:
-						self.pos = np.array([0,12])
+						self.pos = np.array([0,8])
 					self.interaction_trace.append("RightSideWall")
 					self.vel = np.array([0,0])
 				else:
@@ -188,11 +188,12 @@ class Wall(Object):
 		self.name = side + "Wall"
 
 class Block(Object):
-	def __init__(self, pos, attribute, index):
+	def __init__(self, pos, attribute, index, index2d):
 		super(Block, self).__init__(pos, attribute)
 		self.width = 3
 		self.height = 2
 		self.name = "Block" + str(index)
+		self.index2D = index2d
 
 	# def interact(self, other):
 	# 	if other.name == "Ball":

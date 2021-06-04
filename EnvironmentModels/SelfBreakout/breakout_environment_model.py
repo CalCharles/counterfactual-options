@@ -118,16 +118,20 @@ class BreakoutEnvironmentModel(EnvironmentModel):
         if seed_counter > 0:
             self.environment.seed_counter = seed_counter
             self.environment.ball.reset_seed = seed_counter
-        self.environment.ball.pos = np.array(self.environment.ball.getPos(factored_state["Ball"][:2]))
-        self.environment.ball.vel = np.array(factored_state["Ball"][2:4]).astype(int)
-        self.environment.ball.losses = 0 # ensures that no weirdness happens since ball losses are not stored, though that might be something to keep in attribute...
-        self.environment.paddle.pos = np.array(self.environment.paddle.getPos(factored_state["Paddle"][:2]))
-        self.environment.paddle.vel = np.array(factored_state["Paddle"][2:4]).astype(int)
-        self.environment.actions.attribute = factored_state["Action"][-1]
-        for i in range(5):
-            for j in range(20):
-                if instanced:
-                    self.environment.blocks[i*20+j].attribute = float(factored_state["Block" + str(i * 20 + j)][-1])
-                else:
-                    self.environment.blocks[i*20+j].attribute = float(factored_state["Block"][(i*20+j)*5+4])
+        if "Ball" in factored_state:
+            self.environment.ball.pos = np.array(self.environment.ball.getPos(factored_state["Ball"][:2]))
+            self.environment.ball.vel = np.array(factored_state["Ball"][2:4]).astype(int)
+            self.environment.ball.losses = 0 # ensures that no weirdness happens since ball losses are not stored, though that might be something to keep in attribute...
+        if "Paddle" in factored_state:
+            self.environment.paddle.pos = np.array(self.environment.paddle.getPos(factored_state["Paddle"][:2]))
+            self.environment.paddle.vel = np.array(factored_state["Paddle"][2:4]).astype(int)
+        if "Action" in factored_state:
+            self.environment.actions.attribute = factored_state["Action"][-1]
+        if "Block" in factored_state:
+            for i in range(5):
+                for j in range(20):
+                    if instanced:
+                        self.environment.blocks[i*20+j].attribute = float(factored_state["Block" + str(i * 20 + j)][-1])
+                    else:
+                        self.environment.blocks[i*20+j].attribute = float(factored_state["Block"][(i*20+j)*5+4])
         self.environment.render_frame()

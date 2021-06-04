@@ -34,17 +34,26 @@ class OptionGraph():
             pass
         node_policies = dict() # don't save policies or rollouts
         node_rollouts = dict()
+        es = dict()
         for name, node in self.nodes.items():
             iscuda = node.option.iscuda
-            print(node)
+            # print(node)
             node.option.cpu()
-            print(name)
+            # print(name)
+            if hasattr(node.option, 'environment_model'):
+                es[name] = node.option.environment_model.environment
+                print(node.option.environment_model.environment, es[name])
+                node.option.environment_model.environment = None
             node_policies[name] = node.option.save(save_dir, clear=True)
             # node_policies[name] = (node.option.policy, iscuda)
             # node.option.policy = None
             # if len(simplify) > 0 and node.option.dataset_model is not None:
             #     node.option.dataset_model.reduce_range(simplify + [node.option.object_name])
         save_to_pickle(os.path.join(save_dir, "graph.pkl"), self)
+        for name, node in self.nodes.items():
+            if hasattr(node.option, 'environment_model'):
+                # print(name, es[name])
+                node.option.environment_model.environment = es[name]
         for name, policy in node_policies.items():
             self.nodes[name].option.policy = policy
         # for name, rollouts in node_rollouts.items():

@@ -6,4 +6,17 @@ class DoneModel():
 
 
 	def check(self, termination, timer, true_done):
-		return (termination * self.use_termination) or (timer == self.use_timer - 1) or (self.use_true_done * true_done)
+		term = (termination * self.use_termination)
+		tim = (timer == self.use_timer - 1)
+		tru = (self.use_true_done * true_done)
+		# print(term, tim, tru)
+		if term:
+			# print("term done")
+			return term
+		elif tim:
+			# print("timer done")
+			return tim
+		elif tru:
+			# print("true done")
+			return tru
+		return term or tim or tru

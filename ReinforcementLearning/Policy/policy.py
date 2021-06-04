@@ -47,6 +47,7 @@ class TSPolicy(nn.Module):
             self.sample_buffer = self.learning_algorithm.sample_buffer
         self.action_space = action_space
         print(paction_space)
+        args.object_dim, args.first_obj_dim = kwargs["object_dim"], kwargs['first_obj_dim']
         kwargs["actor"], kwargs["actor_optim"], kwargs['critic'], kwargs['critic_optim'], kwargs['critic2'], kwargs['critic2_optim'] = self.init_networks(args, input_shape, paction_space.shape or paction_space.n, discrete_actions, max_action=max_action)
         kwargs["exploration_noise"] = GaussianNoise(sigma=args.epsilon)
         kwargs["action_space"] = action_space
@@ -80,15 +81,15 @@ class TSPolicy(nn.Module):
                 aout_shape = action_shape
                 hidden_sizes = args.hidden_sizes
 
-            actor = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=aout_shape, hidden_sizes = hidden_sizes, preprocess=args.preprocess)
-            critic = PolicyType(cuda=args.cuda, num_inputs=cinp_shape, num_outputs=cout_shape, hidden_sizes = hidden_sizes, preprocess=args.preprocess)
+            actor = PolicyType(num_inputs=input_shape, num_outputs=aout_shape, **args)
+            critic = PolicyType(num_inputs=cinp_shape, num_outputs=cout_shape, **args)
             if discrete_actions: critic = Critic(critic, last_size=action_shape, device=device).to(device)
             else: critic = Critic(critic, device=device).to(device)
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
             if self.algo_name in _double_critic:
                 if discrete_actions: actor = Actor(actor, action_shape, device=device).to(device)
                 else: actor = ActorProb(actor, action_shape, device=device, max_action=max_action, unbounded=True, conditioned_sigma=True).to(device)
-                critic2 = PolicyType(cuda=args.cuda, num_inputs=cinp_shape, num_outputs=cout_shape, hidden_sizes=hidden_sizes, preprocess=args.preprocess)
+                critic2 = PolicyType(num_inputs=cinp_shape, num_outputs=cout_shape, **args)
                 if discrete_actions: critic2 = Critic(critic2, last_size=action_shape, device=device).to(device)
                 else: critic2 = Critic(critic2, device=device).to(device)
                 critic2_optim = torch.optim.Adam(critic2.parameters(), lr=args.critic_lr)
@@ -97,17 +98,23 @@ class TSPolicy(nn.Module):
             actor_optim = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
 
         elif self.algo_name in ['dqn']:
-            critic = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes, preprocess=args.preprocess)
+            critic = PolicyType(num_inputs=input_shape, num_outputs=action_shape, **args)
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
         elif self.algo_name in ['ppo']:
             if discrete_actions:
-                net = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=args.hidden_sizes[-1], hidden_sizes = args.hidden_sizes[:-1], preprocess=args.preprocess)
+                hsizes = args.hidden_sizes
+                args.hidden_sizes = args.hidden_sizes[:-1]
+                net = PolicyType(num_inputs=input_shape, num_outputs=args.hidden_sizes[-1], **args)
+                args.hidden_sizes = hsizes
                 actor = Actor(net, action_shape, device=device).to(device)
                 critic = Critic(net, device=device).to(device)
             else:
-                net = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, hidden_sizes = args.hidden_sizes[:-1], preprocess=args.preprocess)
+                hsizes = args.hidden_sizes
+                args.hidden_sizes = args.hidden_sizes[:-1]
+                net = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, **args)
+                args.hidden_sizes = hsizes
                 actor = ActorProb(net, action_shape, max_action=max_action, device=device).to(device)
-                critic = Critic(PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=1, preprocess=args.preprocess, hidden_sizes=args.hidden_sizes), device=device).to(device)
+                critic = Critic(PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=1, **args), device=device).to(device)
             actor_optim = torch.optim.Adam(set(actor.parameters()).union(critic.parameters()), lr=args.actor_lr)
         return actor, actor_optim, critic, critic_optim, critic2, critic2_optim
 

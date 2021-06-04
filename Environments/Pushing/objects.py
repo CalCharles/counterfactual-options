@@ -119,7 +119,7 @@ class PhysicalObject(ContingentObject):
             self.bb[:self.dim] += self.vel
             self.bb[-self.dim:] += self.vel
             self.updateCenter()
-            # self.vel = np.array([0] * self.dim)
+            self.vel = np.array([0] * self.dim)
         else:
             self.moved = False
         # TODO: angular velocity
@@ -138,8 +138,10 @@ class PhysicalObject(ContingentObject):
         # mag = np.dot(vec / np.linalg.norm(vec +.001), self.vel)
         # print(vec, mag)
         if np.dot(vec / np.linalg.norm(vec +.001), self.vel) > 0:
+            if np.sum(self.vel) > 0:
+                # print("PUSHING: ", self.name, other.name)
+                other.interaction_trace.append(self.name)
             other.setmove(self.vel, 0)
-            other.interaction_trace.append(self.name)
 
 class Action(ContingentObject):
     def __init__(self, dim):
@@ -148,8 +150,8 @@ class Action(ContingentObject):
         self.attribute = 0
 
     def updateBounding(self, pos):
-        self.pos = [0,0]
-        self.bb = [0] * 4
+        self.pos = np.array([0,0])
+        self.bb = np.array([0] * 4)
 
 
 class Gripper(PhysicalObject):
@@ -238,7 +240,10 @@ class CartesianPusher(Gripper):
                     total_vel[i] = self.vel[i]
         # TODO: within gripper no-pushing
         if type(other) != Target:
-            other.interaction_trace.append(self.name)
+            # print('push', self.pos, other.pos)
+            if np.sum(total_vel) > 0:
+                # print(self.pos, self.bb, other.pos, other.bb)
+                other.interaction_trace.append(self.name)
             other.setmove(np.array(total_vel), 0)
         else:
             total_vel = self.vel.tolist()
