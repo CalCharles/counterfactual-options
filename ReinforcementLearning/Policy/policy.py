@@ -40,12 +40,15 @@ class TSPolicy(nn.Module):
         self.collect = None
         self.lookahead = args.lookahead
         self.option = args.option
+        self.input_var = np.ones(input_shape)
+        self.input_mean = np.zeros(input_shape)
         if self.is_her: 
             self.algo_name = self.algo_name[3:]
             self.learning_algorithm = HER(ObjDict(kwargs), kwargs['option'])
             self.collect = self.learning_algorithm.record_state # TODO: not sure what to initialize with
             self.sample_buffer = self.learning_algorithm.sample_buffer
         self.action_space = action_space
+        self.use_input_norm = args.input_norm
         print(paction_space)
         args.object_dim, args.first_obj_dim = kwargs["object_dim"], kwargs['first_obj_dim']
         kwargs["actor"], kwargs["actor_optim"], kwargs['critic'], kwargs['critic_optim'], kwargs['critic2'], kwargs['critic2_optim'] = self.init_networks(args, input_shape, paction_space.shape or paction_space.n, discrete_actions, max_action=max_action)
@@ -96,6 +99,13 @@ class TSPolicy(nn.Module):
             else:
                 actor = Actor(actor, action_shape, device=device, max_action=max_action).to(device)
             actor_optim = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
+            if args.sac_alpha == -1 and self.algo_name == "sac":
+                target_entropy = -np.prod(self.action_space.shape)
+                log_alpha = torch.zeros(1, requires_grad=True, device=device)
+                alpha_optim = torch.optim.Adam([log_alpha], lr=1e-4) # TODO alpha learning rate not hardcoded
+                args.sac_alpha = (target_entropy, log_alpha, alpha_optim)
+
+
 
         elif self.algo_name in ['dqn']:
             critic = PolicyType(num_inputs=input_shape, num_outputs=action_shape, **args)
@@ -149,6 +159,7 @@ class TSPolicy(nn.Module):
                                                                             estimation_step=args.lookahead, action_space=args.action_space,
                                                                             action_bound_method='clip')
         elif self.algo_name == "sac":
+            print(args.sac_alpha)
             if args.discrete_actions:
                 policy = ts.policy.DiscreteSACPolicy(
                         args.actor, args.actor_optim, args.critic, args.critic_optim, args.critic2, args.critic2_optim,
@@ -239,40 +250,24 @@ class TSPolicy(nn.Module):
         '''
             # not cloning batch could result in issues
         # print(batch.obs.shape, batch.obs_next.shape)
+        # print("input: ", batch.obs, self.use_input_norm, self.input_mean, self.input_var)
+        batch = copy.deepcopy(batch) # make sure input norm does not alter the input batch
+        self.apply_input_norm(batch)
         vals= self.algo_policy(batch, state = state, input=input, **kwargs)
         return vals
 
-    # def add_param_buffer(self, buffer, indices):
-    #     '''
-    #     edits obs, obs_next, reward and done based on the parameter
-    #     '''
-    #     if self.parameterized:
-    #         new_indices = [indices]
-    #         for _ in range(self.lookahead - 1):
-    #             new_indices.append(buffer.next(new_indices[-1]))
-    #         # new_indices.pop(0)
-    #         new_indices_stack = np.stack(new_indices).flatten()
-    #         # terminal indicates buffer indexes nstep after 'indice',
-    #         # and are truncated at the end of each episode
+    def compute_input_norm(self, buffer):
+        avail = buffer.sample(0)[0]
+        print("trying compute", len(buffer), avail.obs.shape)
+        if len (avail) >= 500: # need at least 500 values before applying input variance, typically this is the number of random actions
+            print("computing input norm")
+            self.input_var = np.sqrt(np.var(avail.obs, axis=0))
+            self.input_var[self.input_var < .0001] = .0001 # to prevent divide by zero errors
+            self.input_mean = np.mean(avail.obs, axis=0)
 
-    #         # Insert parameter into observations
-    #         param = buffer.param[indices[0]]
-    #         broadcast_object_state = np.stack([param.copy() for _ in range(new_indices_stack.shape[0])], axis=0)
-    #         buffer.param[new_indices_stack] = broadcast_object_state
-    #         param = broadcast_object_state
-    #         input_state = buffer.obs_next[new_indices_stack]
-    #         object_state = buffer.next_target[new_indices_stack]
-    #         true_done = buffer.true_done[new_indices_stack]
-    #         true_reward = buffer.true_reward[new_indices_stack]
-    #         # apply termination and reward to buffer indices
-    #         rew = buffer.rew[new_indices_stack]
-    #         done = buffer.done[new_indices_stack]
-    #         buffer.done[new_indices_stack] = self.option.termination.check(input_state, object_state, param, true_done)
-    #         buffer.rew[new_indices_stack] = self.option.reward.get_reward(input_state, object_state, param, true_reward)
-
-    #         orig_obs, orig_next = self.add_param(buffer, indices=new_indices_stack)
-    #         return orig_obs, orig_next, rew, done, new_indices_stack
-    #     return None, None, None, None, None # none of thes should be used if not parameterized
+    def apply_input_norm(self, batch):
+        if self.use_input_norm:
+            batch.update(obs=(batch.obs - self.input_mean) / self.input_var)
 
     def update(
         self, sample_size: int, buffer: Optional[ReplayBuffer], **kwargs: Any
@@ -301,7 +296,7 @@ class TSPolicy(nn.Module):
             #     pos_last = np.argwhere(last_frame[:,:,1] == 10.0)[0]
             #     p = np.argwhere(param == 10.0)[0]
             #     print(done, target, target_last, pos, pos_last, p)
-            # print(type(batch["obs_next"]), batch["obs_next"].shape, self.param_process)
+            print("input", batch.obs[:5])
             # print(len(batch))
             batch = self.algo_policy.process_fn(batch, use_buffer, indice)
             # for o,on,r,d,a in zip(batch.obs, batch.obs_next, batch.rew, batch.done, batch.act):
@@ -312,7 +307,12 @@ class TSPolicy(nn.Module):
             #     cv2.waitKey(500)
             kwargs["batch_size"] = sample_size
             kwargs["repeat"] = 2
+            print("process fn", batch.obs[:5])
+            # print(batch.act.shape, use_buffer.act.shape)
+            self.apply_input_norm(batch)
+            print("input norm", indice, self.input_mean, self.input_var, batch.obs, batch.rew, batch.done)
             result = self.algo_policy.learn(batch, **kwargs)
+            print(result)
             self.algo_policy.post_process_fn(batch, use_buffer, indice)
             # self.restore_obs(batch, orig_obs, orig_next)
             # self.restore_buffer(orig_obs_buffer, orig_next_buffer, buffer_idces)

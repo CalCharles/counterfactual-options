@@ -9,6 +9,10 @@ import copy
 import cv2
 from Environments.environment_specification import RawEnvironment
 from collections import deque
+import robosuite.utils.macros as macros
+macros.SIMULATION_TIMESTEP = 0.02
+
+
 
 # class PushingEnvironment(gym.Env):
 #     def __init__(self, horizon, control_freq, renderable=False):
@@ -142,16 +146,19 @@ class RoboPushingEnvironment(RawEnvironment):
         obs = {'raw_state': raw_state, 'factored_state': factored_state}
         return obs
 
-
     def step(self, action):
         self.action = action
         next_obs, reward, done, info = self.env.step(np.concatenate([action, [0, 0, 0]]))
         self.reward, self.done = reward, done
+        info["TimeLimit.truncated"] = done
         # print(list(next_obs.keys()))
+        # if not self.done: # repeat the last state because the next state will end up belonging to the next episode
         self.set_named_state(next_obs)
         img = next_obs["frontview_image"][::-1] if self.renderable else None
         obs = self.construct_full_state(next_obs, img)
         obs = {'raw_state': img, 'factored_state': next_obs}
+        # else:
+        #     obs = self.full_state
         self.full_state = obs
         self.frame = self.full_state['raw_state']
         # cv2.imshow('state', next_obs["frontview_image"][::-1].astype(np.uint8))
@@ -163,10 +170,14 @@ class RoboPushingEnvironment(RawEnvironment):
                 object_dumps.close()
             self.write_objects(obs["factored_state"], next_obs["frontview_image"][::-1].astype(np.uint8) if self.renderable else None)
         if self.done:
-            self.reward = reward
-            self.full_state = self.reset()
+            reward = self.reward
+            self.reset()
             self.done = True
             self.reward = reward
+            # self.full_state['factored_state']['Done'] = [self.done]
+            # self.full_state['factored_state']['Reward'] = [self.reward]
+            # obs = self.full_state
+            # print(self.done, obs)
         return obs, reward, done, info
 
     def get_state(self):

@@ -1,4 +1,4 @@
-import os
+import os, sys
 from arguments import get_args
 from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
 from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEnvironmentModel
@@ -10,6 +10,7 @@ from Options.option import Option, PrimitiveOption
 from DistributionalModels.InteractionModels.interaction_model import HackedInteractionModel
 
 if __name__ == '__main__':
+    print(sys.argv)
     args = get_args()
     data = read_obj_dumps(args.dataset_dir, i=-1, rng = args.num_frames, filename='object_dumps.txt')
     environment = Screen(frameskip=args.frameskip)

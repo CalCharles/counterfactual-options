@@ -619,6 +619,7 @@ class NeuralInteractionForwardModel(nn.Module):
             trace = [t for it in tr for t in it] # flattens out instances
             # print(trace, [name for name in trace if name in names])
             # if len([name for name in trace if name in names]) == len(trace) and len(trace) > 0:
+            # print(names, trace)
             if len([name for name in trace if name in names]) > 0:
                 # print(trace, factored_state["Gripper"], factored_state["Block"])
                 return 1
@@ -647,8 +648,10 @@ class NeuralInteractionForwardModel(nn.Module):
         self.forward_model.cuda()
         self.interaction_model.cuda()
         self.passive_model.cuda()
-        self.normalization_function.cuda()
-        self.output_normalization_function.cuda()
+        if hasattr(self, "normalization_function"):
+            self.normalization_function.cuda()
+        if hasattr(self, "output_normalization_function"):
+            self.output_normalization_function.cuda()
         if self.selection_binary is not None:
             self.selection_binary = self.selection_binary.cuda()
         self.iscuda = True
@@ -837,15 +840,15 @@ class NeuralInteractionForwardModel(nn.Module):
                         print(
                             # self.network_args.normalization_function.reverse(passive_prediction_params[0][0]),
                             # self.network_args.normalization_function.reverse(passive_prediction_params[1][0]), 
-                            "input", self.gamma(batchvals.values.state)[j],
-                            "\npinput", self.delta(batchvals.values.state[j]),
-                            "\naoutput", rv(prediction_params[0])[j],
+                            "input", pytorch_model.unwrap(self.gamma(batchvals.values.state)[j]),
+                            "\npinput", pytorch_model.unwrap(self.delta(batchvals.values.state[j])),
+                            "\naoutput", pytorch_model.unwrap(rv(prediction_params[0])[j]),
                             # "\navariance", rv(prediction_params[1]),
-                            "\npoutput", rv(passive_prediction_params[0])[j],
-                            "\npvariance", passive_prediction_params[1][j],
+                            "\npoutput", pytorch_model.unwrap(rv(passive_prediction_params[0])[j]),
+                            "\npvariance", pytorch_model.unwrap(passive_prediction_params[1][j]),
                             # self.delta(batchvals.values.next_state[0]), 
                             # self.gamma(batchvals.values.state[0]),
-                            "\ntarget: ", rv(target)[j],
+                            "\ntarget: ", pytorch_model.unwrap(rv(target)[j]),
                             # "\nal: ", active_loss,
                             # "\npl: ", passive_loss
                             )
@@ -872,18 +875,20 @@ class NeuralInteractionForwardModel(nn.Module):
             #     print(pytorch_model.unwrap(state)[5:15])
             # trace = self.generate_interaction_trace(rollouts, [control_name], [target_name])
             trw = torch.max(trace, dim=1)[0].squeeze() if self.multi_instanced else trace
-            print(trw.shape)
+            # print(trw[:100], self.multi_instanced)
+            # if len(trw.shape) == 1:
+            #     trw.unsqueeze(1)
             weight_lambda = train_args.interaction_weight
             weights = trw * weight_lambda + 1
             weights = weights / weights.sum()
-            # print(len(trace), sum(trace), [trace[100*i:100*(i+1)] for i in range(20)])
+            print(len(trace), sum(trace), [trace[100*i:100*(i+1)] for i in range(5)])
             for i in range(train_args.interaction_iters):
                 idxes, batchvals = rollouts.get_batch(train_args.batch_size, weights=pytorch_model.unwrap(weights), existing=batchvals)
                 if self.multi_instanced: interaction_likelihood = self.interaction_model.instance_labels(self.gamma(batchvals.values.state))
                 else: interaction_likelihood = self.interaction_model(self.gamma(batchvals.values.state))
                 # multi-instanced will have shape [batch, num_instances]
                 target = trace[idxes]# if self.multi_instanced else trace[idxes]
-                trace_loss = inter_loss(interaction_likelihood, target)
+                trace_loss = inter_loss(interaction_likelihood.squeeze(), target)
                 # print(interaction_likelihood.shape, target.shape, trace_loss.shape)
                 self.run_optimizer(train_args, interaction_optimizer, self.interaction_model, trace_loss)
                 
@@ -1101,17 +1106,18 @@ class NeuralInteractionForwardModel(nn.Module):
                 else:
                     likelihood_binaries = (interaction_likelihood > .5).float()
                     if train_args.interaction_iters > 0:
-                        test_binaries = (interaction_binaries.squeeze() + true_binaries + likelihood_binaries.squeeze()).long().squeeze()
+                        test_binaries = (interaction_binaries.squeeze() + true_binaries.squeeze() + likelihood_binaries.squeeze()).long().squeeze()
                         test_idxes = torch.nonzero(test_binaries)
+                        # print(test_idxes.shape, test_binaries.shape)
                         # print([interaction_likelihood.shape, likelihood_binaries.shape, interaction_binaries.shape, true_binaries.shape, forward_error.shape, passive_error.shape])
-                        intbint = torch.cat([interaction_likelihood, likelihood_binaries, interaction_binaries, true_binaries, forward_error, passive_error], dim=1)[test_idxes].squeeze()
+                        intbint = torch.cat([interaction_likelihood, likelihood_binaries, interaction_binaries, true_binaries, forward_error, passive_error], dim=1).squeeze()
                     else:
                         test_binaries = (interaction_binaries.squeeze() + likelihood_binaries.squeeze()).long().squeeze()
                         test_idxes = torch.nonzero(test_binaries)
                         intbint = torch.cat([interaction_likelihood, likelihood_binaries, interaction_binaries, forward_error, passive_error], dim=1).squeeze()
                     test_binaries[test_binaries > 1] = 1
                     inp = self.gamma(batchvals.values.state)
-                    print(inp.shape, batchvals.values.state.shape, prediction_params[0].shape, test_idxes, test_binaries, likelihood_binaries, interaction_binaries)
+                    # print(inp.shape, batchvals.values.state.shape, prediction_params[0].shape, test_idxes, test_binaries, likelihood_binaries, interaction_binaries)
 
                     print("iteration: ", i,
                         "input", inp[:15].squeeze(),
@@ -1126,11 +1132,11 @@ class NeuralInteractionForwardModel(nn.Module):
                         # self.delta(batchvals.values.next_state[0]), 
                         # self.gamma(batchvals.values.state[0]),
                         "\ntarget: ", rv(target)[:15].squeeze(),
-                        "\nactive", rv(prediction_params[0])[test_idxes][:15].squeeze(),
+                        "\nactive", rv(prediction_params[0])[:15].squeeze(),
                         # "\ntadiff", (rv(target) - rv(prediction_params[0])) * test_binaries,
                         # "\ntpdiff", (rv(target) - rv(passive_prediction_params[0])) * test_binaries,
-                        "\ntadiff", (rv(target) - rv(prediction_params[0]))[test_idxes][:15].squeeze(),
-                        "\ntpdiff", (rv(target) - rv(passive_prediction_params[0]))[test_idxes][:15].squeeze(),
+                        "\ntadiff", (rv(target) - rv(prediction_params[0]))[:15].squeeze(),
+                        "\ntpdiff", (rv(target) - rv(passive_prediction_params[0]))[:15].squeeze(),
                         "\nal2: ", active_l2.mean(dim=0),
                         "\npl2: ", passive_l2.mean(dim=0),)
                 print(
@@ -1307,8 +1313,10 @@ class NeuralInteractionForwardModel(nn.Module):
         interaction, forward, passive = np.concatenate(interaction, axis=0), np.concatenate(forward, axis=0), np.concatenate(passive, axis=0)
         targets = self.get_targets(test_rollout)
         dtarget = self.split_instances(self.delta(targets)) if self.multi_instanced else self.delta(targets)
-        sfe = np.linalg.norm(forward - pytorch_model.unwrap(dtarget), ord =1) * interaction.squeeze() # per state forward error
-        spe = np.linalg.norm(passive - pytorch_model.unwrap(dtarget), ord =1) * interaction.squeeze() # per state passive error
+        axis = 2 if self.multi_instanced else 1
+        print(forward.shape, dtarget.shape, interaction.shape)
+        sfe = np.linalg.norm(forward - pytorch_model.unwrap(dtarget), ord =1, axis=axis) * interaction.squeeze() # per state forward error
+        spe = np.linalg.norm(passive - pytorch_model.unwrap(dtarget), ord =1, axis=axis) * interaction.squeeze() # per state passive error
         print(self.output_normalization_function.mean, self.output_normalization_function.std)
         print("forward error", (forward - pytorch_model.unwrap(dtarget))[:100])
         print("passive error", (passive - pytorch_model.unwrap(dtarget))[:100])
@@ -1356,10 +1364,12 @@ class NeuralInteractionForwardModel(nn.Module):
             else:
                 sampled_feature = self.control_feature.sample_feature(state)
             # print(self.gamma(sampled_feature))
+            # print(sampled_feature.shape, print(type(self.control_feature)))
+            sampled_feature = pytorch_model.wrap(sampled_feature, cuda=self.iscuda)
             inter, pred_states = self.predict_next_state(sampled_feature)
             # if inter.sum() > .7:
             #     # print(inter.shape, pred_states.shape, sampled_feature.shape, inter > 0)
-            #     print(inter[inter.squeeze() > 0.7], pred_states[inter.squeeze() > 0.7], sampled_feature[inter.squeeze() > 0.7])
+            #     print(inter[inter.squeeze() > 0.7], pred_states[inter.squeeze() > 0.7], self.gamma(sampled_feature[inter.squeeze() > 0.7]), self.control_feature.object())
             # if inter.sum() >= 1:
             #     print('int', pytorch_model.unwrap(inter))
             #     print('sam', pytorch_model.unwrap(self.gamma(sampled_feature)))
@@ -1398,7 +1408,7 @@ class NeuralInteractionForwardModel(nn.Module):
         test_diff = torch.max(sample_diffs, dim=0)[0]
         v = torch.zeros(test_diff.shape)
         # if the largest difference is larger than the active_epsilon, assign it
-        print(v)
+        print(test_diff)
         v[test_diff > self.active_epsilon] = 1
         # collect by instance and determine
         v = self.split_instances(v)
@@ -1469,7 +1479,7 @@ class NeuralInteractionForwardModel(nn.Module):
                         targets.append(mvtg[idx[1]])
                 print("sample", inter, inputs, targets)
                 for tar in targets:
-                    sample = pytorch_model.unwrap(tar * self.selection_binary)
+                    sample = pytorch_model.unwrap(tar) * pytorch_model.unwrap(self.selection_binary)
                     self.sample_able.add(sample)
         # if self.iscuda:
         #     self.sample_able.cuda()

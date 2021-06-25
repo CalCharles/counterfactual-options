@@ -226,7 +226,7 @@ def saveframe(state, pth='data/', count=-1, name='frame'):
         os.makedirs(pth)
     except OSError:
         pass
-    imio.imsave(os.path.join(pth), state)
+    imio.imsave(os.path.join(pth, name + str(count) + ".png"), state)
 
 # Define a context manager to suppress stdout and stderr. copied from https://stackoverflow.com/questions/11130156/suppress-stdout-stderr-print-from-python-functions
 class suppress_stdout_stderr(object):

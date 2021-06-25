@@ -120,11 +120,12 @@ class Network(nn.Module):
                 layer.reset_parameters()
             elif type(layer) == nn.Parameter:
                 nn.init.uniform_(layer.data, 0.0, 0.2/np.prod(layer.data.shape))#.01 / layer.data.shape[0])
-            else:
+            elif type(layer) == nn.Linear:
                 fulllayer = layer
                 if type(layer) != nn.ModuleList:
                     fulllayer = [layer]
                 for layer in fulllayer:
+                    print("init form", self.init_form)
                     if self.init_form == "orth":
                         nn.init.orthogonal_(layer.weight.data, gain=nn.init.calculate_gain('relu'))
                     elif self.init_form == "uni":

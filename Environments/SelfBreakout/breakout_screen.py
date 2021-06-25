@@ -169,7 +169,7 @@ class Screen(RawEnvironment):
                 object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
                 object_dumps.close()
             self.write_objects(extracted_state, frame.astype(np.uint8))
-        return {"raw_state": self.frame, "factored_state": extracted_state}, self.reward, self.done, {"lives": 5 - self.ball.losses}
+        return {"raw_state": self.frame, "factored_state": extracted_state}, self.reward, self.done, {"lives": 5 - self.ball.losses, "TimeLimit.truncated": False}
 
     def run(self, policy, iterations = 10000, render=False, save_path = "runs/", save_raw = True, duplicate_actions=1):
         self.set_save(0, save_path, -1, save_raw)

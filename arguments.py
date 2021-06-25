@@ -40,7 +40,7 @@ def get_args():
                         help='optimization steps to look ahead (default: 1)')
     # SAC hyperparameters 
     parser.add_argument('--sac-alpha', type=float, default=0.2,
-                        help='entropy constant for SAC (default: 0.2)')
+                        help='entropy constant for SAC (default: 0.2), use -1 for adaptive SAC')
     parser.add_argument('--not-deterministic-eval', action='store_true', default=False,
                         help='if true, deterministic evaluation for SAC is false')
     # cost function hyperparameters
@@ -57,6 +57,8 @@ def get_args():
                         help='adds the difference between object state and param to the network (2 should be masked, 1 unmasked) (default: 0, not used)')
     parser.add_argument('--param-first', action='store_true', default=False,
                     help='concatenates on the parameter as the first part of the input')
+    parser.add_argument('--no-input', type=int, default=0,
+                    help='does not add the other components of state to the input, if 1, no input states, if 2, no param')
     parser.add_argument('--relative-action', type=float, default=-1,
                     help='the model computes actions relative to the current object position (-1 is not used)')
     parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256],
@@ -65,6 +67,8 @@ def get_args():
                         help='choose the initialization for the weights')    
     parser.add_argument('--use-layer-norm', action='store_true', default=False,
                     help='uses layer norm in the network')
+    parser.add_argument('--input-norm', action='store_true', default=False,
+                    help='normalize the inputs by the sample mean variance from the buffer')
     parser.add_argument('--activation', default="relu",
                         help='choose the activation function (TODO: not used at the moment)')    
     parser.add_argument('--reward-normalization', action='store_true', default=False,
@@ -164,6 +168,8 @@ def get_args():
                     help='For hindsight experience replay, selects the positive reward x percent of the time (default .5)')
     parser.add_argument('--resample-timer', type=int, default=10,
                         help='how often to resample a goal (default: 10)')
+    parser.add_argument('--early-stopping', type=int, default=-1,
+                        help='stop adding too many terminal states to HER (default: -1)')
     parser.add_argument('--max-hindsight', type=int, default=500,
                         help='most timesteps to look behind for credit assignment (default: 500)')
     parser.add_argument('--resample-interact', action='store_true', default=False,

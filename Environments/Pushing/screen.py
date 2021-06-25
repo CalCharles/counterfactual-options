@@ -169,7 +169,7 @@ class Pushing(RawEnvironment):
         # print(self.reward)
         self.reset_counter += 1
         self.itr += 1
-        return full_state, self.reward, self.done, {"reset_counter": self.reset_counter}
+        return full_state, self.reward, self.done, {"reset_counter": self.reset_counter, "TimeLimit.truncated": self.reset_counter % self.reset_max == 0 and self.reset_counter > 0}
 
 class RandomPolicy():
     def __init__(self, action_space):

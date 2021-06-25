@@ -11,6 +11,9 @@ from file_management import suppress_stdout_stderr
 INPUT_STATE = 0
 OUTPUT_STATE = 1
 PARAM_STATE = 2
+PARAM_NOINPUT_STATE = 3
+NO_PARAM_STATE = 4
+ONLY_RELATIVE_STATE = 5
 
 FULL = 0
 FEATURIZED = 1
@@ -18,7 +21,8 @@ DIFF = 2
 
 
 class Option():
-    def __init__(self, policy_reward, models, object_name, temp_ext=False, relative_actions = -1, relative_state=False, discretize_acts=False, device=-1, param_first=False):
+    def __init__(self, policy_reward, models, object_name, temp_ext=False, relative_actions = -1, relative_state=False, relative_param=0, 
+        discretize_acts=False, device=-1, param_first=False, no_input=False):
         '''
         policy_reward is a PolicyReward object, which contains the necessary components to run a policy
         models is a tuple of dataset model and environment model
@@ -43,34 +47,48 @@ class Option():
         self.relative_action_space = None # set in subclass, space object used to set actions relative to current position
         self.relative_actions = relative_actions > 0
         self.relative_state = relative_state
+        self.relative_param = relative_param
         self.range_limiter = relative_actions
         self.discrete = False
         self.iscuda = False
         self.device = device
         self.use_mask = True
         self.param_process = None # must be assigned externally
-        self.last_factor = self.get_state(form=1, inp=1)
+        inp_set = PARAM_NOINPUT_STATE if no_input == 1 else (NO_PARAM_STATE if no_input == 2 else (ONLY_RELATIVE_STATE if no_input == 3 else PARAM_STATE))
+        print(no_input, inp_set)
+        # define different settings for get_state, a tuple of (form, inp, rel, param_rel)
+        print(self.relative_state, self.relative_param)
+        self.input_setting = (FEATURIZED, inp_set, int(self.relative_state), int(self.relative_param))
+        self.inter_setting = (FEATURIZED, INPUT_STATE, 0, 0)
+        self.output_setting = (FEATURIZED, OUTPUT_STATE, 0, 0)
+        self.full_flat_setting = (FULL, 0,0,0)
+
+        self.last_factor = self.get_state(setting=self.output_setting)
         self.last_act = None
         self.policy_batch = None # the policy batch for previous
 
         self.discretize_actions = discretize_acts # convert a continuous state into a discrete one
         # print(self.get_state(form=0))
         self.param_first = param_first
-        self.inter_shape = self.get_state(form=FEATURIZED, inp=INPUT_STATE).shape
-        self.output_shape = self.get_state(form=FEATURIZED, inp=OUTPUT_STATE).shape
+        self.inter_shape = self.get_state(setting=self.inter_setting).shape if not no_input else (0,)
+        self.output_shape = self.get_state(setting=self.output_setting).shape
         self.object_shape = self.dataset_model.object_dim
         self.rel_shape = (0,) if not self.relative_state else self.get_relative(inp=INPUT_STATE).shape
-        print(self.get_state(form=0))
+        self.param_rel_shape = (0,) if not self.relative_param else self.output_shape
+        print(self.get_state(setting=self.full_flat_setting))
         if self.sampler:
-            self.param, self.mask = self.sampler.sample(self.get_state(form=0))
+            self.param, self.mask = self.sampler.sample(self.get_state(setting=self.full_flat_setting))
             print(self.param)
             self.param_shape = self.param.shape
         else:
             self.param_shape = self.inter_shape
             self.param, self.mask = np.array([1]), np.array([1])
         print(self.inter_shape, self.output_shape, self.param_shape)
-        self.input_shape = self.get_state(form=FEATURIZED, rel=self.relative_state, inp=PARAM_STATE).shape
+        self.input_shape = self.get_state(setting=self.input_setting).shape
         self.first_obj_shape = self.inter_shape[0] - self.output_shape[0] + self.param_shape[0]  # TODO: assumes the output as part of the input
+        
+
+
         # print("last_factor", self.last_factor)
         # parameters for temporal extension TODO: move this to a single function
         self.temp_ext = temp_ext 
@@ -145,53 +163,65 @@ class Option():
                 state = flat
             else:
                 state = factored
-        featurize = self.gamma_featurizer if (inp == 0 or inp == 2) else self.delta_featurizer
+        featurize = self.gamma_featurizer if (inp == 0 or inp == 2 or inp == 3) else self.delta_featurizer
         rel = featurize.get_relative(state) # there might be some difficulty managing concatenate for relative state
         return rel
     
     # def get_flattened_input_state(self, factored_state):
     #     return pytorch_model.wrap(self.environment_model.get_flattened_state(names=self.names), cuda=self.iscuda)
-    def get_state(self, full_state=None, form=1, inp=0, rel=0, param=None, factored=False): # param is expected 
+    def get_state(self, full_state=None, setting = (1,0,0,0), param=None, factored=False): # param is expected 
         # form is an enumerator, 0 is flattened state, 1 is gamma/delta state, 2 is diff using last_factor
         # inp indicates if gamma or delta or gamma+param (if param is not None)
         # param can either be None (add a dummy param), a list of the same length as full_state, or a param dimensional numpy array
         # factored indicates if the state should NOT be flattened because only the factored components are given
+        form, inp, rel, param_rel = setting
         if full_state is None:
             full_state = self.environment_model.get_state()
         if type(full_state) is list or type(full_state) is np.ndarray:
             # if type(param) is list or type(param) is np.ndarray:
             #     return np.array([self.get_single_state(f, form=form, inp=inp, param=p) for f,p in zip(full_state, param)])
             if param is not None:
-                return np.array([self.get_single_state(f, form=form, inp=inp, rel=rel, param=param.copy(), factored=factored) for f in full_state])
-            return np.array([self.get_single_state(f, form=form, inp=inp, rel=rel, param=param, factored=factored) for f in full_state])
+                return np.array([self.get_single_state(f, form=form, inp=inp, rel=rel, param_rel=param_rel, param=param.copy(), factored=factored) for f in full_state])
+            return np.array([self.get_single_state(f, form=form, inp=inp, rel=rel, param_rel=param_rel, param=param, factored=factored) for f in full_state])
         else: # assume it is a dict
-            return self.get_single_state(full_state, form=form, inp=inp, rel=rel, param=param, factored=factored)
+            return self.get_single_state(full_state, form=form, inp=inp, rel=rel, param_rel=param_rel, param=param, factored=factored)
 
-    def get_single_state(self, full_state, form=1, inp=0, rel= 0, param=None, factored=False):
+    def get_single_state(self, full_state, form=1, inp=0, rel= 0, param_rel=0, param=None, factored=False):
         # print(full_state)
         factored_state = full_state['factored_state']
         featurize = self.gamma_featurizer if (inp == 0 or inp == 2) else self.delta_featurizer
-        comb_param = lambda x: self.add_param(x, param) if (inp == 2) else x
+        comb_param = lambda x: self.add_param(x, param) if (inp == 2 or inp == 3) else x
 
         if form == 0:
             return self.environment_model.flatten_factored_state(factored_state, instanced=True)
         elif form == 1:
             '''
-            concatenation occurs in the order: relative, gamma, param
+            concatenation occurs in the order: relative, param, gamma, param
             '''
             # if inp == 2:
                 # print(featurize(self.environment_model.flatten_factored_state(factored_state, instanced=True)), param)
                 # print("getting combined", comb_param(featurize(self.environment_model.flatten_factored_state(factored_state, instanced=True))))
             base_shape = np.array(factored_state[list(factored_state.keys())[0]]).shape
             n_unsqueeze = len(base_shape) - 1
-            if factored:
-                state = comb_param(featurize(factored_state))
-            else:
+            if not factored:
                 flat = self.environment_model.flatten_factored_state(factored_state, instanced=True)
                 # print("flat", flat.shape, n_unsqueeze, base_shape, factored_state["Ball"])
                 for _ in range(n_unsqueeze):
                     flat = np.expand_dims(flat, 0)
-                state = comb_param(featurize(flat))
+            if inp == 3 or inp == 5:
+                if len(base_shape) == 1:
+                    state = comb_param(np.zeros((0,)))
+                else:
+                    state = comb_param(np.zeros((base_shape[0],0,)))
+            else:
+                if factored:
+                    state = comb_param(featurize(factored_state))
+                else:
+                    # flat = self.environment_model.flatten_factored_state(factored_state, instanced=True)
+                    # # print("flat", flat.shape, n_unsqueeze, base_shape, factored_state["Ball"])
+                    # for _ in range(n_unsqueeze):
+                    #     flat = np.expand_dims(flat, 0)
+                    state = comb_param(featurize(flat))
             # print(state.shape)
             # print("cat param", state.shape, rel)
             if rel == 1:
@@ -203,6 +233,20 @@ class Option():
                     state = np.concatenate((rel, state), axis=0)
                 else:
                     state = np.concatenate((rel, state), axis=1)
+            if param_rel > 0: # TODO: add mask to relative param
+                # print(factored_state)
+                if factored:
+                    os = self.delta_featurizer(factored_state)
+                else:
+                    os = self.delta_featurizer(flat)
+                # print(os, param)
+                param = self.handle_param(os, param)
+                param_rel =  os - param
+                if len(state.shape) == 1:
+                    # print(state.shape, param_rel.shape)
+                    state = np.concatenate((param_rel, state), axis=0)
+                else:
+                    state = np.concatenate((param_rel, state), axis=1)
                 # print("cat rel", rel.shape, state.shape)
             return state
         else:
@@ -211,15 +255,19 @@ class Option():
     def strip_param(self, combined):
         '''
         TODO: only handles stripping concatenated state with one dimension
-        TODO: name is slightly confusing, strips BOTH param and relative state
+        TODO: name is slightly confusing, strips BOTH param and relative states
         '''
-        if self.param_process is None:
+        if self.param_process is None: # param process is not none would mean that the environment handles things like this
             if len(combined.shape) > 1:
-                return combined[:,  self.rel_shape[0]:self.inter_shape[0] + self.rel_shape[0]]
-            return combined[self.rel_shape[0]:self.inter_shape[0] + self.rel_shape[0]]
+                if self.param_first:
+                    return combined[:, self.param_shape[0]:]
+                return combined[:,  self.rel_shape[0] + self.param_rel_shape[0]:self.inter_shape[0] + self.rel_shape[0] + self.param_rel_shape[0]]
+            if self.param_first:
+                return combined[self.param_shape[0]:]
+            return combined[self.rel_shape[0] + self.param_rel_shape[0]:self.inter_shape[0] + self.rel_shape[0] + self.param_rel_shape[0]]
         return combined
 
-    def assign_param(self, state, param):
+    def assign_param(self, state, param, obj_state=None):
         '''
         similar to add_param, but for a state which is already added
         TODO: assumes that param_process is an inplace operation
@@ -228,22 +276,44 @@ class Option():
             param = np.stack([param.copy() for i in range(state.shape[0])], axis=0)
         if self.param_process is None:
             # print(state.shape, param.shape, self.inter_shape, self.rel_shape, self.relative_state)
+            inter_rel = self.inter_shape[0] + self.rel_shape[0]
+            prel = self.param_rel_shape[0]
             if len(state.shape) == 1:
-                state[self.inter_shape[0] + self.rel_shape[0]:] = param
+                if self.param_first: # param is at the beginning
+                    state[:self.param_shape[0]] = param
+                    inter_rel += self.param_shape[0]
+                else: # param is at the end
+                    state[inter_rel + prel:] = param
+                if self.param_rel_shape[0] > 0 and obj_state is not None:
+                    state[inter_rel:inter_rel + prel] = obj_state - param 
             else:
-                state[:, self.inter_shape[0] + self.rel_shape[0]:] = param # default to was concatenated
+                if self.param_first:
+                    state[:, :self.param_shape[0]] = param
+                    inter_rel += self.param_shape[0]
+                else:
+                    state[:, self.inter_shape[0] + self.rel_shape[0] + self.param_rel_shape[0]:] = param # default to was concatenated
+                if self.param_rel_shape[0] > 0 and obj_state is not None:
+                    state[:, inter_rel:inter_rel + prel] = obj_state - param 
         else:
             state = self.param_process(state, param)
         return state
+
+    def handle_param(self, state, param):
+        if param is None: # insert a dummy param
+            param = np.zeros(self.param_shape)
+        if len(param.shape) != len(state.shape): # assume that state is batch and param is single
+            param = np.stack([param.copy() for i in range(state.shape[0])], axis=0)
+        return param        
 
     def add_param(self, state, param):
         '''
         only handles single states and batches
         '''
-        if param is None: # insert a dummy param
-            param = np.zeros(self.param_shape)
-        if len(param.shape) != len(state.shape): # assume that state is batch and param is single
-            param = np.stack([param.copy() for i in range(state.shape[0])], axis=0)
+        param = self.handle_param(state, param)
+        # if param is None: # insert a dummy param
+        #     param = np.zeros(self.param_shape)
+        # if len(param.shape) != len(state.shape): # assume that state is batch and param is single
+        #     param = np.stack([param.copy() for i in range(state.shape[0])], axis=0)
         if self.param_process is None:
             if len(state.shape) == 1:
                 param_process = lambda x,y: np.concatenate((x,y), axis=0)
@@ -264,7 +334,7 @@ class Option():
             if self.object_name == 'Raw': # raw param handling is questionable at best
                 self.param, self.mask = np.array([1]), np.array([1])
             else: 
-                self.param, self.mask = self.sampler.sample(self.get_state(full_state, form=0))
+                self.param, self.mask = self.sampler.sample(self.get_state(full_state, setting=self.full_flat_setting))
                 self.terminate_timer = 0
                 new_param = True
                 # print(self.param, self.get_state(full_state, form=FEATURIZED, inp=OUTPUT_STATE))
@@ -316,7 +386,7 @@ class Option():
         act = self.policy.map_action(act) # usually converts from policy space to environment space (even for options)
         if self.relative_actions and self.next_option is not None and self.next_option.object_name != "Action": # converts relative actions maintaining value
             if resampled:
-                act = self.convert_relative_action(self.next_option.get_state(batch["full_state"], form=0, inp=1), act)
+                act = self.convert_relative_action(self.next_option.get_state(batch["full_state"], setting=self.full_flat_setting), act)
                 self.last_mapped_act = act
             else:
                 act = self.last_mapped_act # otherwise we get a moving target problem
@@ -324,7 +394,7 @@ class Option():
 
     def reverse_map_action(self, mapped_act, batch):
         if self.relative_actions and self.next_option is not None and self.next_option.object_name != "Action": # converts relative actions maintaining value
-            mapped_act = self.reverse_relative_action(self.next_option.get_state(batch["full_state"], form=0, inp=1), mapped_act)
+            mapped_act = self.reverse_relative_action(self.next_option.get_state(batch["full_state"], setting=self.full_flat_setting), mapped_act)
         act = self.policy.reverse_map_action(mapped_act) # usually converts from policy space to environment space (even for options)
         if self.discretize_actions: # if actions are discretized, then converts discrete action to continuous
             act = self.get_discrete(act)
@@ -398,9 +468,12 @@ class Option():
             # print(self.object_name, batch.obs, act)
             # print("relative", act)
             if hasattr(self, "expand_policy_space") and self.expand_policy_space and (type(act) == np.int64 or type(act) == int):
+                # print("expanding")
                 act = np.array([act])
+            # print(type(act), act)
             mapped_act = self.map_action(act, resampled, batch)
-
+            if self.object_name == "Block":
+                print(act, mapped_act)
             # if self.object_name == "Block":
             #     print("policy action", self.object_name, type(act), mapped_act)
             if use_model: 
@@ -411,6 +484,7 @@ class Option():
         if resampled: self.resample_timer = 0
         # print(self.iscuda, param, baction, action)
         # print(act, random, mapped_act)
+        # print("output actions", act, mapped_act)
         chain = [mapped_act]
         
         # recursively propagate action up the chain
@@ -419,7 +493,7 @@ class Option():
             obs = batch['obs']
             param_act = self.next_option.convert_param(mapped_act)
             batch['param'] = [param_act]
-            if self.next_option.object_name != "Action": batch['obs'] = self.next_option.get_state(batch["full_state"], form=1, inp=2, rel = 1 if self.next_option.relative_state else 0, param=param_act, factored=factored) # will always concatenate param
+            if self.next_option.object_name != "Action": batch['obs'] = self.next_option.get_state(batch["full_state"], setting=self.next_option.input_setting, param=param_act, factored=factored) # will always concatenate param
             # print("params", self.next_option.object_name, batch.param, param_act, param, batch.obs)
             # print(self.next_option.object_name, batch.obs)
             if state_chain is None: next_policy_act, rem_chain, result, rem_state_chain, last_resampled = self.next_option.sample_action_chain(batch, None) # , random=random # TODO: only sample top level randomly
@@ -438,7 +512,7 @@ class Option():
         if self.next_option is not None:
             self.next_option.step(last_state, chain[:len(chain)-1])
         self.last_action = chain[-1]
-        self.last_factor = self.get_state(last_state, form=FEATURIZED, inp=OUTPUT_STATE)
+        self.last_factor = self.get_state(last_state, setting=self.output_setting)
 
     def step_timer(self, done): # TODO: does this need to handle done chains?
         # return true if the timer ellapsed
@@ -458,8 +532,8 @@ class Option():
         if self.next_option is not None: # lower levels should have masks the same as the active mask( fully trained)
             last_dones, last_rewards, last_termination = self.next_option.terminate_reward(state, next_state, self.next_option.convert_param(chain[-1]), chain[:len(chain)-1], needs_reward=False)
         # get the state to be entered into the termination check
-        input_state = self.get_state(state, form=FEATURIZED, inp=INPUT_STATE)
-        object_state = self.get_state(next_state, form = FEATURIZED, inp=OUTPUT_STATE)
+        input_state = self.get_state(state, setting=self.inter_setting)
+        object_state = self.get_state(next_state, setting=self.output_setting)
         # object_state = self.get_state(state, form = DIFF if self.data.use_diff else FEATURIZED, inp=OUTPUT_STATE) # don't predict diff state
         # if mask is None:
         #     mask = self.dataset_model.get_active_mask()
@@ -467,6 +541,7 @@ class Option():
         # assign terminated, done and reward ( might need to unwrap)
         # print("first", object_state.shape, self.mask, param, input_state.shape)
         # print(self.environment_model.get_done(state), self.environment_model.get_done(next_state))
+        # print(self.mask)
         termination = self.termination.check(input_state, object_state, param, self.mask, self.environment_model.get_done(next_state))
         # print("reward fn", self.reward)
         if needs_reward:
@@ -590,7 +665,8 @@ class Option():
 
 
 class PrimitiveOption(Option): # primative discrete actions
-    def __init__(self, policy_reward, models, object_name, temp_ext=False, relative_actions = -1, relative_state=False, discretize_acts=False, device=-1, action_featurizer=None, param_first=False):
+    def __init__(self, policy_reward, models, object_name, temp_ext=False, relative_actions = -1, relative_state=False, relative_param=0, 
+        discretize_acts=False, device=-1, action_featurizer=None, param_first=False, no_input=False):
         self.num_params = models[1].environment.num_actions
         self.object_name = "Action"
         self.action_featurizer = action_featurizer
@@ -662,8 +738,10 @@ class PrimitiveOption(Option): # primative discrete actions
 
 
 class RawOption(Option):
-    def __init__(self, policy_reward, models, object_name, temp_ext=False, relative_actions = -1, relative_state=False, discretize_acts=False, device = -1, param_first=False):
-        super().__init__(policy_reward, models, object_name, temp_ext=temp_ext, relative_actions=relative_actions, relative_state=relative_state, discretize_acts=discretize_acts, param_first=False)
+    def __init__(self, policy_reward, models, object_name, temp_ext=False, relative_actions = -1, relative_state=False, relative_param=0, 
+        discretize_acts=False, device = -1, param_first=False, no_input=False):
+        super().__init__(policy_reward, models, object_name, temp_ext=temp_ext, relative_actions=relative_actions, relative_state=relative_state,
+         relative_param=relative_param, discretize_acts=discretize_acts, param_first=param_first, no_input=no_input)
         self.object_name = "Raw"
         self.action_shape = (1,)
         self.action_prob_shape = (self.environment_model.environment.num_actions,)
@@ -783,8 +861,10 @@ class RawOption(Option):
         return mean[torch.arange(mean.size(0)), idx.squeeze().long()], None#torch.log(mean[torch.arange(mean.size(0)), idx.squeeze().long()])
 
 class ModelCounterfactualOption(Option):
-    def __init__(self, policy_reward, models, object_name, temp_ext=False, relative_actions = -1, relative_state=False, discretize_acts=False, device=-1, param_first=False):
-        super().__init__(policy_reward, models, object_name, temp_ext=temp_ext, relative_actions=relative_actions, relative_state=relative_state, discretize_acts=discretize_acts, param_first=False)
+    def __init__(self, policy_reward, models, object_name, temp_ext=False, relative_actions = -1, relative_state=False, relative_param=0, 
+        discretize_acts=False, device=-1, param_first=False, no_input=False):
+        super().__init__(policy_reward, models, object_name, temp_ext=temp_ext, relative_actions=relative_actions, relative_state=relative_state,
+         relative_param=relative_param, discretize_acts=discretize_acts, param_first=param_first, no_input=no_input)
         self.action_prob_shape = self.next_option.output_prob_shape
         if self.discrete_actions:
             self.action_shape = (1,)
@@ -797,6 +877,7 @@ class ModelCounterfactualOption(Option):
         self.control_min = np.array(self.dataset_model.control_min)
         self.policy_min = -1 * np.ones(self.action_min.shape) # policy space is always the same
         self.policy_max = 1 * np.ones(self.action_min.shape)
+        self.expand_policy_space = False
         if self.next_option.object_name != "Action":
             self.expand_policy_space = True
 
@@ -882,8 +963,10 @@ class ModelCounterfactualOption(Option):
 
 class ForwardModelCounterfactualOption(ModelCounterfactualOption):
     ''' Uses the forward model to choose the action '''
-    def __init__(self, policy_reward, models, object_name, temp_ext=False, relative_actions = -1, relative_state=False, discretize_acts=False, device=-1, param_first=False):
-        super().__init__(policy_reward, models, object_name, temp_ext=temp_ext, relative_actions = relative_actions, relative_state=relative_state, discretize_acts=discretize_acts, device=device, param_first=False)
+    def __init__(self, policy_reward, models, object_name, temp_ext=False, relative_actions = -1, relative_state=False, relative_param=0, 
+        discretize_acts=False, device=-1, param_first=False, no_input=False):
+        super().__init__(policy_reward, models, object_name, temp_ext=temp_ext, relative_actions = relative_actions, relative_state=relative_state, 
+            relative_param=relative_param, discretize_acts=discretize_acts, device=device, param_first=param_first, no_input=no_input)
         self.sample_per = 5
         self.max_propagate = 3
         self.epsilon_reward = .1
@@ -937,7 +1020,7 @@ class ForwardModelCounterfactualOption(ModelCounterfactualOption):
             inters, next_factored_state = self.predict_state(factored_state, 0) # TODO: raw action hacked to no-op for now
             next_factored_state = self.np_state(next_factored_state)
             full_state = {"factored_state": next_factored_state, "PARTIAL": 1}
-            center = self.next_option.get_state(full_state, inp=OUTPUT_STATE, factored=True)
+            center = self.next_option.get_state(full_state, setting=self.next_option.output_setting, factored=True)
             obj_samples = self.single_step_search(center, self.next_option.mask)
             # for each of the samples, broadcast the object state
             broadcast_obj_state = np.stack([next_factored_state[self.object_name].copy() for i in range(len(obj_samples))], axis=0)
@@ -957,8 +1040,8 @@ class ForwardModelCounterfactualOption(ModelCounterfactualOption):
         # outputs the rewards, and the action state (state that can be converted to an action by the CURRENT option)
         inters, preds = self.dataset_model.predict_next_state(factored_state)
         state = {"factored_state": factored_state, "PARTIAL": 1} # hopefully limited factored state is sufficient
-        input_state = self.get_state(state, form=FEATURIZED, inp=INPUT_STATE, factored=True)
-        action_state = self.next_option.get_state(state, form=FEATURIZED, inp=OUTPUT_STATE, factored=True)
+        input_state = self.get_state(state, setting=self.inter_setting, factored=True)
+        action_state = self.next_option.get_state(state, setting=self.next_option.output_setting, factored=True)
         # print("enum", preds, state, action_state)
         object_state = pytorch_model.unwrap(preds)
         # get the first action
@@ -971,8 +1054,8 @@ class ForwardModelCounterfactualOption(ModelCounterfactualOption):
         roll forward until time limit or we hit the end of temporal extension, then start guessing future states
         '''
         state = copy.deepcopy(batch['full_state'])
-        input_state = self.next_option.get_state(state, form=FEATURIZED, inp=INPUT_STATE, factored=True)
-        object_state = self.next_option.get_state(state, form = FEATURIZED, inp=OUTPUT_STATE, factored=True)
+        input_state = self.next_option.get_state(state, setting=self.next_option.inter_setting, factored=True)
+        object_state = self.next_option.get_state(state, setting=self.next_option.output_setting, factored=True)
         # get the first action
         act, chain, policy_batch, pol_state, resampled = self.sample_action_chain(batch, state_chain, preserve=True)
         # print(mapped_act, chain[-1])
@@ -988,13 +1071,14 @@ class ForwardModelCounterfactualOption(ModelCounterfactualOption):
             inters, factored_state = self.predict_state(factored_state, chain[0]) # TODO: add optional replacement with predictions from environment model
             factored_state = self.np_state(factored_state)
             state = {"factored_state": factored_state, "PARTIAL": 1} # hopefully limited factored state is sufficient
-            input_state = self.next_option.get_state(state, form=FEATURIZED, inp=INPUT_STATE, factored=True)
-            object_state = self.next_option.get_state(state, form = FEATURIZED, inp=OUTPUT_STATE, factored=True)
+            input_state = self.next_option.get_state(state, setting=self.next_option.inter_setting, factored=True)
+            object_state = self.next_option.get_state(state, setting=self.next_option.output_setting, factored=True)
             # get the first action
             batch = copy.deepcopy(batch) # TODO: is copy inefficient?
-            batch.update(full_state = [state], obs = self.get_state(state, form=FEATURIZED, factored=True, inp=2, rel=1 if self.relative_state else 0, param=self.param))
+            batch.update(full_state = [state], obs = self.get_state(state, setting=self.input_setting, factored=True, param=self.param))
             # print(batch)
             act, chain, policy_batch, pol_state, resampled = self.sample_action_chain(batch, state_chain, preserve=True, use_model=False)
+            # print("input_state", self.object_name, input_state)
             term = self.next_option.termination.check(input_state, object_state, self.next_option.convert_param(chain[-1]), self.next_option.mask, 0)
             factored_state = Batch([factored_state])
             timer += 1

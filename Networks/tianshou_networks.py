@@ -19,8 +19,11 @@ class TSNet(nn.Module):
         self.iscuda = False
 
     def forward(self, obs, state=None, info={}):
+        # TODO: make this not hardcoded
+
         if not isinstance(obs, torch.Tensor):
             obs = pytorch_model.wrap(obs, dtype=torch.float, cuda=self.iscuda)
+        # print("at network", obs)
         batch = obs.shape[0]
         obs = obs.reshape(batch, -1)
         logits = self.model(obs)
@@ -31,6 +34,8 @@ class BasicNetwork(TSNet):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         state_shape = kwargs["num_inputs"]
+
+
         print(self.output_dim)
         kwargs["num_outputs"] = self.output_dim
         self.model = BasicMLPNetwork(**kwargs)

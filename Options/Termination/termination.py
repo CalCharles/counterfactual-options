@@ -133,6 +133,7 @@ class CombinedTermination(Termination):
 		self.param_interaction = kwargs["param_interaction"]
 		self.inter = 0
 		self.inter_pred = 0
+		self.p_hit = 0 # if the param is hit
 
 	def check(self, input_state, state, param, mask, true_done=0):
 		# NOTE: input state is from the current state, state, param are from the next state
@@ -144,11 +145,14 @@ class CombinedTermination(Termination):
 		self.inter_pred = interaction_pred
 		inter = interaction_pred > (1 - self.epsilon)
 		self.inter = inter
+		self.p_hit = 0
 		param_term = self.parameterized_termination.check(input_state, state, param, mask)
+		# print(self.interaction_probability, param_term, pytorch_model.unwrap(inter), state, param)
 		if self.interaction_probability > 0:
 			chances = np.random.random(size=interaction_pred.shape) < self.interaction_probability
 			if not self.param_interaction: param_inter = True
 			else: param_inter = inter
+			self.p_hit = param_term * param_inter
 			# if np.sum(inter):
 			# 	print("checked", inter, self.epsilon, input_state)
 			chosen = inter * chances + param_term * param_inter
@@ -160,6 +164,27 @@ class CombinedTermination(Termination):
 			return pytorch_model.unwrap(chosen)
 		# print(inter, param_term, state, (state - param), self.parameterized_termination.epsilon)
 		return pytorch_model.unwrap(inter) * param_term
+
+class CombinedTrueTermination(Termination):
+	def __init__(self, **kwargs):
+		super().__init__(**kwargs)
+		self.comb_terminator = CombinedTermination(**kwargs)
+		self.inter = 0
+		self.inter_pred = 0
+		self.p_hit = 0
+		self.epsilon = self.comb_terminator.epsilon
+		self.epsilon_close = self.comb_terminator.epsilon_close
+
+	def check(self, input_state, state, param, mask, true_done=False):
+		comb_term = self.comb_terminator.check(input_state, state, param, mask, true_done=true_done)
+		self.inter = self.comb_terminator.inter
+		self.inter_pred = self.comb_terminator.inter_pred
+		self.p_hit = self.comb_terminator.p_hit
+		vals = comb_term + true_done
+		if type(vals) == np.ndarray:
+			vals[vals > 1] = 1
+		# print(vals, comb_term, self.inter, self.inter_pred, self.p_hit)
+		return vals
 
 class InstancedTermination(Termination):
 	def __init__(self, **kwargs): # TODO: for now, operates under fixed mask assumption
@@ -215,7 +240,7 @@ class ProximityInstancedTermination(Termination):
 			for i in range(instanced.shape[0]):
 				# if len(batch_idx) - 1 < ctr: # No close indexes left, should not be possible with blocks since they don't move
 				# 	output.append(False)
-				if np.sum(inter_bin[i]) == 0: # there are no interactions for this instance in the batch
+				if np.sum(inter_bin[i]) == 0 or len(batch_idx) == 0: # there are no interactions for this instance in the batch
 					output.append(False)
 				else: 
 					bi, ii = batch_idx[ctr], inst_idx[ctr]
@@ -238,7 +263,7 @@ class ProximityInstancedTermination(Termination):
 		else:
 			inter_bin = inter_bin.squeeze()
 			output = list()
-			if np.sum(inter_bin) == 0: # no interactions
+			if np.sum(inter_bin) == 0 or len(batch_idx) == 0: # no interactions
 				output = False
 			else:
 				for idx in inst_idx:
@@ -248,6 +273,7 @@ class ProximityInstancedTermination(Termination):
 						output.append(np.linalg.norm((instanced[idx] - param) * mask, ord =1) <= self.epsilon)
 				output = np.max(output) if len(output) > 0 else False
 		self.inter = pytorch_model.unwrap(self.dataset_model.interaction_model(input_state) > self.dataset_model.interaction_prediction)
+		self.p_hit = output
 		# if not batched:
 		# 	print("termination", output, self.inter)
 		return output
@@ -265,4 +291,4 @@ class EnvFnTermination(Termination):
 	def check(self, input_state, state, param, mask, true_done=0):
 		return self.term_fn(input_state, state, param)
 
-terminal_forms = {'param': ParameterizedStateTermination, 'comb': CombinedTermination, 'inst': InstancedTermination, 'proxist': ProximityInstancedTermination, 'true': TrueTermination, 'env': EnvFnTermination}
+terminal_forms = {'param': ParameterizedStateTermination, 'comb': CombinedTermination, 'tcomb': CombinedTrueTermination, 'inst': InstancedTermination, 'proxist': ProximityInstancedTermination, 'true': TrueTermination, 'env': EnvFnTermination}

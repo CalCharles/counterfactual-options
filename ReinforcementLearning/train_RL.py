@@ -210,6 +210,8 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     print("collect data from random policy")
     action_record = None if len(args.record_rollouts) == 0 else list()
     train_collector.collect(n_step=args.pretrain_iters, random=True, action_record=action_record) # param doesn't matter with random actions
+    if args.input_norm:
+        option.policy.compute_input_norm(train_collector.buffer)
 
     # intialize one step for temporal extension
     train_collector.reset_temporal_extension()
@@ -244,7 +246,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                 if args.max_steps > 0: result = test_collector.collect(n_term=1, n_step=args.max_steps, needs_new_param=needs_new_param, action_record=action_record, visualize_param=args.visualize_param)
                 else: result = test_collector.collect(n_term=1, needs_new_param=needs_new_param, action_record=action_record, visualize_param=args.visualize_param)
                 test_perf.append(result["rews"].mean())
-                print("num steps, sucess",result["n/st"], float(result["n/st"] != args.max_steps and (result["true_done"] < 1 or args.true_environment)))
+                print("num steps, sucess, rew",result["n/st"], float(result["n/st"] != args.max_steps and (result["true_done"] < 1 or args.true_environment)), result["rews"].mean())
                 suc.append(float(result["n/st"] != args.max_steps and (result["true_done"] < 1 or args.true_environment)))
                 needs_new_param = True
             print("Iters: ", i, "Steps: ", total_steps)
@@ -266,9 +268,16 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
         #     print(train_collector.buffer.act[:100], train_collector.buffer.obs[:100], train_collector.buffer.rew[:100], train_collector.buffer.done[:100])
             # error
         # train option.policy with a sampled batch data from buffer
+        # print (train_collector.buffer.act.shape)
+        print ("updating")
+        print(collect_result['idxs'])
+        for obs in np.concatenate([option.policy.learning_algorithm.replay_buffer.target[collect_result['idxs']].squeeze(), option.policy.learning_algorithm.replay_buffer.next_target[collect_result['idxs']].squeeze(), option.policy.learning_algorithm.replay_buffer.rew[collect_result['idxs']], option.policy.learning_algorithm.replay_buffer.done[collect_result['idxs']], option.policy.learning_algorithm.replay_buffer.true_done[collect_result['idxs']], option.policy.learning_algorithm.replay_buffer.info["TimeLimit.truncated"][collect_result['idxs']]], axis=1):
+            print(obs.squeeze())
         losses = option.policy.update(args.batch_size, train_collector.buffer)
         epsilon, interaction, epsilon_close = step_schedules(args, option, i, epsilon, interaction, epsilon_close)
-        if i % args.log_interval == 3:
+        if args.input_norm:
+            option.policy.compute_input_norm(train_collector.buffer)
+        if i % args.log_interval == 0:
             # np.set_printoptions(threshold = 1000000, linewidth = 230)
             # print(np.concatenate((train_collector.buffer.obs[:300,4:7], train_collector.buffer.obs_next[:300,4:7], train_collector.buffer.param[:300, 1:2], np.expand_dims(train_collector.buffer.terminate[:300], 1),
             # np.expand_dims(train_collector.buffer.done[:300], 1), np.expand_dims(train_collector.buffer.rew[:300], 1), np.expand_dims(train_collector.buffer.true_done[:300], 1)), axis=1))
@@ -280,7 +289,6 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
         if args.save_interval > 0 and (i+1) % args.save_interval == 0:
             option.save(args.save_dir)
             graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
-
     if args.save_interval > 0:
         option.save(args.save_dir)
         graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)

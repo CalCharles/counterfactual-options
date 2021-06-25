@@ -64,7 +64,7 @@ class TrueNegativeCombinedReward(Reward):
 			new_true[true_reward > 0] = 0
 		else:
 			new_true = 0 if true_reward > 0 else 1
-		return self.combined.get_reward(input_state, state, param, true_reward) + self.rlambda * np.squeeze(true_reward * new_true)
+		return self.combined.get_reward(input_state, state, param, mask, true_reward) + self.rlambda * np.squeeze(true_reward * new_true)
 
 class CombinedReward(Reward):
 	def __init__(self, **kwargs):
@@ -83,8 +83,8 @@ class CombinedReward(Reward):
 		# interaction_reward = (ireward > self.interaction_probability).float() - 1 # only give parameterized reward at interactions
 		
 		# print(ireward * self.lmbda, preward, interaction_reward, )
-		# print(ireward, preward, interacting)
-		return pytorch_model.unwrap(ireward * self.lmbda + preward * interacting.squeeze() * self.plmbda + self.reward_constant)
+		# print(ireward, preward, interacting, pytorch_model.unwrap(ireward * self.lmbda + preward * interacting.squeeze() * self.plmbda + self.reward_constant))
+		return pytorch_model.unwrap(ireward * self.lmbda + self.reward_constant + preward * self.plmbda) # preward * interacting.squeeze() * self.plmbda
 
 class InstancedReward(Reward):
 	def __init__(self, **kwargs): # TODO: for now, operates under fixed mask assumption
@@ -127,6 +127,7 @@ class ProximityInstancedReward(Reward):
 		'''
 		instanced = self.dataset_model.split_instances(state)
 		inverse_mask = invert_mask(mask)
+		# print(input_state.shape, state.shape, param.shape, mask.shape, instanced.shape, inverse_mask)
 		batch_idx, inst_idx = compute_instance_indexes(instanced, param, inverse_mask, multi=self.max_distance_epsilon)
 		inter_bin = pytorch_model.unwrap(self.dataset_model.interaction_model.instance_labels(pytorch_model.wrap(input_state, cuda=self.dataset_model.iscuda)))
 		inter_bin[inter_bin < self.dataset_model.interaction_prediction] = 0
@@ -142,7 +143,7 @@ class ProximityInstancedReward(Reward):
 				neg_tr = new_true * true_reward[ctr]
 				# if len(inst_idx) - 1 < ctr: # No close indexes left
 				# 	output.append(self.reward_constant + neg_tr * self.rlambda)
-				if np.sum(inter_bin[i]) == 0: # there are no interactions for this instance in the batch
+				if np.sum(inter_bin[i]) == 0 or len(batch_idx) == 0: # there are no interactions for this instance in the batch
 					output.append(self.reward_constant + neg_tr * self.rlambda)
 				else: 
 					bi, ii = batch_idx[ctr], inst_idx[ctr]
@@ -167,12 +168,12 @@ class ProximityInstancedReward(Reward):
 			new_true = 0 if true_reward > 0 else 1
 			neg_tr = new_true * true_reward
 			# print (inst_idx)
-			if np.sum(inter_bin) == 0: # no interactions
+			if np.sum(inter_bin) == 0 or len(batch_idx) == 0: # no interactions
 				output = self.reward_constant + neg_tr * self.rlambda
 			else:
 				for idx in inst_idx:
 					if inter_bin[idx] == 1 and np.linalg.norm((instanced[idx] - param) * mask, ord =1) < self.epsilon:
-						output.append(np.exp(-np.linalg.norm((instanced[idx] - param) * mask, ord =1)/2.5) * self.plmbda + neg_tr * self.rlambda)
+						output.append(np.exp(-np.linalg.norm((instanced[idx] - param), ord =1)/2.5) * self.plmbda + neg_tr * self.rlambda)
 						print("rew", instanced[idx], param, np.linalg.norm((instanced[idx] - param), ord =1), np.exp(-np.linalg.norm((instanced[idx] - param), ord =1)/2.5) * self.plmbda + neg_tr * self.rlambda)
 				output = np.max(output) if len(output) > 0 else self.reward_constant + neg_tr * self.rlambda
 		return output

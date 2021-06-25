@@ -41,6 +41,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         use_rel = False,
         print_test=False,
         param_recycle = False,
+        grayscale = False
     ) -> None:
         self.param_recycle = param_recycle
         self.param = None
@@ -50,6 +51,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.use_param=use_param
         self.use_rel = use_rel
         self.option = option
+        self.counter = 0
         self.at = 0
         self.full_at = 0 # the pointer for the buffer without temporal extension
         self.use_forced_actions = use_forced_actions
@@ -61,8 +63,13 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.last_resampled_idx = 0
         self.force_action = True
         self.new_param = True
+        self.grayscale = grayscale
         super().__init__(policy, env, buffer, preprocess_fn, exploration_noise)
         self.hit_miss_queue = deque(maxlen=2000)
+        self.last_truncated_done=False
+        self.last_truncated = False
+        self.last_ptr = 0
+        self.skip_next = False
         # self.other_buffer = ReplayBuffer.load_hdf5("data/working_rollouts.hdf5")
 
     def reset(self):
@@ -76,7 +83,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         # if self.option: 
         self.data.full_state = obs
         self.reset_temporal_extension()
-        obs = self.option.get_state(obs, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param if self.param is not None else None)
+        obs = self.option.get_state(obs, setting=self.option.input_setting, param=self.param if self.param is not None else None)
         self.data.obs = obs
 
     def _reset_state(self, id: Union[int, List[int]]) -> None:
@@ -107,10 +114,10 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.data.update(full_state=[self.option.environment_model.get_state()])
         self.param, self.mask, self.new_param = self.get_param(0, True)
         self.force_action = False # don't force an action because we will manually run a new action
-        self.data.update(param=[self.param], mask = [self.mask], obs=[self.option.get_state(form=1, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param)], option_resample=[[True]])
+        self.data.update(param=[self.param], mask = [self.mask], obs=[self.option.get_state(setting=self.option.input_setting, param=self.param)], option_resample=[[True]])
         act, chain, policy_batch, state, resampled = self.option.sample_action_chain(self.data, None, random=False, force=True)
         self.option.step(self.data["full_state"], chain)
-        self.data.update(target=[self.option.get_state(form=1, inp=1)])
+        self.data.update(target=[self.option.get_state(setting=self.option.output_setting)])
         self.last_resampled_idx = self.full_at
         self.last_resampled_full_state = self.data.full_state
 
@@ -119,10 +126,14 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         ep_rew, ep_len, ep_idx = None, None, None
         next_data = copy.deepcopy(self.data)
         indices = [self.last_resampled_idx]
-        while indices[-1] != ptr[0]: # TODO: pointer issue in test, dims out of range ===========!!!!!!!!!
+        while indices[-1] != ptr[0]:
             indices.append(self.next_index(indices[-1]))
-        indices.pop(-1)
-        if len(indices) > 0:
+        indices.pop(-1) # we add up to but not including the last state
+        if len(indices) == 0:
+            indices.append(self.last_resampled_idx) # skips the next one when there is an empty value
+        skipped=False
+        if len(indices) > 0 and not self.skip_next:
+            self.skip_next = np.any(self.data.invalid)
             indices = np.stack(indices)
 
             # the last state took the last action (not the new, resampled action). The next state is the next full state
@@ -130,29 +141,37 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             # act might have problems if it is more than one dimensional...
             # print(self.last_resampled_full_state, self.data.full_state, self.option.get_state(self.last_resampled_full_state, form=1, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0).shape)
             next_data.update(full_state=self.last_resampled_full_state, next_full_state =self.data.full_state, act = [self.full_buffer.act[indices[-1]]], mapped_act = [self.full_buffer.mapped_act[indices[-1]]])
-            next_data.update(target=self.option.get_state(self.last_resampled_full_state, form=1, inp=1), next_target=self.option.get_state(self.data.full_state, form=1, inp=1))
-            next_data.update(obs=self.option.get_state(self.last_resampled_full_state, form=1, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=last_param), obs_next=self.option.get_state(self.data.full_state, form=1, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=last_param))
+            next_data.update(target=self.option.get_state(self.last_resampled_full_state, setting=self.option.output_setting), next_target=self.option.get_state(self.data.full_state, setting=self.option.output_setting))
+            next_data.update(obs=self.option.get_state(self.last_resampled_full_state, setting=self.option.input_setting, param=last_param), obs_next=self.option.get_state(self.data.full_state, setting=self.option.input_setting, param=last_param))
             next_data.update(param=[last_param], mask = [mask])
             # reward is the sum of rewards, done is if a done occurred anywhere in the temporal extension (but done should force a resampling)
             next_data.update(rew=[np.sum(self.full_buffer.rew[indices], axis=0)], done = [bool(min(1, np.sum(self.full_buffer.done[indices])))], terminate = [min(1, np.sum(self.full_buffer.terminate[indices]))]) 
             next_data.update(true_reward=[np.sum(self.full_buffer.true_reward[indices], axis=0)], true_done = [bool(min(1, np.sum(self.full_buffer.true_done[indices])))])
+            next_data.info["TimeLimit.truncated"] = [self.last_truncated]
+            # print("adding", next_data.terminate, next_data.target, next_data.next_target, next_data.true_done, self.data.true_done, self.data.done)
             # print("adding", next_data.act, next_data.mapped_act, next_data.obs, next_data.obs_next)
             # print("from", self.data.act, self.data.mapped_act, self.data.obs, self.data.obs_next)
             # print(next_data.rew, next_data.done, next_data.terminate, self.data.rew, self.data.done)
             # print_shape(next_data, "next_data")
             # print_shape(self.data, "data")
             self.last_resampled_idx = ptr[0]
+            # print ("adding", ptr, next_data.target[0], next_data.next_target[0], next_data.done[0], next_data.true_done[0])
+
             # print(next_data.obs_next[0,4:7], next_data.true_done, next_data.done)
             ptr, ep_rew, ep_len, ep_idx = self.buffer.add(
                     next_data, buffer_ids=ready_env_ids)
             self.at = ptr # might have some issues with this assignment
+            self.last_truncated = self.data.info["TimeLimit.truncated"]
             # print(self.full_buffer.act.shape, self.buffer.act.shape)
         else:
+            # print("skipping", np.any(self.data.invalid), self.skip_next, self.option.get_state(self.last_resampled_full_state, setting=self.option.output_setting), self.option.get_state(self.data.full_state, setting=self.option.output_setting))
             self.last_resampled_idx = ptr[0]
             self.at = [self.at]
+            self.skip_next = False
+            skipped = True
         # print(self.last_resampled_idx, ptr[0])
         self.last_resampled_full_state = self.data.full_state # TODO: figure out whether to use full_state or next_full_state
-        return next_data, self.at, ep_rew, ep_len, ep_idx
+        return next_data, skipped, self.at, ep_rew, ep_len, ep_idx
 
 
     def collect(
@@ -231,6 +250,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         rews = 0
         true_done_trigger = 0
         closest = list()
+        idxs = list()
 
         self.data.update(full_state=[self.option.environment_model.get_state()])
         targets, actions, obs = list(), list(), list()
@@ -246,7 +266,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             # print("param got", self.param)
         if self.param is not None:
             self.data.update(param=[self.param], mask=[self.mask])
-        self.data.update(obs=[self.option.get_state(inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param)])
+        self.data.update(obs=[self.option.get_state(setting=self.option.input_setting, param=self.param)])
         if 'state_chain' not in self.data: state_chain = None # support for RNNs while handling feedforward
         else: state_chain = self.data.state_chain
         while True:
@@ -262,7 +282,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 # print("rand:", resampled)
                 # else:
                 #     action_chain=[self._action_space[i].sample() for i in ready_env_ids] #line makes no sense
-                if type(act) == np.ndarray: act = act.squeeze()
+                if type(act) == np.ndarray and not self.option.expand_policy_space: act = act.squeeze()
+                if self.option.discrete_actions: act = act.squeeze()
                 self.data.update(act=[act], mapped_act=[action_chain[-1]], true_action=[action_chain[0]], option_resample=[[resampled]])
                 if state_chain is not None: self.data.update(state_chain = state_chain)
                 # act = [action_chain[-1]]
@@ -289,7 +310,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 # else: act = to_numpy(result.act)
                 # if self.exploration_noise:
                 #     act = self.policy.exploration_noise(act, self.data)
-                if type(act) == np.ndarray: act = act.squeeze() 
+                if type(act) == np.ndarray and not self.option.expand_policy_space: act = act.squeeze()
+                if self.option.discrete_actions: act = act.squeeze()
                 self.data.update(policy=policy, act=[act], mapped_act=[action_chain[-1]], option_resample=[resampled])
             if action_record is not None:
                 action_record.append(action_chain[-1])
@@ -305,7 +327,10 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             # print(self.data.true_action, action_remap)
             # step in env
             # print(action_remap, self.data.act, action_chain)
+            # print("to env", action_remap, "in data", self.data.act[0], self.data.mapped_act[0])
             obs_next, rew, done, info = self.env.step(action_remap, id=ready_env_ids)
+            # print(info)
+            # print("obs", obs_next[0]["factored_state"]["Gripper"])
 
             # cv2.imshow('state', obs_next[0]['raw_state'])
             # cv2.waitKey(1)
@@ -317,9 +342,9 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             dones, rewards, terminations, true_done, true_reward = [], [], [], done, rew
             # if self.option: # seems pointless to support no-option code
             self.option.step(next_full_state, action_chain)
-            obs_next = self.option.get_state(next_full_state, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param) # one environment reliance
-            next_target = [self.option.get_state(next_full_state, form=1, inp=1)]
-            target = [self.option.get_state(self.data.full_state[0], form=1, inp=1)]
+            obs_next = self.option.get_state(next_full_state, setting=self.option.input_setting, param=self.param) # one environment reliance
+            next_target = [self.option.get_state(next_full_state, setting=self.option.output_setting)]
+            target = [self.option.get_state(self.data.full_state[0], setting=self.option.output_setting)]
             targets.append(obs_next)
             # print(target, self.option.next_option.get_state(self.data.full_state, form=1,inp=1))
             # print(self.param, self.mask)
@@ -332,11 +357,11 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 # if self.option.termination.param_interaction:
                 p = self.param * self.mask
                 if self.option.dataset_model.multi_instanced:
-                    pos = self.option.get_state(self.data.full_state[0], form = 1, inp=1)
-                    os = self.option.get_state(next_full_state, form = 1, inp=1)
+                    pos = self.option.get_state(self.data.full_state[0], setting=self.option.output_setting)
+                    os = self.option.get_state(next_full_state, setting=self.option.output_setting)
                     instanced = self.option.dataset_model.split_instances(os)
                     pinst = self.option.dataset_model.split_instances(pos)
-                    hit = pytorch_model.unwrap(self.option.dataset_model.interaction_model.instance_labels(self.option.get_state(self.data.full_state[0], form=1, inp=0)))
+                    hit = pytorch_model.unwrap(self.option.dataset_model.interaction_model.instance_labels(self.option.get_state(self.data.full_state[0], setting=self.option.inter_setting)))
                     hit[hit < self.option.dataset_model.interaction_minimum] = 0
                     hit = hit.nonzero()[1]
                     inverse_mask = self.mask.copy()
@@ -356,21 +381,22 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                     # print("terminate or done", term, done)
 
                     if term:
-                        print("hit target", phit, hitv, pos[-1], os[-1], self.param, inter, term, done)
+                        print("hit target", phit, hitv, pos[-1], os[-1], self.param, inter, term, done, rew)
                         self.hit_miss_queue.append(1)
                     else:
-                        print("missed target", phit, hitv, pos[-1], os[-1], self.param, inter, term, done)
+                        print("missed target", phit, hitv, pos[-1], os[-1], self.param, inter, term, done, rew)
                         self.hit_miss_queue.append(0)
                 else:
-                    os = self.option.get_state(next_full_state, form = 1, inp=1) * self.mask
+                    os = self.option.get_state(next_full_state, setting=self.option.output_setting) * self.mask
                     ep_close = self.option.termination.epsilon_close
                     inter = self.option.termination.inter
+                    phit = self.option.termination.p_hit
                     # print("terminate or done", term, done)
                     if np.linalg.norm(os - p, ord  = 1) <= ep_close:
-                        print("hit target", self.option.get_state(self.data.full_state[0], form = 1, inp=0), self.option.get_state(next_full_state, form = 1, inp=0), self.param, inter, term, done)
+                        print("hit target", self.option.get_state(self.data.full_state[0], setting=self.option.inter_setting), self.option.get_state(next_full_state, setting=self.option.inter_setting), self.param, inter, term, done, phit, rew)
                         self.hit_miss_queue.append(1)
                     else:
-                        print("missed target", self.option.get_state(self.data.full_state[0], form = 1, inp=0), self.option.get_state(next_full_state, form = 1, inp=0), self.param, inter, term, done)
+                        print("missed target", self.option.get_state(self.data.full_state[0], setting=self.option.input_setting, param=self.param), self.option.get_state(next_full_state, setting=self.option.inter_setting), self.param, inter, term, done, phit, rew)
                         self.hit_miss_queue.append(0)
             # print("rew", rew)
             rews += rew
@@ -404,34 +430,44 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             # print(self.data.obs.shape, self.data.obs_next.shape, self.data.param.shape, self.data.target.shape, self.data.next_target.shape)
             # print([(k, self.data[k].shape) for k in self.data.keys()])
             # print("preadd", self.option.get_state(self.data.full_state[0], form = 1, inp=0))
-            ptr, ep_rew, ep_len, ep_idx = self.full_buffer.add(
-                self.data, buffer_ids=ready_env_ids)
-            full_ptr = ptr
+            truncated_done = "TimeLimit.truncated" in self.data.info and self.data.info["TimeLimit.truncated"] and np.any(self.data.true_done)
+            if self.last_truncated_done:
+                self.data["invalid"] = [True]
+                # print("invalid above", done, self.data.true_done)
+                ptr = self.last_ptr
+                full_ptr = self.last_ptr
+                # print ("skipping", ptr, self.data.target[0], self.data.next_target[0], self.data.done[0], self.data.true_done[0])
+            else:
+                self.data["invalid"] = [False]
+                ptr, ep_rew, ep_len, ep_idx = self.full_buffer.add(
+                    self.data, buffer_ids=ready_env_ids)
+                # print ("adding", ptr, self.data.target[0], self.data.next_target[0], self.data.done[0], self.data.true_done[0])
+                # if not self.print_test: print( "local", self.full_buffer[ptr-1].done[0], self.full_buffer[ptr].done[0], self.full_buffer[ptr+1].done[0])
+                full_ptr = ptr
+                self.last_ptr = ptr
             # print("resampled", resampled)
             # print("normal step")
-            if (resampled and not self.last_done and not self.last_term) or done or term or (self.option.dataset_model.multi_instanced and pytorch_model.unwrap(self.option.dataset_model.interaction_model(pytorch_model.wrap(self.option.get_state(self.data.full_state[0]), cuda=self.option.iscuda)))):
-                # print(self.data.act)
-                # print("resampling")
-                next_data, ptr, ep_rew_te, ep_len_te, ep_idx_te = self.aggregate(ptr, ready_env_ids)
+            if (resampled #and not self.last_done and not self.last_term) 
+                or done 
+                or term 
+                or (self.option.dataset_model.multi_instanced and self.option.termination.inter)): #pytorch_model.unwrap(self.option.dataset_model.interaction_model(pytorch_model.wrap(self.option.get_state(self.data.full_state[0], self.option.inter_setting), cuda=self.option.iscuda)))):
+                next_data, skipped, ptr, ep_rew_te, ep_len_te, ep_idx_te = self.aggregate(ptr, ready_env_ids)
+                if not skipped: idxs.append(ptr)
                 self.at = self.next_index(ptr[0])
-                # print("resampling", self.option.get_state(self.data.full_state[0], form = 1, inp=0))
-                # print("norm data", {n: self.data[n].shape for n in self.data.keys() if type(self.data[n]) == np.ndarray})
-                # print("te data", {n: next_data[n].shape for n in next_data.keys() if type(next_data[n]) == np.ndarray})
-                # print(self.policy.collect and not self.test and not random and resampled, not self.test, not random)
-                # if not random:
-                #     print("add true done", self.data.true_done, next_data.true_done, self.policy.collect and not self.test and not random and resampled)
-                if self.policy.collect and not self.test and not random: self.policy.collect(next_data, self.data)
+                if self.policy.collect and not self.test: self.policy.collect(next_data, self.data, skipped)
+            # if self.skip_next
             self.full_at = self.next_index(full_ptr[0])
-
             self.last_done = np.any(done)
             self.last_term = np.any(term)
+            self.last_truncated_done = truncated_done
 
             if self.print_test: print(self.data.obs.squeeze(), self.data.act.squeeze())
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()
                 new_frame = visualize(frame, self.data.target[0], self.param, self.mask)
                 if visualize_param != "nosave":
-                    saveframe(new_frame, pth=visualize_param, count=full_ptr, name="param_frame")
+                    saveframe(new_frame, pth=visualize_param, count=self.counter, name="param_frame")
+                    self.counter += 1
                 printframe(new_frame, waittime=1)
             # if self.visualize:
             #     frame = np.array(self.env.render()).squeeze()
@@ -500,7 +536,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 # print("param at done", self.param)
                 if self.preprocess_fn:
                     obs_reset = self.preprocess_fn(obs=obs_reset).get("obs", obs_reset)
-                self.data.obs_next[env_ind_local] = self.option.get_state(obs_reset, inp=2 if self.use_param else 0, rel=1 if self.use_rel else 0, param=self.param) # obs_reset
+                self.data.obs_next[env_ind_local] = self.option.get_state(obs_reset, setting=self.option.input_setting, param=self.param) # obs_reset
                 for i in env_ind_local:
                     self._reset_state(i)
                 true_done_trigger += 1
@@ -534,7 +570,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         #     rews, lens, idxs = list(map(
         #         np.concatenate, [episode_rews, episode_lens, episode_start_indices]))
         # else:
-        rews, lens, idxs = np.array(rews), np.array([], int), np.array([], int)
+        rews, lens, idxs = np.array(rews), np.array([], int), np.array(idxs, int)
         # print(actions)
         act_stack = np.stack(actions, axis=0)
         if len(act_stack.shape) < 2:

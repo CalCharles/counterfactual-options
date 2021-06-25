@@ -42,6 +42,7 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     args.preprocess = None
+    args.grayscale = args.env in ["SelfBreakout"]
     if args.env == "SelfBreakout":
         args.continuous = False
         environment = Screen(drop_stopping=args.drop_stopping)
@@ -96,10 +97,11 @@ if __name__ == '__main__':
         # HACKED ABOVE
 
     # hacked forced velocity mask
-    # if len(args.force_mask) > 0:
-    #     dataset_model.selection_binary = pytorch_model.wrap(np.array(args.force_mask),cuda=args.cuda)
-    # if args.sample_continuous != 0:
-    #     dataset_model.sample_continuous = False if args.sample_continuous == 1 else True 
+    if len(args.force_mask) > 0:
+        dataset_model.selection_binary = pytorch_model.wrap(np.array(args.force_mask),cuda=args.cuda)
+    if args.sample_continuous != 0:
+        dataset_model.sample_continuous = False if args.sample_continuous == 1 else True 
+    #
     # dataset_model.selection_binary[0] = 0
     # dataset_model.selection_binary[1] = 0
     # hacked forced location mask
@@ -162,9 +164,9 @@ if __name__ == '__main__':
     # print(graph.nodes.keys())
     # graph.nodes["Paddle"].option.param_first = False
     # graph.nodes["Ball"].option.param_first = False
-    # if args.object == "Block":
-    #     dataset_model.sample_able.vals = np.array([dataset_model.sample_able.vals[0]]) # for some reason, there are some interaction values that are wrong
-    #     args.discretize_actions = {0: np.array([-1,-1]), 1: np.array([-2,-1]), 2: np.array([-2,1]), 3: np.array([-1,1])}
+    if args.object == "Block":
+        dataset_model.sample_able.vals = np.array([dataset_model.sample_able.vals[0]]) # for some reason, there are some interaction values that are wrong
+        args.discretize_actions = {0: np.array([-1,-1]), 1: np.array([-2,-1]), 2: np.array([-2,1]), 3: np.array([-1,1])}
     
     # graph.nodes["Action"].option.terminated = True
     # graph.nodes["Paddle"].option.discretize_actions = False
@@ -176,8 +178,8 @@ if __name__ == '__main__':
         pr.next_option = pr.next_option if not args.true_actions else graph.nodes["Action"].option # true actions forces the next option to be Action
         print("keys", list(graph.nodes.keys()))
         option = option_forms[args.option_type](pr, models, args.object, temp_ext=args.temporal_extend, relative_actions = args.relative_action, 
-                                            relative_state=args.relative_state, discretize_acts=args.discretize_actions, device=args.gpu, 
-                                            param_first=args.param_first) # TODO: make exploration noise more alterable 
+                                            relative_state=args.relative_state, relative_param = args.relative_param, discretize_acts=args.discretize_actions, device=args.gpu, 
+                                            param_first=args.param_first, no_input=args.no_input) # TODO: make exploration noise more alterable 
         if args.object == "Action" or args.object == "Raw":
             option.discrete = not args.continuous
         else:
@@ -226,7 +228,7 @@ if __name__ == '__main__':
     
     # debugging lines
     torch.set_printoptions(precision=2)
-    np.set_printoptions(precision=2, linewidth = 150)
+    np.set_printoptions(precision=2, linewidth = 150, threshold=200)
     
     # TODO: only initializes with ReplayBuffer, prioritizedReplayBuffer at the moment, but could extend to vector replay buffer if multithread possible
     if len(args.prioritized_replay) > 0:
@@ -238,7 +240,9 @@ if __name__ == '__main__':
                         option=option, use_param=args.parameterized, use_rel=args.relative_state, 
                         true_env=args.true_environment, param_recycle=args.param_recycle) # for now, no preprocess function
     MAXEPISODELEN = 100
-    test_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment, test=True, print_test=args.print_test)
+    if args.object == "Block":
+        args.print_test = False
+    test_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment, test=True, print_test=args.print_test, grayscale=args.grayscale)
     # test_collector = ts.data.Collector(option.policy, environment)
     print("Check option discrete", option.object_name, option.discrete)
     trained = trainRL(args, train_collector, test_collector, environment, environment_model, option, names, graph)

@@ -134,12 +134,12 @@ class Nav2D(RawEnvironment):
             frame = dc(self.frame)
             self.reset()
             self.done = True
-            return {'raw_state': frame, 'factored_state': self.extracted_state_dict()}, self.reward, True, dict()
+            return {'raw_state': frame, 'factored_state': self.extracted_state_dict()}, self.reward, True, {"TimeLimit.truncated": True}
         if (np.any(new_pos < 0.0) or np.any(new_pos > (self.N - 1)) or (self.frame[new_pos[0],new_pos[1],0] == 1.0)):
             #dist = np.linalg.norm(pos - target)
             #reward = (dist1 - dist2)
             extracted_state = self.extracted_state_dict()
-            return {'raw_state': self.frame, 'factored_state': extracted_state}, self.reward, self.done, dict()
+            return {'raw_state': self.frame, 'factored_state': extracted_state}, self.reward, self.done, {"TimeLimit.truncated": False}
         self.pos = new_pos
         new_frame[pos[0],pos[1],1] = 0.0
         new_frame[new_pos[0],new_pos[1],1] = self.scale*1.0
@@ -164,8 +164,8 @@ class Nav2D(RawEnvironment):
             frame = dc(self.frame)
             self.reset()
             self.reward = 0.0
-            return {'raw_state': frame, 'factored_state': extracted_state}, self.reward, True, dict()
-        return {'raw_state': self.frame, 'factored_state': extracted_state}, self.reward, self.done, dict()
+            return {'raw_state': frame, 'factored_state': extracted_state}, self.reward, True, {"TimeLimit.truncated": False}
+        return {'raw_state': self.frame, 'factored_state': extracted_state}, self.reward, self.done, {"TimeLimit.truncated": False}
 
     def get_state(self):
         return {'raw_state': self.frame, 'factored_state': self.extracted_state_dict()}

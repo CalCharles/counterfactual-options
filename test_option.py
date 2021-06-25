@@ -39,6 +39,7 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     args.preprocess = None
+    args.grayscale = args.env in ["SelfBreakout"]
     if args.env == "SelfBreakout":
         args.continuous = False
         environment = Screen()
@@ -86,7 +87,7 @@ if __name__ == '__main__':
         dataset_model.sample_continuous = False if args.sample_continuous == 1 else True 
 
     # dataset_model = load_factored_model(args.dataset_dir)
-    sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule)
+    sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule, environment_model=environment_model)
     pr, models = ObjDict(), (dataset_model, environment_model, sampler) # policy_reward, featurizers
     if args.cuda:
         dataset_model.cuda()
@@ -104,15 +105,13 @@ if __name__ == '__main__':
     print (dataset_model.name)
 
     # hack to fix old versions REMOVE
-    action_option = graph.nodes["Action"].option
-    action_option.action_featurizer = dataset_model.controllable[0]
-    print(graph.nodes.keys())
-    graph.nodes["Paddle"].option.param_first = False
+    # action_option = graph.nodes["Action"].option
+    # action_option.action_featurizer = dataset_model.controllable[0]
+    # print(graph.nodes.keys())
+    # graph.nodes["Paddle"].option.param_first = False
     # graph.nodes["Ball"].option.param_first = False
-    dataset_model.object_dim = 5
-    dataset_model.multi_instanced = False
+    # dataset_model.object_dim = 5
     # hacks above
-
 
     option_name = dataset_model.name.split("->")[0]
     names = [args.object, option_name]
@@ -134,6 +133,7 @@ if __name__ == '__main__':
         option.policy.option = option
         graph.nodes[args.object] = OptionNode(args.object, option, action_shape = option.action_shape)
     else:
+        option = last_option
         option.assign_models(models)
     option.termination = termination
     option.reward = reward # the reward function for this option
@@ -153,7 +153,7 @@ if __name__ == '__main__':
     MAXEPISODELEN = 150
     test_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, 
         use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment, test=True, 
-        print_test=True, param_recycle = args.param_recycle)
+        print_test=args.object != "Block", param_recycle = args.param_recycle, grayscale=args.grayscale)
 
     # if args.set_time_cutoff:
     option.time_cutoff = -1

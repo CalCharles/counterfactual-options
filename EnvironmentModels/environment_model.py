@@ -255,18 +255,23 @@ def get_selection_list(cfss): # TODO: put this inside ControllableFeature as a s
 
 def sample_multiple(controllable_features, states):
     linspaces = list()
+    cf = controllable_features[0]
+    # print(len(controllable_features), (cf.feature_range[1] - cf.feature_range[0] ), cf.feature_step)
     for cf in controllable_features:
         num = int((cf.feature_range[1] - cf.feature_range[0] ) / cf.feature_step) + 1
         linspaces.append(np.linspace(cf.feature_range[0], cf.feature_range[1], num))
     ranges = np.meshgrid(*linspaces)
     ranges = [r.flatten() for r in ranges]
     vals = np.array(ranges).T
+    MAX_NUM = 200
+    if len(vals) > 0:
+        vals = vals[np.random.choice(np.arange(len(vals)), size=(200,), replace=False)]
     all_states = list()
     for control_values in vals:
+        assigned_states = states.clone()
         for cf, f in zip(controllable_features, control_values):
-            assigned_states = states.clone()
             cf.assign_feature(assigned_states, f)
-            all_states.append(assigned_states)
+        all_states.append(assigned_states)
     if len(states.shape) == 1: # a single flattened state
         return torch.stack(all_states, dim=0) # if there are no batches, then this is the 0th dim
     return torch.stack(all_states, dim=1) # if we have a batch of states, then this is the 1st dim

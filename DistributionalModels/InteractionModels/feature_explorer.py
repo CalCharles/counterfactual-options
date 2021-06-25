@@ -42,8 +42,8 @@ class FeatureExplorer():
                     delta_tested = set()
                     # HACKED LINE TO SPEED UP TRAINING
                     # for name in ["Ball"]:
-                    # for name in ["Block"]:
-                    for name in self.em.object_names:
+                    for name in ["Block"]:
+                    # for name in self.em.object_names:
                         if name != controllable_entity and name not in delta_tested and (controllable_entity, name) not in self.graph.edges:
                             names = [controllable_entity] + additional_feature + [name]
                             entity_selection = self.em.create_entity_selector(names)
@@ -87,10 +87,13 @@ class FeatureExplorer():
     def train(self, cfs, additional_object, rollouts, train_args, entity_selection, name):
         print("Edge ", cfs.object(), "-> ", name)
         aosize = 0
+        model_name = cfs.object() + "->"+ name
         if len(additional_object) > 0:
             additional_object = additional_object[0]
             ao_size = self.em.object_sizes[additional_object] * self.em.object_num[additional_object]
             print("Training ", cfs.object(), " + ", additional_object, " -> ", name)
+            model_name = cfs.object() + "+" + additional_object+ "->" + name
+        self.model_args['name'] = model_name
         self.model_args['gamma'] = entity_selection
         self.model_args['delta'] = self.em.create_entity_selector([name])
         self.model_args['object_dim'] = self.em.object_sizes[name]

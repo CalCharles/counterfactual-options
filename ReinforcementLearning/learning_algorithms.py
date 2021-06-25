@@ -89,21 +89,28 @@ class HER(LearningOptimizer):
         self.resample_interact = args.resample_interact # resample whenever an interaction occurs
         self.max_hindsight = args.max_hindsight
         self.replay_queue = deque(maxlen=args.max_hindsight)
+        self.early_stopping = args.early_stopping # stops after seeing early stopping number of termiantions
 
 
 
 
     # def record_state(self, i, state, next_state, action_chain, rl_outputs, param, rewards, dones):
-    def record_state(self, full_batch, single_batch):
+    def record_state(self, full_batch, single_batch, skipped):
         # super().record_state(i, state, next_state, action_chain, rl_outputs, param, rewards, dones)
                 
         # ptr, ep_rew, ep_len, ep_idx = self.replay_buffer.add(full_batch, buffer_ids=[0]) # TODO: hacked buffer IDs because parallelism not supported
+        if skipped: # see collector aggregate class method, but skipped follows a "true done" to avoid adding the transition 
+            return 
         self.replay_queue.append(copy.deepcopy(full_batch))
         # self.last_true_done += 1 
         # print("shapes", full_batch.param.shape, self.replay_buffer.param.shape)
         # self.rollouts.append(**self.option.get_state_dict(state, next_state, action_chain, rl_outputs, param, rewards, dones))
         self.last_done += 1
         self.last_res += 1
+        # print(self.last_res, self.last_done, full_batch.terminate)
+        # if (self.last_res == self.resample_timer and self.resample_timer > 0) or np.any(full_batch.terminate):
+        #     print("ENTERING HER INTERNAL LOOP")
+
         # print(self.last_done)
         # if dones[-1] == 1: # option terminated, resample
         # print("adding", self.last_res, self.resample_timer, (self.last_res == self.resample_timer and self.resample_timer > 0), np.any(full_batch.terminate))
@@ -113,7 +120,7 @@ class HER(LearningOptimizer):
             interacting = True
             # interact = self.option.dataset_model.interaction_model(self.option.get_state(full_batch.full_state)) # edit interaction model to take numpy arrays
             if self.use_interact:
-                interact = self.option.dataset_model.interaction_model(self.option.get_state(full_batch.full_state)) # edit interaction model to take numpy arrays
+                interact = self.option.dataset_model.interaction_model(self.option.get_state(full_batch.full_state, setting=self.option.inter_setting)) # edit interaction model to take numpy arrays
                 # interact = self.option.dataset_model.interaction_model(self.option.get_state(next_state))
                 interacting = self.option.dataset_model.check_interaction(interact)
                 # print(interacting, interact)
@@ -126,8 +133,8 @@ class HER(LearningOptimizer):
                 mask = full_batch.mask[0]
                 if self.option.dataset_model.multi_instanced: # if multiinstanced, param should not be masked, and needs to be defined by the instance, not just the object state
                     dataset_model = self.option.dataset_model
-                    instances = dataset_model.split_instances(self.option.get_state(single_batch["next_full_state"][0], inp=1))
-                    interact_bin = dataset_model.interaction_model.instance_labels(self.option.get_state(full_batch.full_state[0]))
+                    instances = dataset_model.split_instances(self.option.get_state(single_batch["next_full_state"][0], setting=self.option.inter_setting))
+                    interact_bin = dataset_model.interaction_model.instance_labels(self.option.get_state(full_batch.full_state[0], setting=self.option.inter_setting))
                     # print(interact_bin, dataset_model.check_interaction(interact_bin))
                     idx = pytorch_model.unwrap(dataset_model.check_interaction(interact_bin).nonzero())
                     # if len(idx) > 1: # only choose one target
@@ -135,7 +142,8 @@ class HER(LearningOptimizer):
                     param = instances[idx]
                     # print(param, idx, instances.shape)
                 else:
-                    param = self.option.get_state(full_batch["next_full_state"][0], inp=1) * mask
+                    # param = self.option.get_state(full_batch["next_full_state"][0], setting=self.option.output_setting) * mask
+                    param = full_batch.next_target[0]# self.option.get_state(full_batch["next_full_state"][0], setting=self.option.output_setting) * mask
                 # if self.min_hindsight < 0:
                 #     num_back = max(self.min_hindsight, self.last_true_done * float(self.min_hindsight > 0))
                 # else:
@@ -146,22 +154,35 @@ class HER(LearningOptimizer):
                 # max_val = max(self.min_hindsight, self.last_true_done * float(self.min_hindsight > 0))
                 for i in range(1, num_back+1): # go back in the replay queue, but stop if last_done is hit
                     full_state = self.replay_queue[-i]
-                    full_state.update(param=[param.copy()], obs = self.option.assign_param(full_state.obs, param),
-                        obs_next = self.option.assign_param(full_state.obs_next, param))
-                    input_state = self.option.strip_param(full_state.obs)
+                    input_state = self.option.get_state(full_state.next_full_state[0], setting=self.option.inter_setting)
                     object_state = full_state.next_target
+                    # print (param, full_state.obs_next, full_state.next_target, self.option.assign_param(full_state.obs_next, param, full_state.next_target))
+                    full_state.update(param=[param.copy()], obs = self.option.assign_param(full_state.obs, param, full_state.next_target),
+                        obs_next = self.option.assign_param(full_state.obs_next, param, full_state.next_target), mask=[mask])
+                    # input_state = self.option.strip_param(full_state.obs) # technically, full state doesn't need to strip since it has the full dict
                     true_done = full_state.true_done
                     true_reward = full_state.true_reward
                     # print(input_state, object_state, param, true_done)
                     term = self.option.termination.check(input_state, object_state, param, mask, true_done)
                     done = self.option.done_model.check(term, 1, true_done)
                     rew = self.option.reward.get_reward(input_state, object_state, param, mask, true_reward)
-                    # print(done, term, true_done, input_state.shape, object_state.shape)
+                    # print(done, term, rew, true_done, full_state.obs, param, input_state, object_state)
                     full_state.update(done=done, terminate=term, rew=rew)
                     rv_search.append(full_state)
+
+                early_stopping_counter = self.early_stopping
                 for i in range(1, len(rv_search)+1):
                     full_state = rv_search[-i]
+                    if self.early_stopping > 0 and np.any(full_state.terminate):
+                        early_stopping_counter -= 1
+                        if early_stopping_counter == 0:
+                            full_state.update(done=[i < len(rv_search)]) # force it to be done to prevent fringing effects
+                    # print("adding", full_state.target, full_state.obs, full_state.terminate, full_state.act, full_state.rew, full_state.done)
                     ptr, ep_rew, ep_len, ep_idx = self.replay_buffer.add(full_state, buffer_ids=[0])
+                    # print(ptr, full_state.target, full_state.next_target, full_state.done, full_state.rew)
+                    if early_stopping_counter == 0 and self.early_stopping > 0:
+                        break
+
             #     # print(broadcast_object_state.shape)
             #     # print("HER insert", object_state, self.use_interact, self.last_done, self.resample_timer)
             #     self.replay_buffer.param[indexes] = broadcast_object_state
@@ -204,6 +225,7 @@ class HER(LearningOptimizer):
             # #         self.option.get_state(single_batch.full_state), self.option.get_state(single_batch.next_full_state))
             self.last_res = 0
             if np.any(full_batch.terminate):
+                # print("terminated")
                 self.last_done = 0 # resamples as long as any done is reached, not just an interacting one
                 del self.replay_queue
                 self.replay_queue = list()
@@ -219,11 +241,11 @@ class HER(LearningOptimizer):
         # print(len(buffer), len(self.replay_buffer))
         # if np.random.random() < (len(buffer) / (len(self.replay_buffer) + len(buffer))):
             # print("negative", (len(buffer) / (len(self.replay_buffer) + len(buffer))))
-            # print("negative")
+            print("negative")
             return buffer
         else:
             # print("positive", (len(buffer) / (len(self.replay_buffer) + len(buffer))))
-            # print("positive")
+            print("positive")
             return self.replay_buffer
             
     def step(self, rollouts, use_range=None):

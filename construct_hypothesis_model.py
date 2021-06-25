@@ -27,7 +27,7 @@ import numpy as np
 if __name__ == '__main__':
     args = get_args()
     torch.cuda.set_device(args.gpu)
-    np.set_printoptions(threshold=300)
+    np.set_printoptions(threshold=300, linewidth=120)
     if args.env == "SelfBreakout":
         args.continuous = False
         environment = Screen()
@@ -135,18 +135,19 @@ if __name__ == '__main__':
             hypothesis_model.save(args.save_dir)
     else: # if not training, determine and save the active set selection binary
         hypothesis_model = load_hypothesis_model(args.dataset_dir)
-        hypothesis_model.control_feature = controllable_feature_selectors[0] if environment.discrete_actions else controllable_feature_selectors
+        controllable_feature_used = [cfs for cfs in controllable_feature_selectors if cfs.object() == hypothesis_model.name.split("->")[0]]
+        hypothesis_model.control_feature = controllable_feature_used[0] if len(controllable_feature_used) == 1 else controllable_feature_used
         hypothesis_model.active_epsilon = args.active_epsilon
         hypothesis_model.environment_model = environment_model
         hypothesis_model.cpu()
         hypothesis_model.cuda()
-        delta, gamma = hypothesis_model.delta, hypothesis_model.gamma
-        rollouts.cuda()
-        passive_error = hypothesis_model.get_prediction_error(rollouts)
-        weights, use_weights, total_live, total_dead, ratio_lambda = hypothesis_model.get_weights(passive_error, passive_error_cutoff=args.passive_error_cutoff)     
-        # trace = load_from_pickle("data/trace.pkl").cpu().cuda()
-        if args.env != "RoboPushing":
-            hypothesis_model.compute_interaction_stats(rollouts, passive_error_cutoff=args.passive_error_cutoff)
+        # delta, gamma = hypothesis_model.delta, hypothesis_model.gamma
+        # rollouts.cuda()
+        # passive_error = hypothesis_model.get_prediction_error(rollouts)
+        # weights, use_weights, total_live, total_dead, ratio_lambda = hypothesis_model.get_weights(passive_error, passive_error_cutoff=args.passive_error_cutoff)     
+        # # trace = load_from_pickle("data/trace.pkl").cpu().cuda()
+        # if args.env != "RoboPushing":
+        #     hypothesis_model.compute_interaction_stats(rollouts, passive_error_cutoff=args.passive_error_cutoff)
         # afs = environment_model.construct_action_selector() 
         # controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
         hypothesis_model.determine_active_set(rollouts)
