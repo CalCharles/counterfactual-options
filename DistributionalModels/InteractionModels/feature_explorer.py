@@ -7,6 +7,7 @@ from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
 from EnvironmentModels.environment_model import ModelRollouts
 from Rollouts.rollouts import merge_rollouts
 from DistributionalModels.InteractionModels.interaction_model import interaction_models, default_model_args, nf5, nflen
+from Networks.input_norm import InterInputNorm
 
 class FeatureExplorer():
     def __init__(self, graph, controllable_feature_selectors, environment_model, model_args):
@@ -42,8 +43,8 @@ class FeatureExplorer():
                     delta_tested = set()
                     # HACKED LINE TO SPEED UP TRAINING
                     # for name in ["Ball"]:
-                    for name in ["Block"]:
-                    # for name in self.em.object_names:
+                    # for name in ["Block"]:
+                    for name in self.em.object_names:
                         if name != controllable_entity and name not in delta_tested and (controllable_entity, name) not in self.graph.edges:
                             names = [controllable_entity] + additional_feature + [name]
                             entity_selection = self.em.create_entity_selector(names)
@@ -101,11 +102,15 @@ class FeatureExplorer():
         self.model_args['first_obj_dim'] = self.em.object_sizes[cfs.object()]
         nout = self.em.object_sizes[name] * self.em.object_num[name]
         nin = self.em.object_sizes[cfs.object()] * self.em.object_num[cfs.object()] + nout
-        self.model_args['normalization_function'] = nflen(nin)
-        self.model_args['output_normalization_function'] = nflen(nout) if not train_args.predict_dynamics else nf5
+        input_norm_fun = InterInputNorm()
+        input_norm_fun.compute_input_norm(entity_selection(rollouts.get_values("state")))
+        delta_norm_fun = InterInputNorm()
+        delta_norm_fun.compute_input_norm(self.model_args['delta'](rollouts.get_values("state")))
+        self.model_args['normalization_function'] = input_norm_fun#nflen(nin)
+        self.model_args['delta_normalization_function'] = delta_norm_fun#nflen(nout) if not train_args.predict_dynamics else nf5
 
-        dma = default_model_args(train_args.predict_dynamics, entity_selection.output_size(), self.model_args['delta'].output_size(), train_args.policy_type, var=train_args.norm_variance, basevar = train_args.base_variance)
-        self.model_args['normalization_function'] = dma['normalization_function']
+        dma = default_model_args(train_args.predict_dynamics, train_args.policy_type, input_norm_fun, delta_norm_fun)
+        # self.model_args['normalization_function'] = dma['normalization_function']
         print(entity_selection.output_size())
         self.model_args['num_inputs'] = self.model_args['gamma'].output_size()
         self.model_args['num_outputs'] = self.model_args['delta'].output_size()

@@ -11,16 +11,16 @@ class pytorch_model():
         self.reduce_size = 2 # someday this won't be hard coded either
 
     @staticmethod
-    def wrap(data, dtype=torch.float, cuda=True):
+    def wrap(data, dtype=torch.float, cuda=True, device = None):
         # print(Variable(torch.Tensor(data).cuda()))
         if type(data) == torch.Tensor:
             if cuda: # TODO: dtype not handeled 
-                return data.clone().detach().cuda()
+                return data.clone().detach().cuda(device=device)
             else:
                 return data.clone().detach()
         else:
             if cuda:
-                return torch.tensor(data, dtype=dtype).cuda()
+                return torch.tensor(data, dtype=dtype).cuda(device=device)
             else:
                 return torch.tensor(data, dtype=dtype)
 

@@ -2,6 +2,9 @@ import numpy as np
 import os, cv2, time
 from ReinforcementLearning.rollouts import RLRollouts
 from file_management import save_to_pickle, load_from_pickle
+from Options.option import PrimitiveOption
+from Options.action_map import PrimitiveActionMap
+from EnvironmentModels.environment_model import ControllableFeature
 
 class OptionNode():
 # TODO: handling of multiple incoming edges to a node
@@ -81,3 +84,29 @@ def load_graph(load_dir):
     for node in graph.nodes.values():
         print(node.name, node.option.policy)
     return graph
+
+def graph_construct_load(args, environment, environment_model):
+    '''
+    tries to load the model, and in the case that it fails, tries to construct the model 
+    '''
+    try:
+        graph = load_graph(args.graph_dir)
+        print("loaded graph from ", args.graph_dir)
+    except OSError as e:
+        args.primitive_action_map = PrimitiveActionMap(args)
+        afs = environment_model.construct_action_selector()
+        if environment.discrete_actions:
+            controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions-1],1)]
+        else:
+            controllable_feature_selectors = list()
+            for i, af in enumerate(afs):
+                step = (environment.action_space.high[i] - environment.action_space.low[i]) / 3
+                controllable_feature_selectors.append(ControllableFeature(af, [environment.action_space.low[i],environment.action_space.high[i]],step))
+        actions = PrimitiveOption(args, None)
+
+        if environment.discrete_actions:
+            nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}
+        else:
+            nodes = {'Action': OptionNode('Action', actions, action_shape = environment.action_shape)}
+        graph = OptionGraph(nodes, dict(), controllable_feature_selectors)
+    return graph, controllable_feature_selectors, args

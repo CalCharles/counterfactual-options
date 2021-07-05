@@ -28,6 +28,7 @@ class DiagGaussianForwardNetwork(Network):
     def forward(self, x):
         x = pytorch_model.wrap(x, cuda=self.iscuda)
         x = self.normalization(x)
+        # print(x)
         return torch.tanh(self.mean(x)), torch.sigmoid(self.std(x)) + self.base_variance
 
 class DiagGaussianForwardPairNetwork(Network):
@@ -39,7 +40,7 @@ class DiagGaussianForwardPairNetwork(Network):
         self.std = PairNetwork(**kwargs)
         self.normalization = kwargs['normalization_function']
         self.model = [self.mean, self.std]
-        self.base_variance = .0001
+        self.base_variance = .01
 
         self.train()
         self.reset_parameters()
@@ -55,7 +56,7 @@ class DiagGaussianForwardPairNetwork(Network):
 
     def forward(self, x):
         x = pytorch_model.wrap(x, cuda=self.iscuda)
-        # x = self.normalization(x)
+        x = self.normalization(x)
         return torch.tanh(self.mean(x)), torch.sigmoid(self.std(x)) + 1e-2
 
 

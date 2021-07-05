@@ -16,12 +16,17 @@ class Sampler():
         self.upper_cfs = np.array([i for i in [cfs.feature_range[1] for cfs in self.cfselectors]])
         self.len_cfs = np.array([j-i for i,j in [tuple(cfs.feature_range) for cfs in self.cfselectors]])
 
+        self.param, self.mask = self.sample(kwargs["init_state"])
+
     def get_targets(self, states):
         # takes in states of size num_sample x state_size, and return samples (num_sample x state_size)
         return
 
     def sample_subset(self, selection_binary):
         return selection_binary
+
+    def update(self, param, mask):
+        self.param, self.mask = param, mask
 
     def update_rates(self, masks, results):
         # for prioritizing different masks
@@ -50,6 +55,12 @@ class Sampler():
         mask = self.get_binary(states)
         return self.get_targets(states) * mask, mask # TODO: not masking out the target not always precise
         # return self.get_targets(states), mask 
+
+    def get_param(self, terminate):
+        # samples new param and mask if terminate. If there are more reasons to change param, that logic can be added
+        if terminate:
+            self.param, self.mask = self.sampler.sample(self.get_state(full_state, setting=self.full_flat_setting))
+        return self.param, self.mask, terminate
 
 class RawSampler(Sampler):
     # never actually samples
@@ -127,9 +138,9 @@ class InstanceSampling(Sampler):
             return mval
 
     def sample(self, states):
-            mask = self.get_binary(states)
-            val = self.get_targets(states)
-            return val, mask # does not mask out target, justified by behavior
+        mask = self.get_binary(states)
+        val = self.get_targets(states)
+        return val, mask # does not mask out target, justified by behavior
 
 class RandomSubsetSampling(Sampler):
     def __init__(self, **kwargs):

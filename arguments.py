@@ -186,8 +186,8 @@ def get_args():
                         help='a hack to control the parameter mask  (default: empty list)')
     parser.add_argument('--interaction-weight', type=float, default=1000,
                         help='the weight given to interaction values compared to normal values (default: 1000)')
-    parser.add_argument('--interaction-probability', type=float, default=-1,
-                        help='the minimum probability needed to use interaction as termination -1 for not used (default: -1)')
+    parser.add_argument('--interaction-probability', type=float, default=1,
+                        help='the minimum probability needed to use interaction as termination 1 means interaction is never (solely) used for termination (default: 1)')
     parser.add_argument('--interaction-prediction', type=float, default=0,
                         help=('the minimum distance to define the active set (default: 0.3)' + 
                             'overloaded to also represent the decay rate for interaction probability for termination per step until interaction-probability from 1'))
