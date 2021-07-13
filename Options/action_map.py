@@ -1,54 +1,63 @@
-# action handler    
+# action handler
+import numpy as np
+import copy
+import gym
+from tianshou.data import Batch, ReplayBuffer, to_torch_as, to_numpy
+from EnvironmentModels.environment_model import discretize_space
 
 # Base action space handling
 class PrimitiveActionMap():
     def __init__(self, args):
         self.action_space = args.environment.action_space
-        self.discrete_control = args.environment.discrete_actions
-        
+        self.discrete_actions = args.environment.discrete_actions
+        self.discrete_control = np.arange(args.environment.action_space.n) if args.environment.discrete_actions else None
+
 
 class ActionMap():
     def __init__(self, args):
         # input variables
         self.discrete_actions = args.discrete_actions # 0 if continuous, also 0 if discretize_acts is used
-        self.discrete_dict = args.discretize_acts # none if not used
-        self.discrete_control = args.discrete_params # if the parameter is saampled from a discrete dict
-        self.control_min, self.control_max = args.control_min, args.control_max # from dataset model
+        self.discretize_acts = args.discretize_acts # none if not used
+        self.discrete_control = args.discrete_params # if the parameter is sampled from a discrete dict
+        self.num_actions = args.num_actions 
+        self.control_min, self.control_max = np.array(args.control_min), np.array(args.control_max) # from dataset model
         self.control_shape = self.control_min.shape
-        self.relative_actions = args.relative_actions # uses actions relative to the current values
+        self.relative_actions = args.relative_action # uses actions relative to the current values
         self._state_extractor = args.state_extractor
 
         # set policy space
         if self.discrete_actions:
             self.policy_action_shape = (1,)
-            self.policy_action_space = gym.spaces.Discrete(args.discrete_actions)
+            self.policy_action_space = gym.spaces.Discrete(args.num_actions)
         else:
             self.policy_action_shape = self.next_option.control_max.shape
             self.policy_min = -1 * np.ones(self.policy_action_shape) # policy space is always the same
             self.policy_max = 1 * np.ones(self.policy_action_shape)
             self.policy_action_space = gym.spaces.Box(self.policy_min, self.policy_max)
-        if self.discrete_dict:
+        if self.discretize_acts:
+            self.discrete_dict = discretize_space(self.next_option.control_max.shape)
             self.policy_action_shape = (1,)
             self.policy_action_space = gym.spaces.Discrete(len(list(self.discrete_dict.keys())))
 
         # set mapped space
         if self.discrete_actions:
             self.mapped_action_shape = (1,)
-            self.action_space = gym.spaces.Discrete(args.discrete_actions)
+            self.action_space = gym.spaces.Discrete(args.num_actions)
         else:
             self.mapped_action_shape = self.next_option.control_max.shape
             self.mapped_action_max = np.array(self.next_option.control_max)
             self.mapped_action_min = np.array(self.next_option.control_min)
             self.action_space = gym.spaces.Box(self.mapped_action_min, self.mapped_action_max)
 
-    def assign_policy_map(self, policy_map_action, policy_reverse_map_action):
+    def assign_policy_map(self, policy_map_action, policy_reverse_map_action, policy_exploration_noise):
         self._policy_map_action = policy_map_action # a function from option.policy
         self._policy_reverse_map_action = policy_reverse_map_action # a function from option.policy
+        self._exploration_noise = policy_exploration_noise
 
 
     def _convert_relative_action(self, state, act):
         act = copy.deepcopy(act)
-        base = self.state_extractor.get_action(state)
+        base = self._state_extractor.get_action(state)
         base += act
         act = np.clip(base, self.mapped_action_min, self.mapped_action_max)
         return act
@@ -64,12 +73,17 @@ class ActionMap():
         maps a policy space to the action space used by a parameter
         '''
         act = to_numpy(act)
-        act = self.policy.exploration_noise(act, batch)
+        if len(act.shape) == 0: # exploration noise requires "len"  
+            act = np.array([act])
+            act = self._exploration_noise(act, batch)
+            act = act.squeeze()
+        else: 
+            act = self._exploration_noise(act, batch)            
         mapped_act = act
-        if self.discretize_actions: # if actions are discretized, then converts discrete action to continuous
+        if self.discretize_acts: # if actions are discretized, then converts discrete action to continuous
             mapped_act = self._get_cont(mapped_act)
         mapped_act = self._policy_map_action(mapped_act) # usually converts from policy space to environment space (even for options)
-        if self.relative_actions:
+        if self.relative_actions > 0:
             mapped_act = self._convert_relative_action(batch.full_state, mapped_act)
         return act, mapped_act
 
@@ -77,21 +91,21 @@ class ActionMap():
         '''
         gets a policy space action from a mapped action
         '''
-        if self.relative_actions: # converts relative actions maintaining value
+        if self.relative_actions > 0: # converts relative actions maintaining value
             mapped_act = self._reverse_relative_action(batch.full_state, mapped_act)
         act = self._policy_reverse_map_action(mapped_act) # usually converts from policy space to environment space (even for options)
-        if self.discretize_actions: # if actions are discretized, then converts discrete action to continuous
+        if self.discretize_acts: # if actions are discretized, then converts discrete action to continuous
             act = self._get_discrete(act)
         return act
 
 
-    def sample_policy_space():
+    def sample_policy_space(self):
         '''
         samples the policy action space
         '''
         return self.policy_action_space.sample()
 
-    def sample():
+    def sample(self):
         '''
         sample the mapped action space
         '''

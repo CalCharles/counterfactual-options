@@ -237,12 +237,11 @@ class EnvironmentModel():
 
     def construct_action_selector(self):
         if self.environment.discrete_actions:
-            return FeatureSelector([self.indexes['Action'][1] - 1], {'Action': self.object_sizes['Action'] - 1}, {'Action': np.array([self.indexes['Action'][1] - 1, self.object_sizes['Action'] - 1])}, ['Action'])
+            return FeatureSelector([self.indexes['Action'][1] - 1], {'Action': [self.object_sizes['Action'] - 1]}, {'Action': np.array([self.indexes['Action'][1] - 1, self.object_sizes['Action'] - 1])}, ['Action'])
         else:
             return [FeatureSelector([self.indexes['Action'][0] + i], {'Action': i}, {'Action': np.array([self.indexes['Action'][0] + i, i])}, ['Action']) for i in range( self.object_sizes['Action'])]
 
 def get_selection_list(cfss): # TODO: put this inside ControllableFeature as a static function
-
     possibility_lists = list()
     for cfs in cfss: # order of cfs matter
         fr, s = list(), cfs.feature_range[0]
@@ -421,7 +420,6 @@ class FeatureSelector():
             if not hasattr(self, "names"): 
                 pnames = list(self.factored_features.keys())
                 self.names = [n for n in ["Action", "Paddle", "Ball", "Block", 'Done', "Reward"] if n in pnames] # TODO: above lines are hack, remove
-            # print(states[self.names[0]], type(states[self.names[0]]) is torch.Tensor, type(states[self.names[0]]) == torch.tensor)
             if type(states[self.names[0]]) == np.ndarray:
                 cat = lambda x, a: np.concatenate(x, axis=a)
             elif type(states[self.names[0]]) == torch.Tensor:
@@ -435,6 +433,8 @@ class FeatureSelector():
                     return cat([states[name][self.factored_features[name]] for name in self.names])
                 return cat([states[name][self.factored_features[name]] for name in self.names], 0)
             if len(states[self.names[0]].shape) == 2: # only support internal dimension up to 2
+                # print(self.factored_features)
+                # print(states[self.names[0]], states[self.names[0]][:, self.factored_features[self.names[0]]], self.factored_features[self.names[0]], [states[name][:, self.factored_features[name]] for name in self.names])
                 return cat([states[name][:, self.factored_features[name]] for name in self.names], 1)
         elif len(states.shape) == 1: # a single flattened state
             return states[self.flat_features]
@@ -476,7 +476,7 @@ def assign_feature(states, assignment, edit=False, clipped=None):
             cstates = states[:, :, assignment[0]].clamp(clipped[0], clipped[1])
             states[:, :, assignment[0]] = cstates
 
-def discretize_actions(action_shape): # converts a continuous action space into a discrete one
+def discretize_space(action_shape): # converts a continuous action space into a discrete one
     # takes action +- 1, 0 at each dimension, for every combination
     # creates combinatorially many combinations of this
     # action space is assumed to be the tuple shape of the space

@@ -15,6 +15,10 @@ from Options.done_model import DoneModel
 from Options.option_graph import OptionGraph, OptionNode, OptionEdge, load_graph
 from Options.option import Option, PrimitiveOption, option_forms
 from Options.Reward.reward import reward_forms
+from Options.action_map import PrimitiveActionMap, ActionMap
+from Options.state_extractor import StateExtractor
+from Options.terminate_reward import TerminateReward
+from Options.temporal_extension_manager import TemporalExtensionManager
 from DistributionalModels.DatasetModels.dataset_model import FactoredDatasetModel
 from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model, interaction_models
 from DistributionalModels.distributional_model import load_factored_model
@@ -31,13 +35,15 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
+    print(type(args))
+
     # manage environment
+    test_environment, test_environment_model, args = initialize_environment(args)
     environment, environment_model, args = initialize_environment(args)
     if args.true_environment:
         args.parameterized = args.env == "Nav2D"
     else:
         args.parameterized = True
-        dataset_model.environment_model = environment_model
 
     # initialize dataset model
     if args.true_environment:
@@ -47,11 +53,11 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
         dataset_model.cpu()
     dataset_model.environment_model = environment_model
+    init_state = environment.reset() # get an initial state to define shapes
     # if args.object == "Block":
     #     dataset_model.sample_able.vals = np.array([dataset_model.sample_able.vals[0]]) # for some reason, there are some interaction values that are wrong
     #     args.discretize_actions = {0: np.array([-1,-1]), 1: np.array([-2,-1]), 2: np.array([-2,1]), 3: np.array([-1,1])}
 
-    sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule, environment_model=environment_model)
     if args.cuda: dataset_model.cuda()
     else: dataset_model.cpu()
 
@@ -69,32 +75,38 @@ if __name__ == '__main__':
             nodes = {'Action': OptionNode('Action', actions, action_shape = environment.action_shape)}
             graph = OptionGraph(nodes, dict(), dataset_model.controllable)
     
+    # initialize sampler
+    sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule, environment_model=environment_model, init_state=init_state, no_combine_param_mask=args.no_combine_param_mask)
+
     # initialize state extractor
-    option_name = dataset_model.name.split("->")[0]
+    option_name = dataset_model.name.split("->")[0] # TODO: assumes only one option in the tail for now
     next_option = None if args.true_environment else graph.nodes[option_name].option
+    option_selector = environment_model.create_entity_selector([option_name]) 
     full_state = environment.reset()
     args.dataset_model = dataset_model
     args.environment_model = environment_model
-    args.action_feature_selector = next_option.dataset_model.feature_selector if next_option.name != "Action" else args.environment_model.action_selector
-    state_extractor = StateExtractor(args, full_state)
+    args.action_feature_selector = next_option.dataset_model.feature_selector if next_option.name != "Action" else environment_model.construct_action_selector()
+    state_extractor = StateExtractor(args, option_selector, full_state, sampler.param)
+
 
     # initialize termination function, reward function, done model
     tt = args.terminal_type[:4] if args.terminal_type.find('inst') != -1 else args.terminal_type
     rt = args.reward_type[:4] if args.reward_type.find('inst') != -1 else args.reward_type
-    termination = terminal_forms[tt](name=args.object, dataset_model=dataset_model, environment=environment, **vars(args))
-    reward = reward_forms[rt](dataset_model=dataset_model, interaction_minimum=dataset_model.interaction_minimum, environment=environment, **vars(args)) # using the same epsilon for now, but that could change
+    termination = terminal_forms[tt](name=args.object, **vars(args))
+    reward = reward_forms[rt](interaction_minimum=dataset_model.interaction_minimum, **vars(args)) # using the same epsilon for now, but that could change
     done_model = DoneModel(use_termination = args.use_termination, time_cutoff=args.time_cutoff, true_done_stopping = not args.not_true_done_stopping)
     
     # initialize terminate-reward
     args.reward = reward
     args.termination = termination
-    args.state_extractor = args.state_extractor
-    args.dataset_model = args.dataset_model
+    args.state_extractor = state_extractor
     terminate_reward = TerminateReward(args)
 
     # initialize action_map
-    args.discrete_actions = next_option.discrete_control # 0 if continuous, also 0 if discretize_acts is used
-    args.discretize_acts = environment_model.discretize_actions() # none if not used
+    args.discrete_actions = next_option.action_map.discrete_control is not None # 0 if continuous, also 0 if discretize_acts is used
+    args.discretize_acts = discretize_actions if args.discretize_actions else None # none if not used
+    args.num_actions = len(next_option.action_map.discrete_control) if next_option.action_map.discrete_control is not None else 0
+    args.discrete_params = args.dataset_model.sample_able if args.sampler_type == "hst" else None# historical the only discrete sampler at the moment
     args.control_min, args.control_max = dataset_model.control_min, dataset_model.control_max# from dataset model
     action_map = ActionMap(args)
 
@@ -107,6 +119,7 @@ if __name__ == '__main__':
     models.state_extractor = state_extractor
     models.terminate_reward = terminate_reward
     models.action_map = action_map
+    models.dataset_model = dataset_model
     models.temporal_extension_manager = temporal_extension_manager
     models.done_model = done_model
 
@@ -122,9 +135,9 @@ if __name__ == '__main__':
     # initialize policy
     if not args.true_environment:
         action_space = action_map.action_space
-        paction_space = option.policy_action_space # if converting continuous to discrete, otherwise the same
-        num_inputs = int(np.prod(option.input_shape))
-        max_action = option.action_max if option.discrete_actions else 1 # might have problems with discretized actions
+        paction_space = action_map.policy_action_space # if converting continuous to discrete, otherwise the same
+        num_inputs = int(np.prod(state_extractor.obs_shape))
+        max_action = action_map.action_space.n if action_map.discrete_actions else 1 # might have problems with discretized actions
     else:
         action_space = environment.action_space
         paction_space = environment.action_space
@@ -132,18 +145,18 @@ if __name__ == '__main__':
         max_action = environment.action_space.n if environment.discrete_actions else environment.action_space.high[0]
     option.time_cutoff = args.time_cutoff
     args.option = option
-    args.first_obj_dim = option.first_obj_shape
-    args.object_dim = option.object_shape + option.first_obj_shape
+    args.first_obj_dim = state_extractor.first_obj_shape
+    args.object_dim = state_extractor.object_shape + state_extractor.first_obj_shape
     if not load_option and not args.change_option:
-        policy = TSPolicy(num_inputs, paction_space, action_space, max_action, discrete_actions=option.discrete_actions, **vars(args)) # default args?
+        policy = TSPolicy(num_inputs, paction_space, action_space, max_action, **vars(args)) # default args?
     else:
         set_option = graph.nodes[args.object].option
         policy = set_option.policy
         policy.option = option
-    action_map.assign_policy_map(policy.map_action, policy.reverse_map_action):
+    action_map.assign_policy_map(policy.map_action, policy.reverse_map_action, policy.exploration_noise)
     if not load_option:
         option.policy = policy
-        graph.nodes[args.object] = OptionNode(args.object, option, action_shape = option.action_shape)
+        graph.nodes[args.object] = OptionNode(args.object, option, action_shape = action_map.mapped_action_shape)
     else:
         graph.load_environment_model(environment_model)
 
@@ -164,11 +177,10 @@ if __name__ == '__main__':
     else:
         trainbuffer = ParamReplayBuffer(args.buffer_len, stack_num=1)
 
-    train_collector = OptionCollector(option.policy, environment, trainbuffer, exploration_noise=True, 
-                        option=option, use_param=args.parameterized, use_rel=args.relative_state, 
-                        true_env=args.true_environment, param_recycle=args.param_recycle) # for now, no preprocess function
+    train_collector = OptionCollector(option.policy, environment, trainbuffer, exploration_noise=True, test=False,
+                        option=option, args = args) # for now, no preprocess function
     MAXEPISODELEN = 100
-    test_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, use_param=args.parameterized, use_rel=args.relative_state, true_env=args.true_environment, test=True, print_test=args.print_test, grayscale=args.grayscale)
+    test_collector = OptionCollector(option.policy, test_environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, test=True, args=args)
 
     trained = trainRL(args, train_collector, test_collector, environment, environment_model, option, names, graph)
     if trained and not args.true_environment: # if trained, add control feature to the graph

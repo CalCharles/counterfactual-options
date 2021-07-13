@@ -108,6 +108,7 @@ class FeatureExplorer():
         delta_norm_fun.compute_input_norm(self.model_args['delta'](rollouts.get_values("state")))
         self.model_args['normalization_function'] = input_norm_fun#nflen(nin)
         self.model_args['delta_normalization_function'] = delta_norm_fun#nflen(nout) if not train_args.predict_dynamics else nf5
+        self.model_args['base_variance'] = train_args.base_variance
 
         dma = default_model_args(train_args.predict_dynamics, train_args.policy_type, input_norm_fun, delta_norm_fun)
         # self.model_args['normalization_function'] = dma['normalization_function']

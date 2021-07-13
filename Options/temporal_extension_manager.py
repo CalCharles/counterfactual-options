@@ -5,20 +5,23 @@ class TemporalExtensionManager():
         self.chain = None
         self.policy_batch = None
         self.state = None
+        self.masks = None
 
         self.ext_cutoff = args.temporal_extend
         self.timer = 0
+        self.reset()
 
     def reset(self):
         self.needs_sample = True
 
-    def update(self, act, chain, TEterm):
+    def update(self, act, chain, TEterm, masks):
         # update the policy action and mapped action chain and the timer
         self.timer += 1
         if TEterm:
             self.timer = 0
-        self.act = chain[-1]
+        self.act = act # this is the policy action ONLY for the highest option
         self.chain = chain
+        self.masks = masks
 
     def update_policy(self, policy_batch, state):
         '''
@@ -34,12 +37,12 @@ class TemporalExtensionManager():
         '''
         if self.needs_sample:
             # the case where we are in the first state
+            needs_sample = True
             self.needs_sample = False
-            needs_sample = self.needs_sample
         else:
             # a temporally extended action just finished
             needs_sample = self.get_extension(batch.terminate, batch.ext_term)
-        return needs_sample, self.act, self.chain, self.policy_batch, self.state
+        return needs_sample, self.act, self.chain, self.policy_batch, self.state, self.masks
 
     def get_extension(self, terminate, ext_term):
         # Contains any logic for deciding whether to end temporally extension (either timer, or terminate, or action terminate)

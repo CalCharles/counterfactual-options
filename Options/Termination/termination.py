@@ -135,21 +135,21 @@ class CombinedTermination(Termination):
 		self.inter_pred = 0
 		self.p_hit = 0 # if the param is hit
 
-	def check(self, input_state, state, param, mask, true_done=0):
+	def check(self, inter, state, param, mask, true_done=0):
 		# NOTE: input state is from the current state, state, param are from the next state
 		# terminates if the parameter matches and interaction is true
 		# has some probability of terminating if interaction is true
 		# print("second", param, state)
-		interaction_pred = pytorch_model.unwrap(self.interaction_model(pytorch_model.wrap(input_state, cuda=self.interaction_model.iscuda)).squeeze())
+		# interaction_pred = pytorch_model.unwrap(self.interaction_model(pytorch_model.wrap(input_state, cuda=self.interaction_model.iscuda)).squeeze())
 		# print(interaction_pred, input_state)
-		self.inter_pred = interaction_pred
-		inter = interaction_pred > (1 - self.epsilon)
+		self.inter_pred = inter
+		inter = self.inter_pred > (1 - self.epsilon)
 		self.inter = inter
 		self.p_hit = 0
-		param_term = self.parameterized_termination.check(input_state, state, param, mask)
+		param_term = self.parameterized_termination.check(inter, state, param, mask)
 		# print(self.interaction_probability, param_term, pytorch_model.unwrap(inter), state, param)
 		if self.interaction_probability > 0:
-			chances = np.random.random(size=interaction_pred.shape) < self.interaction_probability
+			chances = np.random.random(size=self.inter_pred.shape) > self.interaction_probability
 			if not self.param_interaction: param_inter = True
 			else: param_inter = inter
 			self.p_hit = param_term * param_inter

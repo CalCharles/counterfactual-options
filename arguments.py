@@ -51,14 +51,21 @@ def get_args():
                         help='short circuits option framework to just take true actions')
     parser.add_argument('--discretize-actions', action='store_true', default=False,
                         help='converts a continuous action space to a discrete one (TODO: currently requires relative-action)')
-    parser.add_argument('--relative-state', action='store_true', default=False,
-                    help='concatenates on the relative state between objects to the input state to RL network')
-    parser.add_argument('--relative-param', type=int, default=0,
-                        help='adds the difference between object state and param to the network (2 should be masked, 1 unmasked) (default: 0, not used)')
-    parser.add_argument('--param-first', action='store_true', default=False,
-                    help='concatenates on the parameter as the first part of the input')
-    parser.add_argument('--no-input', type=int, default=0,
-                    help='does not add the other components of state to the input, if 1, no input states, if 2, no param')
+
+    parser.add_argument('--observation-setting', type=int, nargs=8, default=(1,0,0,1,0,0,0,0,0),
+                        help='sets the components of the input state to the policy (default: (1,0,0,1,0,0,0,0,0))' +
+                        'components in this order: interaction_state, target state, full flattened state' +
+                        'param, target state relative to param, relative interaction state, action state, diff')
+
+    # parser.add_argument('--relative-state', action='store_true', default=False,
+    #                 help='concatenates on the relative state between objects to the input state to RL network')
+    # parser.add_argument('--relative-param', type=int, default=0,
+    #                     help='adds the difference between object state and param to the network (2 should be masked, 1 unmasked) (default: 0, not used)')
+    # parser.add_argument('--param-first', action='store_true', default=False,
+    #                 help='concatenates on the parameter as the first part of the input')
+    # parser.add_argument('--no-input', type=int, default=0,
+    #                 help='does not add the other components of state to the input, if 1, no input states, if 2, no param')
+    
     parser.add_argument('--relative-action', type=float, default=-1,
                     help='the model computes actions relative to the current object position (-1 is not used)')
     parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256],
@@ -107,7 +114,7 @@ def get_args():
                     help='minimum distance for states to be considered the same')
     parser.add_argument('--epsilon-min', type=float, default=0.1,
                     help='minimum distance to end for ring schedule')
-    parser.add_argument('--ring-schedule', type=float, default=0.0,
+    parser.add_argument('--epsilon-close-schedule', type=float, default=0.0,
                     help='minimum distance for states to be considered the same')
     parser.add_argument('--param-interaction', action = 'store_true', default=False,
                     help='Only terminates when the param and interaction co-occur')
@@ -124,6 +131,8 @@ def get_args():
     # sampler parameters
     parser.add_argument('--sample-continuous', type=int, default=0,
                         help='use already existing values if 0, false if 1, true if 2')
+    parser.add_argument('--no-combine-param-mask', action='store_true', default=False,
+                        help='if true, do NOT multiply the param with the mask')
     # done check parameters
     parser.add_argument('--use-termination', action = 'store_true', default=False,
                     help='returns done when the option terminates')

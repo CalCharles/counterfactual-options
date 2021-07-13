@@ -135,9 +135,9 @@ class TSPolicy(nn.Module):
     def init_algorithm(self, **kwargs):
         args = ObjDict(kwargs)
         noise = GaussianNoise(sigma=args.epsilon) if args.epsilon > 0 else None
-        if self.algo_name == "dqn": 
+        if self.algo_name == "dqn":
             policy = ts.policy.DQNPolicy(args.critic, args.critic_optim, discount_factor=args.discount_factor, estimation_step=args.lookahead, target_update_freq=int(args.tau))
-            policy.set_eps(args.epsilon)
+            self.set_eps(args.epsilon)
         elif self.algo_name == "ppo": 
             if args.discrete_actions:
                 policy = ts.policy.PPOPolicy(args.actor, args.critic, args.actor_optim, torch.distributions.Categorical, discount_factor=args.discount_factor, max_grad_norm=None,
@@ -296,7 +296,7 @@ class TSPolicy(nn.Module):
             #     pos_last = np.argwhere(last_frame[:,:,1] == 10.0)[0]
             #     p = np.argwhere(param == 10.0)[0]
             #     print(done, target, target_last, pos, pos_last, p)
-            print("input", batch.obs[:5])
+            # print("input", batch.obs[:5])
             # print(len(batch))
             batch = self.algo_policy.process_fn(batch, use_buffer, indice)
             # for o,on,r,d,a in zip(batch.obs, batch.obs_next, batch.rew, batch.done, batch.act):
@@ -307,12 +307,12 @@ class TSPolicy(nn.Module):
             #     cv2.waitKey(500)
             kwargs["batch_size"] = sample_size
             kwargs["repeat"] = 2
-            print("process fn", batch.obs[:5])
+            # print("process fn", batch.obs[:5])
             # print(batch.act.shape, use_buffer.act.shape)
             self.apply_input_norm(batch)
-            print("input norm", indice, self.input_mean, self.input_var, batch.obs, batch.rew, batch.done)
+            # print("input norm", indice, self.input_mean, self.input_var, batch.obs, batch.rew, batch.done)
             result = self.algo_policy.learn(batch, **kwargs)
-            print(result)
+            # print(result)
             self.algo_policy.post_process_fn(batch, use_buffer, indice)
             # self.restore_obs(batch, orig_obs, orig_next)
             # self.restore_buffer(orig_obs_buffer, orig_next_buffer, buffer_idces)

@@ -1,4 +1,6 @@
 # terminate reward done
+import numpy as np
+from Networks.network import pytorch_model
 
 class TerminateReward():
     def __init__(self, args):
@@ -33,19 +35,21 @@ class TerminateReward():
             self.timer = 0
 
         # update ranges
-        self.epsilon_close = self.epsilon_min + (self.epsilon_close-self.epsilon_min) * (np.exp(-1.0 * (self.total_time)/self.epsilon_close_schedule))
+        if self.epsilon_close_schedule > 0: self.epsilon_close = self.epsilon_min + (self.epsilon_close-self.epsilon_min) * (np.exp(-1.0 * (self.total_time)/self.epsilon_close_schedule))
         self.reward.epsilon_close = self.epsilon_close
         self.term.epsilon_close = self.epsilon_close
 
-        self.interaction_probability = self.interaction_probability + (1-self.interaction_probability) * (np.exp(-1.0 * (self.total_time)/self.interaction_prob_schedule))
+        if self.interaction_prob_schedule > 0: self.interaction_probability = self.interaction_probability + (1-self.interaction_probability) * (np.exp(-1.0 * (self.total_time)/self.interaction_prob_schedule))
         self.term.interaction_probability = self.interaction_probability
 
     def check_interaction(self, inter):
         return self.term.check_interaction(inter)
 
-    def check(self, full_state, next_full_state, inter_state = None):
+    def check(self, full_state, next_full_state, param, mask, inter_state = None, use_timer=True):
         '''
         gathers necessary statistics
+        inter state is the interaction stat, which replaces getting it from the full state
+        use_timer determines if the timer should influence computation
         '''
 
         inter_state = self.state_extractor.get_inter(full_state) if not inter_state else inter_state
@@ -56,10 +60,10 @@ class TerminateReward():
         inter, pred, var = self.dataset_model.hypothesize(inter_state)
 
         # compute the termination and reward values
-        term = self.term.check(inter, target_state, param, mask, true_done)
-        rew = self.reward.check(inter, target_state, param, mask, true_done)
+        term = self.term.check(pytorch_model.unwrap(inter), target_state, param, mask, true_done)
+        rew = self.reward.get_reward(pytorch_model.unwrap(inter), target_state, param, mask, true_done)
 
-        if self.timer == self.time_cutoff:
+        if self.timer == self.time_cutoff and use_timer:
             term = True
             time_cutoff = True
         return term, rew

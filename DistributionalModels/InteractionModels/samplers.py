@@ -2,12 +2,14 @@ import numpy as np
 import torch
 import copy
 from Networks.network import pytorch_model
+from Options.state_extractor import array_state
 
 class Sampler():
     def __init__(self, **kwargs):
         self.dataset_model = kwargs["dataset_model"]
         self.delta = self.dataset_model.delta
         self.sample_continuous = True # kwargs["sample_continuous"] # hardcoded for now
+        self.combine_param_mask = not kwargs["no_combine_param_mask"] # whether to multiply the returned param with the mask
         self.rate = 0
         
         # specifit to CFselectors
@@ -17,6 +19,13 @@ class Sampler():
         self.len_cfs = np.array([j-i for i,j in [tuple(cfs.feature_range) for cfs in self.cfselectors]])
 
         self.param, self.mask = self.sample(kwargs["init_state"])
+        self.iscuda = False
+
+    def cuda(self, device=None):
+        self.iscuda= True 
+
+    def cpu(self, device=None):
+        self.iscuda= False 
 
     def get_targets(self, states):
         # takes in states of size num_sample x state_size, and return samples (num_sample x state_size)
@@ -24,6 +33,9 @@ class Sampler():
 
     def sample_subset(self, selection_binary):
         return selection_binary
+
+    def get_mask(self, param):
+        return self.mask
 
     def update(self, param, mask):
         self.param, self.mask = param, mask
@@ -34,7 +46,7 @@ class Sampler():
 
     def get_binary(self, states):
         selection_binary = self.sample_subset(self.dataset_model.selection_binary)
-        if len(states.shape) > 1: # if a stack, duplicate mask for all
+        if len(self.delta(states).shape) > 1: # if a stack, duplicate mask for all
             return pytorch_model.unwrap(torch.stack([selection_binary.clone() for _ in range(new_states.size(0))], dim=0))
         return pytorch_model.unwrap(selection_binary.clone())
 
@@ -52,15 +64,27 @@ class Sampler():
         return self.delta(new_states)
 
     def sample(self, states):
+        '''
+        expects states to be a full_state ( a tianshou.batch or dict with factored_state, raw_state inside )
+        factored state may have a single value or multiple
+        '''
+        states = states['factored_state']
+        states = array_state(states)
         mask = self.get_binary(states)
-        return self.get_targets(states) * mask, mask # TODO: not masking out the target not always precise
+        return self.get_mask_param(self.get_targets(states), mask), mask # TODO: not masking out the target not always precise
         # return self.get_targets(states), mask 
 
-    def get_param(self, terminate):
+    def get_param(self, full_state, terminate):
         # samples new param and mask if terminate. If there are more reasons to change param, that logic can be added
         if terminate:
-            self.param, self.mask = self.sampler.sample(self.get_state(full_state, setting=self.full_flat_setting))
+            self.param, self.mask = self.sample(full_state)
         return self.param, self.mask, terminate
+
+    def get_mask_param(self, param, mask ):
+        if self.combine_param_mask:
+            return param * mask
+        return param
+
 
 class RawSampler(Sampler):
     # never actually samples
@@ -75,7 +99,7 @@ class LinearUniformSampling(Sampler):
             return self.weighted_samples(states, weights)
         else: # sample discrete with weights
             num_sample = 1
-            if len(states.shape) > 1:
+            if len(self.delta(states).shape) > 1:
                 num_sample = states.shape[0]
             #     masks = [pytorch_model.unwrap(self.dataset_model.selection_binary.clone()) for i in range(num_sample)]
             # else:
@@ -138,6 +162,8 @@ class InstanceSampling(Sampler):
             return mval
 
     def sample(self, states):
+        states = states['factored_state']
+        states = array_state(states)
         mask = self.get_binary(states)
         val = self.get_targets(states)
         return val, mask # does not mask out target, justified by behavior

@@ -8,7 +8,7 @@ class Reward():
 	def __init__(self, **kwargs):
 		pass
 		
-	def get_reward(self, input_state, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0):
 		return 1
 
 class BinaryParameterizedReward(Reward):
@@ -18,7 +18,7 @@ class BinaryParameterizedReward(Reward):
 		# self.use_both = kwargs['use_both'] # supercedes use_diff
 		self.epsilon = kwargs['epsilon']
 
-	def get_reward(self, input_state, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0):
 		# NOTE: input state is from the current state, state, param are from the next state
 		# if self.use_both:
 		# 	if len(diff.shape) == 1 and len(param.shape) == 1:
@@ -44,11 +44,11 @@ class InteractionReward(Reward):
 		self.interaction_model = kwargs["dataset_model"].interaction_model
 		# self.interaction_model = kwargs["interaction_model"]
 
-	def get_reward(self, input_state, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0):
 		# NOTE: input state is from the current state, state, param are from the next state
 		# return (self.interaction_model(input_state) - 1).squeeze()
 		# print(pytorch_model.unwrap(self.interaction_model(input_state)), pytorch_model.unwrap(input_state))
-		return (pytorch_model.unwrap(self.interaction_model(input_state))).squeeze()
+		return pytorch_model.unwrap(inter).squeeze()
 
 class TrueNegativeCombinedReward(Reward):
 	def __init__(self, **kwargs):
@@ -57,14 +57,14 @@ class TrueNegativeCombinedReward(Reward):
 		self.combined = CombinedReward(**kwargs)
 		self.rlambda = kwargs["true_reward_lambda"]
 
-	def get_reward(self, input_state, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0):
 		# print(self.rlambda * true_reward * float(true_reward < 0))
 		if type(true_reward) == np.ndarray:
 			new_true = true_reward.copy()
 			new_true[true_reward > 0] = 0
 		else:
 			new_true = 0 if true_reward > 0 else 1
-		return self.combined.get_reward(input_state, state, param, mask, true_reward) + self.rlambda * np.squeeze(true_reward * new_true)
+		return self.combined.get_reward(inter, state, param, mask, true_reward) + self.rlambda * np.squeeze(true_reward * new_true)
 
 class CombinedReward(Reward):
 	def __init__(self, **kwargs):
@@ -75,11 +75,11 @@ class CombinedReward(Reward):
 		self.lmbda = kwargs["interaction_lambda"]
 		self.reward_constant = kwargs["reward_constant"]
 
-	def get_reward(self, input_state, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0):
 		# NOTE: input state is from the current state, state, param are from the next state
-		ireward = self.interaction_reward.get_reward(input_state, state, param, mask)
-		preward = self.parameterized_reward.get_reward(input_state, state, param, mask)
-		interacting = pytorch_model.unwrap(self.interaction_reward.interaction_model(input_state))
+		ireward = self.interaction_reward.get_reward(inter, state, param, mask)
+		preward = self.parameterized_reward.get_reward(inter, state, param, mask)
+		interacting = pytorch_model.unwrap(inter)
 		# interaction_reward = (ireward > self.interaction_probability).float() - 1 # only give parameterized reward at interactions
 		
 		# print(ireward * self.lmbda, preward, interaction_reward, )
@@ -96,7 +96,7 @@ class InstancedReward(Reward):
 		self.dataset_model = kwargs["dataset_model"]
 		self.rewarder = reward_forms[kwargs["reward_type"][4:]](**kwargs)
 
-	def get_reward(self, input_state, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0):
 		'''
 		finds out of the desired instance now has the desired value,
 		Finds the instance by matching the values of the instance NOT masked (inverse mask)
@@ -104,7 +104,7 @@ class InstancedReward(Reward):
 		instanced = self.dataset_model.split_instances(state)
 		inverse_mask = invert_mask(mask)
 		indexes = compute_instance_indexes(instanced, param, inverse_mask, multi=-1)
-		return self.rewarder.get_reward(input_state, instanced[indexes], param, mask, true_reward=true_reward)
+		return self.rewarder.get_reward(inter, instanced[indexes], param, mask, true_reward=true_reward)
 
 class ProximityInstancedReward(Reward):
 	def __init__(self, **kwargs): # TODO: for now, operates under fixed mask assumption
@@ -120,7 +120,7 @@ class ProximityInstancedReward(Reward):
 		self.rlambda = kwargs["true_reward_lambda"]
 		self.reward_constant = kwargs["reward_constant"]
 
-	def get_reward(self, input_state, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0):
 		'''
 		finds out of the desired instance now has the desired value,
 		Finds the instance by matching the values of the instance NOT masked (inverse mask)
@@ -129,7 +129,7 @@ class ProximityInstancedReward(Reward):
 		inverse_mask = invert_mask(mask)
 		# print(input_state.shape, state.shape, param.shape, mask.shape, instanced.shape, inverse_mask)
 		batch_idx, inst_idx = compute_instance_indexes(instanced, param, inverse_mask, multi=self.max_distance_epsilon)
-		inter_bin = pytorch_model.unwrap(self.dataset_model.interaction_model.instance_labels(pytorch_model.wrap(input_state, cuda=self.dataset_model.iscuda)))
+		inter_bin = inter # pytorch_model.unwrap(self.dataset_model.interaction_model.instance_labels(pytorch_model.wrap(input_state, cuda=self.dataset_model.iscuda)))
 		inter_bin[inter_bin < self.dataset_model.interaction_prediction] = 0
 		inter_bin[inter_bin >= self.dataset_model.interaction_prediction] = 1
 		batched = False
@@ -183,7 +183,7 @@ class TrueReward(Reward):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 
-	def get_reward(self, input_state, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0):
 		return true_reward
 
 class EnvFnReward(Reward):
@@ -191,8 +191,8 @@ class EnvFnReward(Reward):
 		super().__init__(**kwargs)
 		self.reward_fn = kwargs["environment"].check_reward
 
-	def get_reward(self, input_state, state, param, mask, true_reward=0):
-		return self.reward_fn(input_state, state, param)
+	def get_reward(self, inter, state, param, mask, true_reward=0):
+		return self.reward_fn(inter, state, param)
 
 
 reward_forms = {'bin': BinaryParameterizedReward, 'int': InteractionReward, 'comb': CombinedReward, 'inst': InstancedReward,

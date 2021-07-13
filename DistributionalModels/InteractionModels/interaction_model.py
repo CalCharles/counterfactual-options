@@ -50,29 +50,27 @@ def load_hypothesis_model(pth):
 class NeuralInteractionForwardModel(nn.Module):
     def __init__(self, **kwargs):
         super().__init__()
+        # set input and output
         self.gamma = kwargs['gamma']
         self.delta = kwargs['delta']
         self.controllable = kwargs['controllable'] # controllable features USED FOR (BEFORE) training
+        
+        # environment model defines object factorization
         self.environment_model = kwargs['environment_model']
         self.env_name = self.environment_model.environment.name
-        kwargs['factor'] = int(kwargs['factor'] / 2) # active model keeps less parameters 
+
+        # construct the active model
         self.forward_model = forward_nets[kwargs['forward_class']](**kwargs)
-        kwargs['factor'] = int(kwargs['factor'] * 2)
-        
-        print(kwargs['base_variance'], self.forward_model.base_variance)
-        # error
+
+        # set the passive model        
         norm_fn, num_inputs = kwargs['normalization_function'], kwargs['num_inputs']
         kwargs['normalization_function'], kwargs['num_inputs'] = kwargs['delta_normalization_function'], kwargs['num_outputs']
-        print(norm_fn, kwargs['normalization_function'])
-        fod = kwargs['first_obj_dim']
+        fod = kwargs['first_obj_dim'] # there is no first object since the passive model only has one object
         kwargs['first_obj_dim'] = 0
         self.passive_model = forward_nets[kwargs['passive_class']](**kwargs)
         kwargs['normalization_function'], kwargs['num_inputs'], kwargs['first_obj_dim'] = norm_fn, num_inputs, fod
-        
-        self.interaction_binary = kwargs['interaction_binary']
-        self.control_min, self.control_max = np.zeros(kwargs['num_outputs']), np.zeros(kwargs['num_outputs'])
-        if len(self.interaction_binary) > 0:
-            self.difference_threshold, self.forward_threshold, self.passive_threshold = self.interaction_binary
+
+        # define the output for the forward and passive models
         if kwargs['dist'] == "Discrete":
             self.dist = Categorical(kwargs['num_outputs'], kwargs['num_outputs'])
         elif kwargs['dist'] == "Gaussian":
@@ -81,28 +79,39 @@ class NeuralInteractionForwardModel(nn.Module):
             self.dist = Bernoulli(kwargs['num_outputs'], kwargs['num_outputs'])
         else:
             raise NotImplementedError
+
+        # construct the interaction model        
         odim = kwargs['output_dim']
         kwargs['output_dim'] = 1
         kwargs["num_outputs"] = 1
         self.interaction_model = interaction_nets[kwargs['interaction_class']](**kwargs)
         kwargs['output_dim'] = odim
 
-        self.object_dim = kwargs["object_dim"]
-        # self.network_args = ObjDict(kwargs)
-        self.normalization_function = kwargs["normalization_function"]
-        self.detla_normalization_function = kwargs["delta_normalization_function"]
+        # set the values for what defines an interaction, in training and test
+        self.interaction_binary = kwargs['interaction_binary']
+        if len(self.interaction_binary) > 0:
+            self.difference_threshold, self.forward_threshold, self.passive_threshold = self.interaction_binary
         self.interaction_minimum = kwargs['interaction_minimum'] # minimum interaction level to use the active model
         self.interaction_prediction = kwargs['interaction_prediction']
+
+        # output limits
+        self.control_min, self.control_max = np.zeros(kwargs['num_outputs']), np.zeros(kwargs['num_outputs'])
+        self.object_dim = kwargs["object_dim"]
+        self.multi_instanced = kwargs["multi_instanced"]
+
+        # assign norm values
+        self.normalization_function = kwargs["normalization_function"]
+        self.delta_normalization_function = kwargs["delta_normalization_function"]
+        # note that self.output_normalization_function is defined in TRAIN, because that is wehre predict_dynamics is assigned
         self.active_epsilon = kwargs['active_epsilon'] # minimum l2 deviation to use the active values
         self.iscuda = kwargs["cuda"]
-        self.multi_instanced = kwargs["multi_instanced"]
         # self.sample_continuous = True
-        self.sample_continuous = False
         self.selection_binary = pytorch_model.wrap(torch.zeros((self.delta.output_size(),)), cuda=self.iscuda)
         if self.iscuda:
             self.cuda()
         self.reset_parameters()
-        # parameters used to determine which factors
+        # parameters used to determine which factors to use
+        self.sample_continuous = False
         self.predict_dynamics = False
         self.name = ""
         self.control_feature = None
@@ -122,7 +131,8 @@ class NeuralInteractionForwardModel(nn.Module):
         torch.save(self, os.path.join(pth, self.name + "_model.pt"))
         self.environment_model = em
 
-    def set_traces(self, flat_state, names, target_name):
+    def _set_traces(self, flat_state, names, target_name):
+        # sets trace for one state, if the target has an interaction with at least one name in names
         factored_state = self.environment_model.unflatten_state(pytorch_model.unwrap(flat_state), vec=False, instanced=False)
         self.environment_model.set_interaction_traces(factored_state)
         tr = self.environment_model.get_interaction_trace(target_name[0])
@@ -130,18 +140,18 @@ class NeuralInteractionForwardModel(nn.Module):
             return np.array([float(len([n for n in trace if n in names]) > 0) for trace in tr])
         else:
             trace = [t for it in tr for t in it] # flattens out instances
-            # print(trace, [name for name in trace if name in names])
-            # if len([name for name in trace if name in names]) == len(trace) and len(trace) > 0:
-            # print(names, trace)
             if len([name for name in trace if name in names]) > 0:
-                # print(trace, factored_state["Gripper"], factored_state["Block"])
                 return 1
             return 0
 
     def generate_interaction_trace(self, rollouts, names, target_name):
+        '''
+        a trace basically determines if an interaction occurred, based on the "traces"
+        in the environment model that record true object interactions
+        '''
         traces = []
         for state in rollouts.get_values("state"):
-            traces.append(self.set_traces(state, names, target_name))
+            traces.append(self._set_traces(state, names, target_name))
         return pytorch_model.wrap(traces, cuda=self.iscuda)
 
     def cpu(self):
@@ -156,7 +166,6 @@ class NeuralInteractionForwardModel(nn.Module):
         if self.selection_binary is not None:
             self.selection_binary = self.selection_binary.cpu()
         self.iscuda = False
-
 
     def cuda(self):
         super().cuda()
@@ -179,19 +188,25 @@ class NeuralInteractionForwardModel(nn.Module):
         self.passive_model.reset_parameters()
 
     def compute_interaction(self, forward_mean, passive_mean, target):
-        # Probabilistically based values
+        '''computes an interaction binary, which defines if the active prediction is high likelihood enough
+        the passive is low likelihood enough, and the difference is sufficiently large
+        TODO: there should probably be a mechanism that incorporates variance explicitly
+        TODO: there should be a way of discounting components of state that are ALWAYS predicted with high probability
+        '''
+        
+        # values based on log probability
         active_prediction = forward_mean < self.forward_threshold # the prediction must be good enough (negative log likelihood)
         not_passive = passive_mean > self.passive_threshold # the passive prediction must be bad enough
         difference = forward_mean - passive_mean < self.difference_threshold # the difference between the two must be large enough
         # return ((passive_mean > self.passive_threshold) * (forward_mean - passive_mean < self.difference_threshold) * (forward_mean < self.forward_threshold)).float() #(active_prediction+not_passive > 1).float()
 
+        # values based on the absolute error between the mean and the target
         # forward_error = self.get_error(forward_mean, target, normalized=True)
         # passive_error = self.get_error(passive_mean, target, normalized=True)
         # passive_performance = passive_error > self.passive_threshold
         # forward_performance = forward_error < self.forward_threshold
         # difference = passive_error - forward_error > self.difference_threshold
 
-        # print(passive_performance.shape, forward_performance.shape, difference.shape)
         # forward threshold is used for the difference, passive threshold is used to determine that the accuracy is sufficient
         # return ((forward_error - passive_loss < self.forward_threshold) * (forward_error < self.passive_threshold)).float() #(active_prediction+not_passive > 1).float()
         # passive can't predict well, forward is better, forward predicts well
@@ -839,7 +854,7 @@ class NeuralInteractionForwardModel(nn.Module):
         print(forward.shape, dtarget.shape, interaction.shape)
         sfe = np.linalg.norm(forward - pytorch_model.unwrap(dtarget), ord =1, axis=axis) * interaction.squeeze() # per state forward error
         spe = np.linalg.norm(passive - pytorch_model.unwrap(dtarget), ord =1, axis=axis) * interaction.squeeze() # per state passive error
-        print(self.output_normalization_function.mean, self.output_normalization_function.std)
+        # print(self.output_normalization_function.mean, self.output_normalization_function.std)
         print("forward error", (forward - pytorch_model.unwrap(dtarget))[:100])
         print("passive error", (passive - pytorch_model.unwrap(dtarget))[:100])
         print("interaction", interaction.squeeze()[:100])
@@ -848,32 +863,39 @@ class NeuralInteractionForwardModel(nn.Module):
 
         return np.sum(np.abs(sfe)) / np.sum(interaction), np.sum(np.abs(spe)) / np.sum(interaction)
 
-    def _wrap_state(self, state):
+    def _wrap_state(self, state, tar_state=None):
+        # takes in a state, either a full state (dict, tensor or array), or 
+        # state = input state (gamma), tar_state = target state (delta)
+        # print(type(state), state.shape[-1], self.environment_model.state_size)
         if type(state) == np.ndarray:
             if state.shape[-1] == self.environment_model.state_size:
-                state = pytorch_model.wrap(self.gamma(state), self.iscuda)
+                inp_state = pytorch_model.wrap(self.gamma(state), cuda=self.iscuda)
+                tar_state = pytorch_model.wrap(self.delta(state), cuda=self.iscuda)
             else:
-                state = pytorch_model.wrap(state, self.iscuda)
+                inp_state = pytorch_model.wrap(state, cuda=self.iscuda)
+                tar_state = pytorch_model.wrap(tar_state, cuda=self.iscuda) if tar_state else None
         elif type(state) == torch.tensor:
-            state = self.gamma(state)
+            inp_state = self.gamma(state)
+            tar_state = self.delta(state)
         else: # assumes that state is a batch or dict
-            state = pytorch_model.wrap(self.gamma(state), cuda=self.iscuda)
-        return state
+            inp_state = pytorch_model.wrap(self.gamma(state), cuda=self.iscuda)
+            tar_state = pytorch_model.wrap(self.delta(state), cuda=self.iscuda)
+        return inp_state, tar_state
 
     def predict_next_state(self, state):
         # returns the interaction value and the predicted next state (if interaction is low there is more error risk)
         # state is either a single flattened state, or batch x state size, or factored_state with sufficient keys
-        state = self._wrap_state(state)
+        inp_state, tar_state = self._wrap_state(state)
 
         rv = self.output_normalization_function.reverse
-        inter = self.interaction_model(self.gamma(state))
+        inter = self.interaction_model(inp_state)
         intera = inter.clone()
         intera[inter > self.interaction_minimum] = 1
         intera[inter <= self.interaction_minimum] = 0
         if self.predict_dynamics:
-            fpred, ppred = self.delta(state) + rv(self.forward_model(self.gamma(state))[0]), self.delta(state) + rv(self.passive_model(self.delta(state))[0])
+            fpred, ppred = tar_state + rv(self.forward_model(inp_state)[0]), tar_state + rv(self.passive_model(tar_state)[0])
         else:
-            fpred, ppred = rv(self.forward_model(self.gamma(state))[0]), rv(self.passive_model(self.delta(state))[0])
+            fpred, ppred = rv(self.forward_model(inp_state)[0]), rv(self.passive_model(tar_state)[0])
         if len(state.shape) == 1:
             return (inter, fpred) if pytorch_model.unwrap(inter) > self.interaction_minimum else (inter, ppred)
         else:
@@ -883,7 +905,7 @@ class NeuralInteractionForwardModel(nn.Module):
             intera = pytorch_model.wrap(intera.squeeze().long(), cuda=self.iscuda)
             # print(intera, self.interaction_minimum)
             pred = pred[torch.arange(pred.shape[0]).long(), intera]
-        # print(pred, inter, self.predict_dynamics, rv(self.forward_model(self.gamma(state))[0]))
+        # print(pred, inter, self.predict_dynamics, rv(self.forward_model(inp_state)[0]))
         return inter, pred
 
     def test_forward(self, states, next_state, interact=True):
@@ -987,12 +1009,13 @@ class NeuralInteractionForwardModel(nn.Module):
         return float(pytorch_model.unwrap(active_delta(states).min(dim=0)[0].squeeze())), float(pytorch_model.unwrap(active_delta(states).max(dim=0)[0].squeeze()))
 
     def hypothesize(self, state):
-        state = self._wrap_state(state)
+        inp_state, tar_state = self._wrap_state(state)
+        # print(inp_state, tar_state)
         rv = self.output_normalization_function.reverse
         if self.multi_instanced:
-            return self.interaction_model.instance_labels(state), self.split_instances(rv(self.forward_model(self.gamma(state))[0])), self.split_instances(rv(self.passive_model(self.delta(state))[0]))
+            return self.interaction_model.instance_labels(inp_state), self.split_instances(rv(self.forward_model(inp_state)[0])), self.split_instances(rv(self.passive_model(tar_state)[0])) if tar_state else None
         else:
-            return self.interaction_model(self.gamma(state)), rv(self.forward_model(self.gamma(state))[0]), rv(self.passive_model(self.delta(state))[0])
+            return self.interaction_model(inp_state), rv(self.forward_model(inp_state)[0]), rv(self.passive_model(tar_state)[0]) if tar_state else None
 
     def check_interaction(self, inter):
         return inter > self.interaction_minimum
