@@ -48,6 +48,7 @@ class Option():
 
     def cuda(self):
         self.iscuda = True
+        print(self.name, self.policy, self.next_option)
         if self.policy is not None:
             self.policy.cuda()
         if self.sampler is not None:
@@ -75,7 +76,7 @@ class Option():
         param_act = mapped_act # self.next_option.state_extractor.convert_param(mapped_act) if self.next_option.state_extractor is not None else mapped_act
         batch['param'] = [param_act]
         batch['mask'] = [next_mask]
-        batch['obs'] = self.next_option.state_extractor.get_obs(batch) if self.next_option.state_extractor is not None else batch['obs']
+        batch['obs'] = self.next_option.state_extractor.get_obs(batch, param_act, next_mask) if self.next_option.state_extractor is not None else batch['obs']
         return param, obs, mask
 
     def extended_action_sample(self, batch, state_chain, random=False, use_model=False):
@@ -133,7 +134,7 @@ class Option():
         self.temporal_extension_manager.reset()
         return init_terms + [init_term]
 
-    def update(self, done, last_state, act, chain, term_chain, param, masks):
+    def update(self, buffer, done, last_state, act, chain, term_chain, param, masks, update_policy=True):
         # updates internal states of the option
         if self.next_option is not None:
             self.next_option.update(last_state, chain[:len(chain)-1], chain[:len(chain)-1], term_chain[:len(term_chain)-1], chain[-1], masks[:len(masks)-1])
@@ -142,18 +143,20 @@ class Option():
         self.terminate_reward.update(term_chain[-1])
         self.done_model.update(done)
         self.sampler.update(param, masks[-1]) # TODO: sampler also handles its own param, mask
+        if update_policy:
+            self.policy.update_norm(buffer)
 
     def terminate_reward_chain(self, full_state, next_full_state, param, chain, mask, mask_chain):
         # recursively get all of the dones and rewards
         if self.next_option is not None: # lower levels should have masks the same as the active mask( fully trained)
-            last_done, last_rewards, last_termination, last_ext_term = self.next_option.terminate_reward_chain(full_state, next_full_state, chain[-1], chain[:len(chain)-1], mask_chain[-1], mask_chain[:len(mask_chain)-1])
+            last_done, last_rewards, last_termination, last_ext_term, _ = self.next_option.terminate_reward_chain(full_state, next_full_state, chain[-1], chain[:len(chain)-1], mask_chain[-1], mask_chain[:len(mask_chain)-1])
 
-        termination, reward = self.terminate_reward.check(full_state, next_full_state, param, mask)
+        termination, reward, time_cutoff = self.terminate_reward.check(full_state, next_full_state, param, mask)
         ext_term = self.temporal_extension_manager.get_extension(termination, last_termination[-1])
         done = self.done_model.check(termination, self.state_extractor.get_true_done(next_full_state))
 
         rewards, terminations, ext_term = last_rewards + [reward], last_termination + [termination], last_ext_term + [ext_term]
-        return done, rewards, terminations, ext_term
+        return done, rewards, terminations, ext_term, time_cutoff
 
     def predict_state(self, factored_state, raw_action):
         # predict the next factored state given the action chain
@@ -214,7 +217,7 @@ class PrimitiveOption(Option): # primitive discrete actions
         return [True]
 
     def save(self, save_dir, clear=False):
-        return None
+        return self
 
     def load_policy(self, load_dir):
         pass
@@ -243,7 +246,7 @@ class PrimitiveOption(Option): # primitive discrete actions
         return sq_param, chain, None, list(), list() # chain is the action as an int, policy batch is None, state chain is a list, resampled is True
 
     def terminate_reward_chain(self, state, next_state, param, chain, mask=None, needs_reward=False):
-        return 1, [0], [1], list()
+        return 1, [0], [1], list(), True
 
     def predict_state(self, factored_state, raw_action):
         new_action = copy.deepcopy(factored_state["Action"])
@@ -295,7 +298,7 @@ class RawOption(Option):
 
     def terminate_reward(self, state, next_state, param, chain, mask=None, needs_reward=False):
         # print(state)
-        return state["factored_state"]["Done"], state["factored_state"]["Reward"], state["factored_state"]["Done"]
+        return state["factored_state"]["Done"], state["factored_state"]["Reward"], state["factored_state"]["Done"], True, False # even if cut off with time, don't return
         # return [int(self.environment_model.environment.done or self.timer == (self.time_cutoff - 1))], [self.environment_model.environment.reward]#, torch.tensor([self.environment_model.environment.reward]), None, 1
 
 

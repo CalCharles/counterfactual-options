@@ -1,3 +1,5 @@
+import numpy as np
+
 class DoneModel():
 	def __init__(self, **kwargs):
 		self.use_termination = kwargs["use_termination"]
@@ -26,7 +28,9 @@ class DoneModel():
 		return term or tim or tru
 
 	def done_check(self, termination, true_done):
+		if type(termination) == np.ndarray: termination = termination.squeeze() # troublesome line
 		term = (termination * self.use_termination)
 		tim = (self.timer == self.use_timer)
+		if type(true_done) == np.ndarray: true_done = true_done.squeeze() # troublesome line
 		tru = (self.use_true_done * true_done)
 		return term, tim, tru

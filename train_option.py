@@ -86,7 +86,7 @@ if __name__ == '__main__':
     args.dataset_model = dataset_model
     args.environment_model = environment_model
     args.action_feature_selector = next_option.dataset_model.feature_selector if next_option.name != "Action" else environment_model.construct_action_selector()
-    state_extractor = StateExtractor(args, option_selector, full_state, sampler.param)
+    state_extractor = StateExtractor(args, option_selector, full_state, sampler.param, sampler.mask)
 
 
     # initialize termination function, reward function, done model

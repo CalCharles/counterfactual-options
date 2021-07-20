@@ -80,27 +80,27 @@ class HER(LearningOptimizer):
                 rv_search = list()
                 for i in range(1, len(self.replay_queue)): # go back in the replay queue, but stop if last_done is hit
                     batch = self.replay_queue[-i]
-                    full_state = copy.deepcopy(batch)
+                    her_batch = copy.deepcopy(batch)
                     inter_state = batch.inter_state[0]
-                    batch.update(param=[param.copy()], obs = self.state_extractor.assign_param(batch.obs, param),
-                        obs_next = self.state_extractor.assign_param(batch.obs_next, param), mask=[mask])
+                    her_batch.update(param=[param.copy()], obs = self.state_extractor.assign_param(batch.full_state[0], batch.obs, param, mask),
+                        obs_next = self.state_extractor.assign_param(batch.full_state[0], batch.obs_next, param, mask), mask=[mask])
                     true_done = batch.true_done
                     true_reward = batch.true_reward
-                    term, rew = self.option.terminate_reward.check(batch.full_state[0], batch.next_full_state[0], param, mask, use_timer=False)
+                    term, rew, time_cutoff = self.option.terminate_reward.check(batch.full_state[0], batch.next_full_state[0], param, mask, use_timer=False)
                     timer, self.done_model.timer = self.done_model.timer, 0
                     done = self.done_model.check(term, true_done)
                     self.done_model.timer = timer
-                    full_state.update(done=done, terminate=term, rew=[rew])
-                    rv_search.append(full_state)
+                    her_batch.update(done=[done], terminate=[term], rew=[rew])
+                    rv_search.append(her_batch)
 
                 early_stopping_counter = self.early_stopping
                 for i in range(1, len(rv_search)+1):
-                    full_state = rv_search[-i]
-                    if self.early_stopping > 0 and np.any(full_state.terminate):
+                    her_batch = rv_search[-i]
+                    if self.early_stopping > 0 and np.any(her_batch.terminate):
                         early_stopping_counter -= 1
                         if early_stopping_counter == 0:
-                            full_state.update(done=[i < len(rv_search)]) # force it to be done to prevent fringing effects
-                    ptr, ep_rew, ep_len, ep_idx = self.replay_buffer.add(full_state, buffer_ids=[0])
+                            her_batch.update(done=[i < len(rv_search)]) # force it to be done to prevent fringing effects
+                    ptr, ep_rew, ep_len, ep_idx = self.replay_buffer.add(her_batch, buffer_ids=[0])
                     if early_stopping_counter == 0 and self.early_stopping > 0:
                         break
             del self.replay_queue

@@ -80,7 +80,7 @@ class Sampler():
             self.param, self.mask = self.sample(full_state)
         return self.param, self.mask, terminate
 
-    def get_mask_param(self, param, mask ):
+    def get_mask_param(self, param, mask):
         if self.combine_param_mask:
             return param * mask
         return param

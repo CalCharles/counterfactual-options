@@ -63,7 +63,9 @@ class TerminateReward():
         term = self.term.check(pytorch_model.unwrap(inter), target_state, param, mask, true_done)
         rew = self.reward.get_reward(pytorch_model.unwrap(inter), target_state, param, mask, true_done)
 
+        # time cutoff indicates whether the termination was due to the timer cutoff
+        time_cutoff = False
         if self.timer == self.time_cutoff and use_timer:
+            time_cutoff = True and not term
             term = True
-            time_cutoff = True
-        return term, rew
+        return term, rew, time_cutoff

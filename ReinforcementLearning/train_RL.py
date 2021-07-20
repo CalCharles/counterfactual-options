@@ -56,6 +56,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                 # print("num steps, sucess, rew",result["n/st"], float(result["n/st"] != args.max_steps and (result["true_done"] < 1 or args.true_environment)), result["rews"].mean())
                 suc.append(result['terminate'])
                 needs_new_param = True
+            print(suc, test_perf)
             print("Iters: ", i, "Steps: ", total_steps)
             print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}", f"Hit Miss: {sum(test_collector.hit_miss_queue)/ max(1, len(test_collector.hit_miss_queue))}", f"Hit Miss train: {sum(train_collector.hit_miss_queue)/ max(1, len(train_collector.hit_miss_queue))}")
             train_collector.reset_env() # because test collector and train collector share the same environment

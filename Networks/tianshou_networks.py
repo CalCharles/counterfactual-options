@@ -9,6 +9,14 @@ class TSNet(nn.Module):
         super().__init__()
         self.iscuda = kwargs["cuda"]
         self.output_dim = int(np.prod(kwargs["num_outputs"]))
+        self.input_mean = None # set these to appropriate values
+        self.input_var = None # set these to appropriate values
+        self.use_input_norm = False # set these to true
+
+    def update_norm(self, input_mean, input_var):
+        self.use_input_norm = True
+        self.input_mean = input_mean
+        self.input_var = input_var
 
     def cuda(self):
         super().cuda()
@@ -18,14 +26,22 @@ class TSNet(nn.Module):
         super().cpu()
         self.iscuda = False
 
+    def input_norm(self, obs):
+        if self.use_input_norm:
+            return (obs - self.input_mean) / self.input_var
+        return obs
+
+
     def forward(self, obs, state=None, info={}):
         # TODO: make this not hardcoded
 
+        # print("before", obs)
+        obs = self.input_norm(obs)
         if not isinstance(obs, torch.Tensor):
             obs = pytorch_model.wrap(obs, dtype=torch.float, cuda=self.iscuda)
-        # print("at network", obs)
         batch = obs.shape[0]
         obs = obs.reshape(batch, -1)
+        # print("at network", obs)
         logits = self.model(obs)
         return logits, state
 

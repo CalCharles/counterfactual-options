@@ -28,6 +28,8 @@ if __name__ == '__main__':
     args = get_args()
     torch.cuda.set_device(args.gpu)
     np.set_printoptions(threshold=300, linewidth=120)
+    torch.set_printoptions(precision=3)
+
     if args.env == "SelfBreakout":
         args.continuous = False
         environment = Screen()

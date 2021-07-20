@@ -9,7 +9,7 @@ def array_state(factored_state):
 
 # state extractor
 class StateExtractor():
-    def __init__(self, args, option_selector, full_state, param):
+    def __init__(self, args, option_selector, full_state, param, mask):
         '''
         hyperparameters for deciding the getter functions actual getting process
         '''
@@ -18,7 +18,7 @@ class StateExtractor():
         self._delta_featurizer = args.dataset_model.delta
         self._flatten_factored_state = args.environment_model.flatten_factored_state
         self._action_feature_selector = args.action_feature_selector # option.next_option.dataset_model.feature_selector
-
+        self.combine_param_mask = not args.no_combine_param_mask
 
         self.obs_setting = args.observation_setting
         self.update(full_state)
@@ -30,20 +30,20 @@ class StateExtractor():
         self.flat_shape = self.get_state(full_state, (0,0,flat,0,0,0,0,0,0)).shape
         self.pre_param = self.inter_shape[0] + self.target_shape[0] + self.flat_shape[0]
         self.param_shape = self.get_state(full_state, (0,0,0,use_param,0,0,0,0,0), param=param).shape
-        self.param_rel_shape = self.get_state(full_state, (0,0,0,0,param_relative,0,0,0,0), param=param).shape
+        self.param_rel_shape = self.get_state(full_state, (0,0,0,0,param_relative,0,0,0,0), param=param, mask=mask).shape
         self.relative_shape = self.get_state(full_state, (0,0,0,0,0,relative,0,0,0)).shape
         self.action_shape = self.get_state(full_state, (0,0,0,0,0,0,action,0,0)).shape
         self.option_shape = self.get_state(full_state, (0,0,0,0,0,0,0,option,0)).shape
         self.diff_shape = self.get_state(full_state, (0,0,0,0,0,0,0,0,diff)).shape
-        self.obs_shape = self.get_obs(full_state, param=param).shape
+        self.obs_shape = self.get_obs(full_state, param=param, mask=mask).shape
 
         self.first_obj_shape = self.option_shape
         self.object_shape = self.target_shape
 
 
 
-    def get_obs(self, full_state, param):
-        return self.get_state(full_state, self.obs_setting, param)
+    def get_obs(self, full_state, param, mask=None):
+        return self.get_state(full_state, self.obs_setting, param, mask)
 
     def get_target(self, full_state):
         return self.get_state(full_state, (0,1,0,0,0,0,0,0,0))
@@ -69,7 +69,7 @@ class StateExtractor():
 
 
 
-    def get_state(self, full_state, setting, param=None): # param is expected 
+    def get_state(self, full_state, setting, param=None, mask=None): # param is expected 
         # form is an enumerator, 0 is flattened state, 1 is gamma/delta state, 2 is diff using last_factor
         # inp indicates if gamma or delta or gamma+param (if param is not None)
         # full_state is a batch or dict containing raw_state, factored_state
@@ -77,9 +77,9 @@ class StateExtractor():
         # factored_state may also be a batch/dict: {name: [env_num, batch_num, factored_shape]}
         inter, target, flat, use_param, param_relative, relative, action, option, diff = setting
         factored_state = full_state["factored_state"]
-        return self._combine_state(full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=param)
+        return self._combine_state(full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=param, mask=mask)
 
-    def _combine_state(self, full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=None):
+    def _combine_state(self, full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=None, mask=None):
         # combines the possible components of state:
         # param relative
         factored_state = array_state(full_state['factored_state'])
@@ -91,7 +91,7 @@ class StateExtractor():
         if target: state_comb.append(self._delta_featurizer(factored_state))
         if flat: state_comb.append(self._flatten_factored_state(factored_state, instanced=True))
         if use_param: state_comb.append(self._broadcast_param(shape, param)) # only handles param as a concatenation
-        if param_relative: state_comb.append(self._relative_param(shape, factored_state, param))
+        if param_relative: state_comb.append(self._relative_param(shape, factored_state, param, mask))
         if relative: state_comb.append(self._get_relative(factored_state))
         if action: state_comb.append(self._action_feature_selector(factored_state))
         if diff: state_comb.append(self._get_diff(factored_state))
@@ -113,10 +113,10 @@ class StateExtractor():
         if len(shape) == 2:
             return np.stack([np.stack([param.copy() for i in range(shape[1])], axis=0) for j in range(shape[0])], axis=0)
 
-    def _relative_param(self, shape, factored_state, param):
+    def _relative_param(self, shape, factored_state, param, mask):
         target = self._delta_featurizer(factored_state)
         param = self._broadcast_param(shape, param)
-        return param - target
+        return param - self.get_mask_param(target, mask)
 
     def _get_relative(self, factored_state):
         return self._gamma_featurizer.get_relative(factored_state)
@@ -125,9 +125,15 @@ class StateExtractor():
         factored_state = array_state(state['factored_state'])
         self.last_state = self._delta_featurizer(factored_state)
 
-    def assign_param(self, obs, param):
+    def get_mask_param(self, param, mask):
+        if self.combine_param_mask:
+            return param * mask
+        return param
+
+    def assign_param(self, full_state, obs, param, mask):
         '''
         obs may be 1, 2 or 3 dimensional vector. param should be 1d vector
+        full state is needed for relative param, as is mask
         '''
         if len(obs.shape) == 1:
             obs[self.pre_param:self.pre_param + self.param_shape[0]] = param
@@ -137,7 +143,7 @@ class StateExtractor():
             obs[:,:,self.pre_param:self.pre_param + self.param_shape[0]] = param
 
         if self.param_rel_shape[0] > 0:
-            target = self.get_target(obs)
+            target = self.get_mask_param(self.get_target(full_state), mask)
             shape = obs.shape[:-1]
             if len(obs.shape) == 1:
                 obs[self.pre_param:self.pre_param + self.param_shape[0]] = self._broadcast_param(shape, param) - target

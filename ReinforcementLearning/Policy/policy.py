@@ -39,7 +39,7 @@ class TSPolicy(nn.Module):
         self.is_her = self.algo_name[:3] == "her" # her is always a prefix
         self.collect = None
         self.lookahead = args.lookahead
-        self.option = args.option
+        # self.option = args.option
         self.input_var = np.ones(input_shape)
         self.input_mean = np.zeros(input_shape)
         if self.is_her: 
@@ -61,6 +61,7 @@ class TSPolicy(nn.Module):
         # self.map_action = self.algo_policy.map_action
         self.exploration_noise = self.algo_policy.exploration_noise
         self.grad_epoch = kwargs['grad_epoch']
+        self.input_norm_timer = 0
 
     def init_networks(self, args, input_shape, action_shape, discrete_actions, max_action = 1):
         if discrete_actions:
@@ -137,7 +138,7 @@ class TSPolicy(nn.Module):
         noise = GaussianNoise(sigma=args.epsilon) if args.epsilon > 0 else None
         if self.algo_name == "dqn":
             policy = ts.policy.DQNPolicy(args.critic, args.critic_optim, discount_factor=args.discount_factor, estimation_step=args.lookahead, target_update_freq=int(args.tau))
-            self.set_eps(args.epsilon)
+            policy.set_eps(args.epsilon)
         elif self.algo_name == "ppo": 
             if args.discrete_actions:
                 policy = ts.policy.PPOPolicy(args.actor, args.critic, args.actor_optim, torch.distributions.Categorical, discount_factor=args.discount_factor, max_grad_norm=None,
@@ -251,23 +252,49 @@ class TSPolicy(nn.Module):
             # not cloning batch could result in issues
         # print(batch.obs.shape, batch.obs_next.shape)
         # print("input: ", batch.obs, self.use_input_norm, self.input_mean, self.input_var)
+        # print("forward call")
         batch = copy.deepcopy(batch) # make sure input norm does not alter the input batch
-        self.apply_input_norm(batch)
+        # self.apply_input_norm(batch)
         vals= self.algo_policy(batch, state = state, input=input, **kwargs)
         return vals
 
     def compute_input_norm(self, buffer):
-        avail = buffer.sample(0)[0]
-        print("trying compute", len(buffer), avail.obs.shape)
-        if len (avail) >= 500: # need at least 500 values before applying input variance, typically this is the number of random actions
-            print("computing input norm")
-            self.input_var = np.sqrt(np.var(avail.obs, axis=0))
-            self.input_var[self.input_var < .0001] = .0001 # to prevent divide by zero errors
-            self.input_mean = np.mean(avail.obs, axis=0)
+        if len(buffer) > 0:
+            avail = buffer.sample(0)[0]
+            # print("trying compute", len(buffer), avail.obs.shape)
+            if len (avail) >= 500: # need at least 500 values before applying input variance, typically this is the number of random actions
+                if len(avail) > 20000: # only use the last 20k states
+                    avail = avail[len(avail) - 20000:]
+                self.input_var = np.sqrt(np.var(avail.obs, axis=0))
+                self.input_var[self.input_var < .0001] = .0001 # to prevent divide by zero errors
+                self.input_mean = np.mean(avail.obs, axis=0)
+                # print("computing input norm", self.input_mean, self.input_var)
+                if self.algo_name in _actor_critic + ['ppo']:
+                    self.algo_policy.actor.model.update_norm(self.input_mean, self.input_var)
+                if self.algo_name in _actor_critic: 
+                    self.algo_policy.critic1.model.update_norm(self.input_mean, self.input_var)
+                    self.algo_policy.critic1_old.model.update_norm(self.input_mean, self.input_var)
+                if self.algo_name in ['ppo']:
+                    self.algo_policy.critic.model.update_norm(self.input_mean, self.input_var)
+                    self.algo_policy.critic_old.model.update_norm(self.input_mean, self.input_var)
+                if self.algo_name in ['dqn']:
+                    self.algo_policy.model.update_norm(self.input_mean, self.input_var)
+                    self.algo_policy.model_old.update_norm(self.input_mean, self.input_var)
+                if self.algo_name in _double_critic:
+                    self.algo_policy.critic2.model.update_norm(self.input_mean, self.input_var)
+                    self.algo_policy.critic2_old.model.update_norm(self.input_mean, self.input_var)
+                return True
+        return False
 
     def apply_input_norm(self, batch):
         if self.use_input_norm:
             batch.update(obs=(batch.obs - self.input_mean) / self.input_var)
+
+    def update_norm(self, buffer):
+        if self.input_norm_timer == 1000:
+            if self.compute_input_norm(buffer):
+                self.input_norm_timer = 0
+        self.input_norm_timer += 1
 
     def update(
         self, sample_size: int, buffer: Optional[ReplayBuffer], **kwargs: Any
@@ -309,9 +336,10 @@ class TSPolicy(nn.Module):
             kwargs["repeat"] = 2
             # print("process fn", batch.obs[:5])
             # print(batch.act.shape, use_buffer.act.shape)
-            self.apply_input_norm(batch)
+            # self.apply_input_norm(batch)
             # print("input norm", indice, self.input_mean, self.input_var, batch.obs, batch.rew, batch.done)
             result = self.algo_policy.learn(batch, **kwargs)
+            # print("after learn")
             # print(result)
             self.algo_policy.post_process_fn(batch, use_buffer, indice)
             # self.restore_obs(batch, orig_obs, orig_next)

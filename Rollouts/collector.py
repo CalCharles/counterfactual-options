@@ -115,7 +115,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self._reset_state(0)
         self.option.reset(full_state[0])
         param, mask = self._reset_data(full_state[0])
-        self.data.update(obs=[self.state_extractor.get_obs(full_state[0], param)]) # self.option.get_state(obs, setting=self.option.input_setting, param=self.param if self.param is not None else None)
+        self.data.update(obs=[self.state_extractor.get_obs(full_state[0], param, mask)]) # self.option.get_state(obs, setting=self.option.input_setting, param=self.param if self.param is not None else None)
         self.temporal_aggregator.reset(self.data)
 
     def next_index(self, val):
@@ -127,13 +127,13 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.data.update(full_state=[full_state])
         param, mask, _ = self.get_param(full_state, True)
         self.data.update(target=self.state_extractor.get_target(self.data.full_state),
-            obs=[self.state_extractor.get_obs(self.data.full_state, param)])
+            obs=[self.state_extractor.get_obs(self.data.full_state, param, mask)])
         self.data.update(param=[param], mask = [mask], option_resample=[[True]])
         term_chain = self.option.reset(full_state)
         act, chain, policy_batch, state, masks, resampled = self.option.extended_action_sample(self.data, None, random=False)
         self._policy_state_update(policy_batch)
         self.data.update(terminate=[term_chain[-1]], terminations=term_chain, ext_term=[term_chain[-2]])
-        self.option.update(True, self.data["full_state"], act, chain, term_chain, param, masks)
+        self.option.update(self.buffer, True, self.data["full_state"], act, chain, term_chain, param, masks, not self.test)
         self.last_resampled_idx = self.full_at
         self.last_resampled_full_state = self.data.full_state
         self.temporal_aggregator.update(self.last_resampled_full_state)
@@ -208,6 +208,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         true_episode_count = 0
         term_count = 0
         rews = 0
+        acts = list()
         term_done = False # signifies if the termination was the result of a option terminal state
 
         while True:
@@ -233,17 +234,21 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
 
             true_done, true_reward = done, rew
             # if self.option: # seems pointless to support no-option code
-            obs = self.state_extractor.get_obs(self.data.full_state[0], param) # one environment reliance
-            obs_next = self.state_extractor.get_obs(next_full_state, param) # one environment reliance
+            obs = self.state_extractor.get_obs(self.data.full_state[0], param, mask) # one environment reliance
+            obs_next = self.state_extractor.get_obs(next_full_state, param, mask) # one environment reliance
             target = self.state_extractor.get_target(self.data.full_state[0])
             next_target = self.state_extractor.get_target(next_full_state)
             inter_state = self.state_extractor.get_inter(self.data.full_state[0])
 
-            done, rewards, terminations, ext_terms = self.option.terminate_reward_chain(self.data.full_state[0], next_full_state, param, action_chain, mask, masks)
+            done, rewards, terminations, ext_terms, time_cutoff = self.option.terminate_reward_chain(self.data.full_state[0], next_full_state, param, action_chain, mask, masks)
             done, rew, term, ext_term = done, rewards[-1], terminations[-1], ext_terms[-1]
-            self.option.update(done, self.data.full_state[0], act, action_chain, terminations, param, masks)
+            if term:
+                print(term, done, param, target)
+            self.option.update(self.buffer, done, self.data.full_state[0], act, action_chain, terminations, param, masks, not self.test)
 
             # update hit-miss values
+            rews += rew
+            acts.append(int(action_remap.squeeze()))
 
             # update the current values
             self.data.update(next_target=[next_target], target=[target], inter_state=[inter_state], obs_next=[obs_next], obs = [obs],
@@ -290,6 +295,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 episode_count += int(np.any(done))
                 term_count += int(np.any(term))
                 term_done, timer, true = self._done_check(term, true_done)
+                term_done = term_done and not time_cutoff
+                print(term_done, timer, true, term_count, n_term)
             if np.any(true_done):
                 true_episode_count += 1
                 # if we have a true done, reset the environments and self.data
@@ -315,8 +322,6 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.collect_step += step_count
         self.collect_episode += episode_count
         self.collect_time += max(time.time() - start_time, 1e-9)
-
-        rews = np.array(rews)
 
         return { # TODO: some of these don't return valid values
             "n/ep": episode_count,

@@ -43,11 +43,12 @@ class OptionGraph():
             # print(node)
             node.option.cpu()
             # print(name)
-            if hasattr(node.option, 'environment_model'):
-                es[name] = node.option.environment_model.environment
-                print(node.option.environment_model.environment, es[name])
-                node.option.environment_model.environment = None
-            node_policies[name] = node.option.save(save_dir, clear=True)
+            # if hasattr(node.option, 'environment_model'):
+            #     es[name] = node.option.environment_model.environment
+            #     print(node.option.environment_model.environment, es[name])
+            #     node.option.environment_model.environment = None
+            node_policies[name] = node.option.policy
+            node.option.save(save_dir, clear=True) 
             # node_policies[name] = (node.option.policy, iscuda)
             # node.option.policy = None
             # if len(simplify) > 0 and node.option.dataset_model is not None:
