@@ -60,7 +60,28 @@ def get_start(pth, filename, i, rng):
             i = max(total_len - rng, 0)
     return i, total_len
 
+def action_toString(action):
+    if type(action) == list: 
+        action = np.array(action)
+    if type(action) == np.ndarray:
+        action = action.squeeze()
+    else:
+        return str(action)
+    if len(action.shape) == 0:
+        return str(action)
+    print(action)
+    return ",".join(map(str, action))
 
+def read_action_dumps(pth, i=0, rng=-1, filename='action_dumps.txt'):
+    action_dumps = list()
+    for line in open(os.path.join(pth, filename), 'r'): # there should only be one line since actions are tab separated
+        for action_str in line.split("\t"):
+            splt = action_str.split(',')
+            if len(splt) > 1:
+                action_dumps.append([float(s.strip("\t\n")) for s in splt])
+            else:
+                action_dumps.append(float(splt[0].strip("\t\n")))
+    return action_dumps
 
 def read_obj_dumps(pth, i= 0, rng=-1, filename='object_dumps.txt'):
     '''

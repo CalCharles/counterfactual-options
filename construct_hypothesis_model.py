@@ -87,17 +87,18 @@ if __name__ == '__main__':
         if cfs.object() != "Action":
             graph.nodes[cfs.object()].option.policy.set_eps(0)
     
-    data = read_obj_dumps(args.record_rollouts, i=-1, rng = args.num_frames, filename='object_dumps.txt')
-    rollouts = ModelRollouts(len(data), environment_model.shapes_dict)
-    for data_dict, next_data_dict in zip(data, data[1:]):
-        insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
-        rollouts.append(**insert_dict)
+    # commented section BELOW
+    # data = read_obj_dumps(args.record_rollouts, i=-1, rng = args.num_frames, filename='object_dumps.txt')
+    # rollouts = ModelRollouts(len(data), environment_model.shapes_dict)
+    # for data_dict, next_data_dict in zip(data, data[1:]):
+    #     insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
+    #     rollouts.append(**insert_dict)
     # UNCOMMENT above
     # REMOVE LATER: saves rollouts so you don't have to run each time
     # save_to_pickle("data/rollouts.pkl", rollouts)
-    # rollouts = load_from_pickle("data/rollouts.pkl")
-    # if args.cuda:
-    #     rollouts.cuda()
+    rollouts = load_from_pickle("data/rollouts.pkl")
+    if args.cuda:
+        rollouts.cuda()
     # print(len(data), rollouts.filled)
     # REMOVE ABOVE
 

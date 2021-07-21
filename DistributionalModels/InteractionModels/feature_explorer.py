@@ -26,19 +26,37 @@ class FeatureExplorer():
         print(self.graph.edges)
         # edge_set = {e for e in self.graph.edges.keys()}
 
-        # while not found:
-        cfslist = copy.copy(self.cfs)
-        additional = [[]] + [[cfs.feature_selector.get_entity()[0]] for cfs in cfslist]
+
+        # creates a list of all the controllable entities from the controllable features, where each
+        # entity only exists in cfslist once, based on the first time it appears.
+        cfsnames = [cfs.feature_selector.get_entity()[0] for cfs in self.cfs]
+        cfsdict = dict()
+        cfslist = list()
+        for cn, cfs in zip(cfsnames, self.cfs):
+            print(cn)
+            if cn not in cfslist: cfslist.append(cn)
+            if cn in cfsdict: cfsdict[cn].append(cfs)
+            else: cfsdict[cn] = [copy.deepcopy(cfs)]
+
+        # test pair allows for training only one pair instead of greedy search
+        if len(train_args.train_pair) > 0:
+            cfslist = [train_args.train_pair[0]]
+            target_names = [train_args.train_pair[1]]
+        else:
+            target_names = self.em.object_names
+
+        # additional is extra objects added to the input state. Necessary for pushing
+        additional = [[]] + [[cfs] for cfs in cfslist]
         cfslist.reverse()
-        print("controllable objects", [c.object() for c in cfslist])
+        print("controllable objects", [c for c in cfslist])
         # HACKED LINE TO SPEED UP TRAINING
         # for cfs in [cfslist[0]]:
         for cfs in cfslist:
-            controllable_entity = cfs.feature_selector.get_entity()[0]
+            controllable_entity = cfs
             if controllable_entity not in gamma_tested:
                 for additional_feature in additional:
                 # for additional_feature in [["Action"]]:
-                    if len(additional_feature) > 0 and additional_feature[0] == cfs.object():
+                    if len(additional_feature) > 0 and additional_feature[0] == cfs:
                         continue # don't add additionally the same feature being tested
                     delta_tested = set()
                     # HACKED LINE TO SPEED UP TRAINING
@@ -48,7 +66,7 @@ class FeatureExplorer():
                         if name != controllable_entity and name not in delta_tested and (controllable_entity, name) not in self.graph.edges:
                             names = [controllable_entity] + additional_feature + [name]
                             entity_selection = self.em.create_entity_selector(names)
-                            model, test, gamma_new, delta_new = self.train(cfs, additional_feature, rollouts, train_args, entity_selection, name)
+                            model, test, gamma_new, delta_new = self.train(cfs, cfsdict[cfs], additional_feature, rollouts, train_args, entity_selection, name)
                             comb_passed, combined = self.pass_criteria(train_args, model, test, train_args.model_error_significance)
                             gamma_comb = gamma_new
                             delta_comb = delta_new
@@ -85,23 +103,23 @@ class FeatureExplorer():
         print("comparison", forward_error, passive_error, model_error_significance, passed)
         return passed, forward_error-passive_error
 
-    def train(self, cfs, additional_object, rollouts, train_args, entity_selection, name):
-        print("Edge ", cfs.object(), "-> ", name)
+    def train(self, cfs, cfss, additional_object, rollouts, train_args, entity_selection, name):
+        print("Edge ", cfs, "-> ", name)
         aosize = 0
-        model_name = cfs.object() + "->"+ name
+        model_name = cfs + "->"+ name
         if len(additional_object) > 0:
             additional_object = additional_object[0]
             ao_size = self.em.object_sizes[additional_object] * self.em.object_num[additional_object]
-            print("Training ", cfs.object(), " + ", additional_object, " -> ", name)
-            model_name = cfs.object() + "+" + additional_object+ "->" + name
+            print("Training ", cfs, " + ", additional_object, " -> ", name)
+            model_name = cfs + "+" + additional_object+ "->" + name
         self.model_args['name'] = model_name
         self.model_args['gamma'] = entity_selection
         self.model_args['delta'] = self.em.create_entity_selector([name])
         self.model_args['object_dim'] = self.em.object_sizes[name]
         self.model_args['output_dim'] = self.em.object_sizes[name]
-        self.model_args['first_obj_dim'] = self.em.object_sizes[cfs.object()]
+        self.model_args['first_obj_dim'] = self.em.object_sizes[cfs]
         nout = self.em.object_sizes[name] * self.em.object_num[name]
-        nin = self.em.object_sizes[cfs.object()] * self.em.object_num[cfs.object()] + nout
+        nin = self.em.object_sizes[cfs] * self.em.object_num[cfs] + nout
         input_norm_fun = InterInputNorm()
         input_norm_fun.compute_input_norm(entity_selection(rollouts.get_values("state")))
         delta_norm_fun = InterInputNorm()
@@ -125,6 +143,6 @@ class FeatureExplorer():
         # train = load_from_pickle("data/train.pkl")
         # test = load_from_pickle("data/test.pkl")
         train.cuda(), test.cuda()
-        model.train(train, train_args, control=cfs, target_name=name)
+        model.train(train, train_args, control=cfs, controllable=cfss, target_name=name)
         return model, test, self.model_args['gamma'], self.model_args['delta']
 
