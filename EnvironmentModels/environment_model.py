@@ -264,7 +264,7 @@ def sample_multiple(controllable_features, states):
     vals = np.array(ranges).T
     MAX_NUM = 200
     if len(vals) > 0:
-        vals = vals[np.random.choice(np.arange(len(vals)), size=(200,), replace=False)]
+        vals = vals[np.random.choice(np.arange(len(vals)), size=(min(MAX_NUM, len(vals)),), replace=False)]
     all_states = list()
     for control_values in vals:
         assigned_states = states.clone()

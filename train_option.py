@@ -52,6 +52,8 @@ if __name__ == '__main__':
         dataset_model = load_hypothesis_model(args.dataset_dir)
         torch.cuda.empty_cache()
         dataset_model.cpu()
+    if len(args.force_mask):
+        dataset_model.selection_binary = pytorch_model.wrap(args.force_mask, cuda = dataset_model.iscuda)
     dataset_model.environment_model = environment_model
     init_state = environment.reset() # get an initial state to define shapes
     # if args.object == "Block":
@@ -92,6 +94,7 @@ if __name__ == '__main__':
     # initialize termination function, reward function, done model
     tt = args.terminal_type[:4] if args.terminal_type.find('inst') != -1 else args.terminal_type
     rt = args.reward_type[:4] if args.reward_type.find('inst') != -1 else args.reward_type
+    args.interaction_prediction = dataset_model.interaction_prediction
     termination = terminal_forms[tt](name=args.object, **vars(args))
     reward = reward_forms[rt](interaction_minimum=dataset_model.interaction_minimum, **vars(args)) # using the same epsilon for now, but that could change
     done_model = DoneModel(use_termination = args.use_termination, time_cutoff=args.time_cutoff, true_done_stopping = not args.not_true_done_stopping)
@@ -108,7 +111,7 @@ if __name__ == '__main__':
     args.num_actions = len(next_option.action_map.discrete_control) if next_option.action_map.discrete_control is not None else 0
     args.discrete_params = args.dataset_model.sample_able if args.sampler_type == "hst" else None# historical the only discrete sampler at the moment
     args.control_min, args.control_max = dataset_model.control_min, dataset_model.control_max# from dataset model
-    action_map = ActionMap(args)
+    action_map = ActionMap(args, next_option.action_map)
 
     # initialize temporal extension manager
     temporal_extension_manager = TemporalExtensionManager(args)

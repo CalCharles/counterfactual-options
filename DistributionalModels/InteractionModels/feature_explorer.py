@@ -50,19 +50,15 @@ class FeatureExplorer():
         cfslist.reverse()
         print("controllable objects", [c for c in cfslist])
         # HACKED LINE TO SPEED UP TRAINING
-        # for cfs in [cfslist[0]]:
         for cfs in cfslist:
             controllable_entity = cfs
             if controllable_entity not in gamma_tested:
                 for additional_feature in additional:
-                # for additional_feature in [["Action"]]:
                     if len(additional_feature) > 0 and additional_feature[0] == cfs:
-                        continue # don't add additionally the same feature being tested
+                        continue # don't add additionally the same feature being tested, TODO: not the same target feature also
                     delta_tested = set()
                     # HACKED LINE TO SPEED UP TRAINING
-                    # for name in ["Ball"]:
-                    # for name in ["Block"]:
-                    for name in self.em.object_names:
+                    for name in target_names:
                         if name != controllable_entity and name not in delta_tested and (controllable_entity, name) not in self.graph.edges:
                             names = [controllable_entity] + additional_feature + [name]
                             entity_selection = self.em.create_entity_selector(names)
@@ -128,8 +124,6 @@ class FeatureExplorer():
         self.model_args['delta_normalization_function'] = delta_norm_fun#nflen(nout) if not train_args.predict_dynamics else nf5
         self.model_args['base_variance'] = train_args.base_variance
 
-        dma = default_model_args(train_args.predict_dynamics, train_args.policy_type, input_norm_fun, delta_norm_fun)
-        # self.model_args['normalization_function'] = dma['normalization_function']
         print(entity_selection.output_size())
         self.model_args['num_inputs'] = self.model_args['gamma'].output_size()
         self.model_args['num_outputs'] = self.model_args['delta'].output_size()
@@ -138,11 +132,12 @@ class FeatureExplorer():
         print(model)
         train, test = rollouts.split_train_test(train_args.ratio)
         train.cpu(), test.cpu()
-        save_to_pickle("data/train.pkl", train)
-        save_to_pickle("data/test.pkl", test)
-        # train = load_from_pickle("data/train.pkl")
-        # test = load_from_pickle("data/test.pkl")
+        save_to_pickle("data/temp/train.pkl", train)
+        save_to_pickle("data/temp/test.pkl", test)
+        # train = load_from_pickle("data/temp/train.pkl")
+        # test = load_from_pickle("data/temp/test.pkl")
+        print(train.filled, rollouts.filled)
         train.cuda(), test.cuda()
-        model.train(train, train_args, control=cfs, controllable=cfss, target_name=name)
+        model.train(train, train_args, control=cfs, controllers=cfss, target_name=name)
         return model, test, self.model_args['gamma'], self.model_args['delta']
 

@@ -58,36 +58,8 @@ class Termination():
 class ParameterizedStateTermination(Termination):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
-		self.epsilon = kwargs['epsilon']
+		self.epsilon = kwargs['epsilon_close']
 		self.name = kwargs['name']
-		self.discrete = True #kwargs['discrete']
-		# in the discrete parameter space case
-		self.dataset_model = kwargs['dataset_model']
-		self.min_use = kwargs['min_use']
-		kwargs['use_diff'] = self.dataset_model.predict_dynamics
-		kwargs['use_both'] = 1 if kwargs['use_diff'] else 0
-		# self.assign_parameters(self.dataset_model) # this line is commented out because we aren't using a stored parameter list
-		print(self.name)
-
-	def assign_parameters(self, dataset_model):
-		def assign_dict(observed, totals):
-			new_observed = list()
-			new_totals = list()
-			for i in range(len(observed)):
-				if totals[i] >= self.min_use and observed[i][1].sum() > 0: # should have a minimum number, and a nonzero mask
-					new_observed.append(observed[i])
-					new_totals.append(totals[i])
-			return new_observed, new_totals
-		if self.use_both:
-			self.discrete_parameters, self.counts = assign_dict(dataset_model.observed_both[self.name], dataset_model.both_counts[self.name])
-			dataset_model.observed_both[self.name], dataset_model.both_counts[self.name] = self.discrete_parameters, self.counts 
-		elif self.use_diff:
-			self.discrete_parameters, self.counts = assign_dict(dataset_model.observed_differences[self.name], dataset_model.difference_counts[self.name])
-			# print(dataset_model.observed_differences[self.name], dataset_model.difference_counts[self.name], self.discrete_parameters)
-			dataset_model.observed_differences[self.name], dataset_model.difference_counts[self.name] = self.discrete_parameters, self.counts 
-		else:
-			self.discrete_parameters, self.counts = assign_dict(dataset_model.observed_outcomes[self.name], dataset_model.outcome_counts[self.name])
-			dataset_model.observed_outcomes[self.name], dataset_model.outcome_counts[self.name] = self.discrete_parameters, self.counts 
 
 	def check(self, input_state, state, param, mask, true_done=0): # handling diff/both outside
 		# NOTE: input state is from the current state, state, param are from the next state
@@ -106,6 +78,7 @@ class ParameterizedStateTermination(Termination):
 		# 		return (diff - param).norm(p=1, dim=1) <= self.epsilon
 		# else:
 		if len(state.shape) == 1:
+			# print("dist", np.linalg.norm((state - param) * mask, ord  = 1), self.epsilon, state, param)
 			return np.linalg.norm((state - param) * mask, ord  = 1) <= self.epsilon
 		else:
 			return np.linalg.norm((state - param) * mask, ord =1, axis=1 ) <= self.epsilon
@@ -124,16 +97,18 @@ class InteractionTermination(Termination):
 class CombinedTermination(Termination):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
-		self.dataset_model = kwargs["dataset_model"]
-		self.epsilon = self.dataset_model.interaction_prediction
-		self.epsilon_close = kwargs["epsilon"]
-		self.interaction_model = self.dataset_model.interaction_model
+		dataset_model = kwargs["dataset_model"]
+		self.epsilon = dataset_model.interaction_prediction
+		self.epsilon_close = kwargs["epsilon_close"]
 		self.parameterized_termination = ParameterizedStateTermination(**kwargs)
 		self.interaction_probability = kwargs["interaction_probability"]
 		self.param_interaction = kwargs["param_interaction"]
 		self.inter = 0
 		self.inter_pred = 0
 		self.p_hit = 0 # if the param is hit
+
+	def check_interaction(self, inter):
+		return inter > (1-self.epsilon)
 
 	def check(self, inter, state, param, mask, true_done=0):
 		# NOTE: input state is from the current state, state, param are from the next state
@@ -142,6 +117,7 @@ class CombinedTermination(Termination):
 		# print("second", param, state)
 		# interaction_pred = pytorch_model.unwrap(self.interaction_model(pytorch_model.wrap(input_state, cuda=self.interaction_model.iscuda)).squeeze())
 		# print(interaction_pred, input_state)
+		self.parameterized_termination.epsilon = self.epsilon_close
 		self.inter_pred = inter
 		inter = self.inter_pred > (1 - self.epsilon)
 		self.inter = inter
@@ -153,10 +129,9 @@ class CombinedTermination(Termination):
 			if not self.param_interaction: param_inter = True
 			else: param_inter = inter
 			self.p_hit = param_term * param_inter
-			# if np.sum(inter):
-			# 	print("checked", inter, self.epsilon, input_state)
 			chosen = inter * chances + param_term * param_inter
-			# print(chances, inter, param_term, chosen)
+			# if np.sum(inter):
+			# 	print("checked", self.inter_pred, inter, chances, self.epsilon, self.epsilon_close, chosen, param_term, param_inter, state, param)
 			if type(chosen) == np.ndarray:
 				chosen[chosen > 1] = 1
 			# print(pytorch_model.unwrap(chosen), pytorch_model.unwrap(inter), pytorch_model.unwrap(interaction_pred), pytorch_model.unwrap(chances), input_state)

@@ -56,16 +56,17 @@ class TerminateReward():
         target_state = self.state_extractor.get_target(next_full_state)
         true_done = self.state_extractor.get_true_done(full_state)
 
-        # compute the interaction vaalue
+        # compute the interaction value
         inter, pred, var = self.dataset_model.hypothesize(inter_state)
+        inter = pytorch_model.unwrap(inter)
 
         # compute the termination and reward values
-        term = self.term.check(pytorch_model.unwrap(inter), target_state, param, mask, true_done)
-        rew = self.reward.get_reward(pytorch_model.unwrap(inter), target_state, param, mask, true_done)
+        term = self.term.check(inter, target_state, param, mask, true_done)
+        rew = self.reward.get_reward(inter, target_state, param, mask, true_done)
 
         # time cutoff indicates whether the termination was due to the timer cutoff
         time_cutoff = False
         if self.timer == self.time_cutoff and use_timer:
             time_cutoff = True and not term
             term = True
-        return term, rew, time_cutoff
+        return term, rew, inter, time_cutoff

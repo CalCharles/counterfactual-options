@@ -12,11 +12,17 @@ class TSNet(nn.Module):
         self.input_mean = None # set these to appropriate values
         self.input_var = None # set these to appropriate values
         self.use_input_norm = False # set these to true
+        self.continuous_critic = False if "continuous_critic" not in kwargs else kwargs["continuous_critic"]
+        self.action_dim = 0 if "action_dim" not in kwargs else kwargs["action_dim"]
 
     def update_norm(self, input_mean, input_var):
         self.use_input_norm = True
-        self.input_mean = input_mean
-        self.input_var = input_var
+        if self.continuous_critic: # don't apply norm to input actions
+            self.input_mean = np.concatenate([input_mean, np.zeros((self.action_dim, ))], axis=0)
+            self.input_var = np.concatenate([input_var, np.ones((self.action_dim, ))], axis=0)
+        else:
+            self.input_mean = input_mean
+            self.input_var = input_var
 
     def cuda(self):
         super().cuda()
@@ -28,20 +34,19 @@ class TSNet(nn.Module):
 
     def input_norm(self, obs):
         if self.use_input_norm:
+            if isinstance(obs, torch.Tensor):
+                obs = pytorch_model.unwrap(obs)
             return (obs - self.input_mean) / self.input_var
         return obs
 
 
     def forward(self, obs, state=None, info={}):
         # TODO: make this not hardcoded
-
-        # print("before", obs)
         obs = self.input_norm(obs)
         if not isinstance(obs, torch.Tensor):
             obs = pytorch_model.wrap(obs, dtype=torch.float, cuda=self.iscuda)
         batch = obs.shape[0]
         obs = obs.reshape(batch, -1)
-        # print("at network", obs)
         logits = self.model(obs)
         return logits, state
 

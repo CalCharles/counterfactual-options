@@ -48,7 +48,6 @@ class Option():
 
     def cuda(self):
         self.iscuda = True
-        print(self.name, self.policy, self.next_option)
         if self.policy is not None:
             self.policy.cuda()
         if self.sampler is not None:
@@ -73,10 +72,11 @@ class Option():
         obs = batch['obs']
         mask = batch['mask']
         next_mask = self.next_option.sampler.get_mask(param) if self.next_option.sampler is not None else self.next_option.mask
-        param_act = mapped_act # self.next_option.state_extractor.convert_param(mapped_act) if self.next_option.state_extractor is not None else mapped_act
-        batch['param'] = [param_act]
+        if type(self.next_option) != PrimitiveOption: param_act = self.next_option.sampler.convert_param(mapped_act) # self.next_option.state_extractor.convert_param(mapped_act) if self.next_option.state_extractor is not None else mapped_act
+        else: param_act = [mapped_act]
+        batch['param'] = param_act
         batch['mask'] = [next_mask]
-        batch['obs'] = self.next_option.state_extractor.get_obs(batch, param_act, next_mask) if self.next_option.state_extractor is not None else batch['obs']
+        batch['obs'] = self.next_option.state_extractor.get_obs(batch["full_state"], param_act, next_mask) if self.next_option.state_extractor is not None else batch['obs']
         return param, obs, mask
 
     def extended_action_sample(self, batch, state_chain, random=False, use_model=False):
@@ -87,14 +87,14 @@ class Option():
         needs_sample, act, chain, policy_batch, state, masks = self.temporal_extension_manager.check(batch)
         if needs_sample: 
             result_tuple = self.sample_action_chain(batch, state_chain, random=random, use_model=use_model)
-            self.temporal_extension_manager.update_policy(policy_batch, state)
+            if not random: self.temporal_extension_manager.update_policy(result_tuple[2], result_tuple[3][-1] if result_tuple[3] is not None else None) # result tuple  2 and 3 are policy_batch and state-chain respectively
             resampled = True
         else:
             # if we don't need a new sample
             param, obs, mask = self._set_next_option(batch, chain[-1])
-            _, rem_chain, _, rem_state, _, rem_masks = self.next_option.extended_action_sample(batch, state_chain, random=random, use_model=use_model)
-            batch['param'], batch['obs'] = param, obs
-            result_tuple = (act, rem_chain[:-1] + chain[-1], policy_batch, rem_state[:-1] + state[-1] if state is not None else None, rem_masks[:-1] + [mask])
+            _, rem_chain, _, rem_state, rem_masks, last_resmp = self.next_option.extended_action_sample(batch, state_chain, random=False, use_model=use_model)
+            batch['param'], batch['obs'], batch['mask'] = param, obs, mask
+            result_tuple = (act, rem_chain + [chain[-1]], policy_batch, rem_state + [state[-1]] if state is not None else None, rem_masks + [mask[0]])
             resampled = False
         return (*result_tuple, resampled)
 
@@ -137,7 +137,7 @@ class Option():
     def update(self, buffer, done, last_state, act, chain, term_chain, param, masks, update_policy=True):
         # updates internal states of the option
         if self.next_option is not None:
-            self.next_option.update(last_state, chain[:len(chain)-1], chain[:len(chain)-1], term_chain[:len(term_chain)-1], chain[-1], masks[:len(masks)-1])
+            self.next_option.update(buffer, done, last_state, chain[:len(chain)-1], chain[:len(chain)-1], term_chain[:len(term_chain)-1], chain[-1], masks[:len(masks)-1], update_policy = False)
         self.temporal_extension_manager.update(act, chain, term_chain[-2], masks)
         self.state_extractor.update(last_state)
         self.terminate_reward.update(term_chain[-1])
@@ -145,18 +145,24 @@ class Option():
         self.sampler.update(param, masks[-1]) # TODO: sampler also handles its own param, mask
         if update_policy:
             self.policy.update_norm(buffer)
+            self.policy.update_la()
 
     def terminate_reward_chain(self, full_state, next_full_state, param, chain, mask, mask_chain):
         # recursively get all of the dones and rewards
         if self.next_option is not None: # lower levels should have masks the same as the active mask( fully trained)
-            last_done, last_rewards, last_termination, last_ext_term, _ = self.next_option.terminate_reward_chain(full_state, next_full_state, chain[-1], chain[:len(chain)-1], mask_chain[-1], mask_chain[:len(mask_chain)-1])
-
-        termination, reward, time_cutoff = self.terminate_reward.check(full_state, next_full_state, param, mask)
+            if type(self.next_option) != PrimitiveOption:
+                next_param = self.next_option.sampler.convert_param(chain[-1]) # mapped actions need to be expanded to fit param dimensions
+                next_mask = mask_chain[-2]
+            else:
+                next_param = chain[-1]
+                next_mask = mask_chain[-1]
+            last_done, last_rewards, last_termination, last_ext_term, _, _ = self.next_option.terminate_reward_chain(full_state, next_full_state, next_param, chain[:len(chain)-1], next_mask, mask_chain[:len(mask_chain)-1])
+        termination, reward, inter, time_cutoff = self.terminate_reward.check(full_state, next_full_state, param, mask)
         ext_term = self.temporal_extension_manager.get_extension(termination, last_termination[-1])
         done = self.done_model.check(termination, self.state_extractor.get_true_done(next_full_state))
 
         rewards, terminations, ext_term = last_rewards + [reward], last_termination + [termination], last_ext_term + [ext_term]
-        return done, rewards, terminations, ext_term, time_cutoff
+        return done, rewards, terminations, ext_term, inter, time_cutoff
 
     def predict_state(self, factored_state, raw_action):
         # predict the next factored state given the action chain
@@ -178,7 +184,6 @@ class Option():
                 pass
             self.policy.cpu() 
             self.policy.save(save_dir, self.name +"_policy")
-            print(self.iscuda)
             if self.iscuda:
                 self.policy.cuda()
             if clear:
@@ -189,7 +194,6 @@ class Option():
     def load_policy(self, load_dir):
         if len(load_dir) > 0:
             self.policy = torch.load(os.path.join(load_dir, self.name +"_policy.pt"))
-            print(self.policy)
 
 class PrimitiveOption(Option): # primitive discrete actions
     def __init__(self, args, policy):
@@ -222,7 +226,7 @@ class PrimitiveOption(Option): # primitive discrete actions
     def load_policy(self, load_dir):
         pass
 
-    def update(self, last_state, act, chain, term_chain, param, masks):
+    def update(self, buffer, done, last_state, act, chain, term_chain, param, masks, update_policy=True):
         pass
 
     def cpu(self):
@@ -232,7 +236,7 @@ class PrimitiveOption(Option): # primitive discrete actions
         self.iscuda = True
     
     def extended_action_sample(self, batch, state_chain, random=False, use_model=False):
-        return self.sample_action_chain(batch, state_chain, random, use_model)
+        return (*self.sample_action_chain(batch, state_chain, random, use_model), True)
 
     def sample_action_chain(self, batch, state, random=False, use_model=False): # param is an int denoting the primitive action, not protected (could send a faulty param)
         param = batch['param']
@@ -246,7 +250,7 @@ class PrimitiveOption(Option): # primitive discrete actions
         return sq_param, chain, None, list(), list() # chain is the action as an int, policy batch is None, state chain is a list, resampled is True
 
     def terminate_reward_chain(self, state, next_state, param, chain, mask=None, needs_reward=False):
-        return 1, [0], [1], list(), True
+        return 1, [0], [1], list(), True, True
 
     def predict_state(self, factored_state, raw_action):
         new_action = copy.deepcopy(factored_state["Action"])
@@ -297,7 +301,6 @@ class RawOption(Option):
         return act, chain, policy_batch, state, True, list() # resampled is always true since there is no temporal extension
 
     def terminate_reward(self, state, next_state, param, chain, mask=None, needs_reward=False):
-        # print(state)
         return state["factored_state"]["Done"], state["factored_state"]["Reward"], state["factored_state"]["Done"], True, False # even if cut off with time, don't return
         # return [int(self.environment_model.environment.done or self.timer == (self.time_cutoff - 1))], [self.environment_model.environment.reward]#, torch.tensor([self.environment_model.environment.reward]), None, 1
 

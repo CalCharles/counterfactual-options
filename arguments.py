@@ -187,13 +187,15 @@ def get_args():
                         help='only resamples HER when an interaction occurs')
 
     #interaction parameters
+    parser.add_argument('--train-pair', type=str, nargs=2, default=(),
+                        help='pair of objects to train interaction on (default: ())')
     parser.add_argument('--interaction-iters', type=int, default=0,
                         help='number of iterations for training the interaction network with true values (default: 0)')
     parser.add_argument('--interaction-binary', type=float, nargs='+', default=list(),
                         help='difference between P,A, Active greater than, passive less than  (default: empty list)')
     parser.add_argument('--force-mask', type=float, nargs='+', default=list(),
                         help='a hack to control the parameter mask  (default: empty list)')
-    parser.add_argument('--interaction-weight', type=float, default=1000,
+    parser.add_argument('--interaction-weight', type=float, default=10,
                         help='the weight given to interaction values compared to normal values (default: 1000)')
     parser.add_argument('--interaction-probability', type=float, default=1,
                         help='the minimum probability needed to use interaction as termination 1 means interaction is never (solely) used for termination (default: 1)')

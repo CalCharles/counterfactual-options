@@ -78,11 +78,19 @@ class Sampler():
         # samples new param and mask if terminate. If there are more reasons to change param, that logic can be added
         if terminate:
             self.param, self.mask = self.sample(full_state)
+            self.param, self.mask = self.param.squeeze(), self.mask.squeeze() # this could be a problem with 1 dim params and masks
         return self.param, self.mask, terminate
 
     def get_mask_param(self, param, mask):
         if self.combine_param_mask:
             return param * mask
+        return param
+
+    def convert_param(self, param): # TODO: only handles single params at a time
+        new_param = self.mask.copy().squeeze()
+        param = param.squeeze()
+        new_param[new_param == 1] = param
+        param = new_param
         return param
 
 
@@ -104,12 +112,10 @@ class LinearUniformSampling(Sampler):
             #     masks = [pytorch_model.unwrap(self.dataset_model.selection_binary.clone()) for i in range(num_sample)]
             # else:
             #     masks = pytorch_model.unwrap(self.dataset_model.selection_binary.clone())
-            # print(self.dataset_model.sample_able.vals)
             if num_sample > 1:
                 value = np.array([self.dataset_model.sample_able.vals[np.random.randint(len(self.dataset_model.sample_able.vals))].copy() for i in range(num_sample)])
             else:
                 value = self.dataset_model.sample_able.vals[np.random.randint(len(self.dataset_model.sample_able.vals))].copy()
-            # print(copy.deepcopy(pytorch_model.unwrap(value)))
             return copy.deepcopy(pytorch_model.unwrap(value))
 
 class InstanceSampling(Sampler):

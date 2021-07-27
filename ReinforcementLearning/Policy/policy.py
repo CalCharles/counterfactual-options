@@ -79,21 +79,23 @@ class TSPolicy(nn.Module):
                 cout_shape = args.hidden_sizes[-1]
                 aout_shape = args.hidden_sizes[-1]
                 hidden_sizes = args.hidden_sizes[:-1]
+                ainp_dim = 0
             else:
-                cinp_shape = int(input_shape + np.prod(action_shape))
+                ainp_dim = np.prod(action_shape)
+                cinp_shape = int(input_shape + ainp_dim)
                 cout_shape = 1
                 aout_shape = action_shape
                 hidden_sizes = args.hidden_sizes
 
             actor = PolicyType(num_inputs=input_shape, num_outputs=aout_shape, **args)
-            critic = PolicyType(num_inputs=cinp_shape, num_outputs=cout_shape, **args)
+            critic = PolicyType(num_inputs=cinp_shape, num_outputs=cout_shape, action_dim=ainp_dim, continuous_critic=True, **args)
             if discrete_actions: critic = Critic(critic, last_size=action_shape, device=device).to(device)
             else: critic = Critic(critic, device=device).to(device)
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
             if self.algo_name in _double_critic:
                 if discrete_actions: actor = Actor(actor, action_shape, device=device).to(device)
                 else: actor = ActorProb(actor, action_shape, device=device, max_action=max_action, unbounded=True, conditioned_sigma=True).to(device)
-                critic2 = PolicyType(num_inputs=cinp_shape, num_outputs=cout_shape, **args)
+                critic2 = PolicyType(num_inputs=cinp_shape, num_outputs=cout_shape, action_dim=ainp_dim, continuous_critic=True, **args)
                 if discrete_actions: critic2 = Critic(critic2, last_size=action_shape, device=device).to(device)
                 else: critic2 = Critic(critic2, device=device).to(device)
                 critic2_optim = torch.optim.Adam(critic2.parameters(), lr=args.critic_lr)
@@ -105,9 +107,6 @@ class TSPolicy(nn.Module):
                 log_alpha = torch.zeros(1, requires_grad=True, device=device)
                 alpha_optim = torch.optim.Adam([log_alpha], lr=1e-4) # TODO alpha learning rate not hardcoded
                 args.sac_alpha = (target_entropy, log_alpha, alpha_optim)
-
-
-
         elif self.algo_name in ['dqn']:
             critic = PolicyType(num_inputs=input_shape, num_outputs=action_shape, **args)
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
@@ -125,7 +124,7 @@ class TSPolicy(nn.Module):
                 net = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, **args)
                 args.hidden_sizes = hsizes
                 actor = ActorProb(net, action_shape, max_action=max_action, device=device).to(device)
-                critic = Critic(PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=1, **args), device=device).to(device)
+                critic = Critic(PolicyType(cuda=args.cuda, num_inputs=cinp_shape, action_dim=ainp_dim, continuous_critic=True, num_outputs=1, **args), device=device).to(device)
             actor_optim = torch.optim.Adam(set(actor.parameters()).union(critic.parameters()), lr=args.actor_lr)
         return actor, actor_optim, critic, critic_optim, critic2, critic2_optim
 
@@ -262,6 +261,7 @@ class TSPolicy(nn.Module):
         if len(buffer) > 0:
             avail = buffer.sample(0)[0]
             # print("trying compute", len(buffer), avail.obs.shape)
+            print(len(avail))
             if len (avail) >= 500: # need at least 500 values before applying input variance, typically this is the number of random actions
                 if len(avail) > 20000: # only use the last 20k states
                     avail = avail[len(avail) - 20000:]
@@ -270,19 +270,19 @@ class TSPolicy(nn.Module):
                 self.input_mean = np.mean(avail.obs, axis=0)
                 # print("computing input norm", self.input_mean, self.input_var)
                 if self.algo_name in _actor_critic + ['ppo']:
-                    self.algo_policy.actor.model.update_norm(self.input_mean, self.input_var)
+                    self.algo_policy.actor.preprocess.update_norm(self.input_mean, self.input_var)
                 if self.algo_name in _actor_critic: 
-                    self.algo_policy.critic1.model.update_norm(self.input_mean, self.input_var)
-                    self.algo_policy.critic1_old.model.update_norm(self.input_mean, self.input_var)
+                    self.algo_policy.critic1.preprocess.update_norm(self.input_mean, self.input_var)
+                    self.algo_policy.critic1_old.preprocess.update_norm(self.input_mean, self.input_var)
                 if self.algo_name in ['ppo']:
-                    self.algo_policy.critic.model.update_norm(self.input_mean, self.input_var)
-                    self.algo_policy.critic_old.model.update_norm(self.input_mean, self.input_var)
+                    self.algo_policy.critic.preprocess.update_norm(self.input_mean, self.input_var)
+                    self.algo_policy.critic_old.preprocess.update_norm(self.input_mean, self.input_var)
                 if self.algo_name in ['dqn']:
                     self.algo_policy.model.update_norm(self.input_mean, self.input_var)
                     self.algo_policy.model_old.update_norm(self.input_mean, self.input_var)
                 if self.algo_name in _double_critic:
-                    self.algo_policy.critic2.model.update_norm(self.input_mean, self.input_var)
-                    self.algo_policy.critic2_old.model.update_norm(self.input_mean, self.input_var)
+                    self.algo_policy.critic2.preprocess.update_norm(self.input_mean, self.input_var)
+                    self.algo_policy.critic2_old.preprocess.update_norm(self.input_mean, self.input_var)
                 return True
         return False
 
@@ -295,6 +295,10 @@ class TSPolicy(nn.Module):
             if self.compute_input_norm(buffer):
                 self.input_norm_timer = 0
         self.input_norm_timer += 1
+
+    def update_la(self):
+        if self.is_her:
+            self.learning_algorithm.step()
 
     def update(
         self, sample_size: int, buffer: Optional[ReplayBuffer], **kwargs: Any

@@ -1,8 +1,13 @@
 from collections import deque
 import numpy as np
+from file_management import save_to_pickle
+import os
 
-def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, trials, random=False, option=None):
+def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss, hit_miss_train, random=False, option=None):
     '''
+    collect trials with the test collector
+    the environment is reset before starting these trials
+    most of the inputs are used for printing out the results of these trials 
     '''
     test_collector.reset()
     trials = args.test_trials
@@ -14,14 +19,18 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, t
         result = test_collector.collect(n_episode=1, n_step=args.max_steps, random=random)
         test_perf.append(result["rews"].mean())
         suc.append(float(result["terminate"]))
+        hit_miss.append(result['n/h'])
     if random:
         print("Initial trials: ", trials)
     else:
         print("Iters: ", i, "Steps: ", total_steps)
-    mean_perf, mean_suc, mean_hit = np.array(test_perf).mean(), np.array(suc).mean(), sum(test_collector.hit_miss_queue)/ max(1, len(test_collector.hit_miss_queue))
-    print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}")
+    mean_perf, mean_suc, mean_hit = np.array(test_perf).mean(), np.array(suc).mean(), sum(hit_miss)/ max(1, len(hit_miss))
+    print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}", f"Hit Miss train: {hit_miss_train[0]/ max(1, hit_miss_train[1])}")
     return mean_perf, mean_suc, mean_hit 
 
+def full_save(args, option, graph):
+    option.save(args.save_dir)
+    graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
 
 def trainRL(args, train_collector, test_collector, environment, environment_model, option, names, graph):
     '''
@@ -35,51 +44,35 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     if args.input_norm: option.policy.compute_input_norm(train_collector.buffer)
 
     # collect initial test trials
-    initial_perf, initial_suc, initial_hit = _collect_test_trials(args, test_collector, 0, 0, list(), list(), args.pretest_trials,  random=True, option=option)
+    initial_perf, initial_suc, initial_hit = _collect_test_trials(args, test_collector, 0, 0, list(), list(), list(), (1,0), random=True, option=option)
 
     total_steps = 0
+    hit_miss_queue_test = deque(maxlen=2000)
+    hit_miss_queue_train = [0,0]
 
     for i in range(args.num_iters):  # total step
         collect_result = train_collector.collect(n_step=args.num_steps) # TODO: make n-episode a usable parameter for collect
         total_steps = collect_result['n/st'] + total_steps
         # once if the collected episodes' mean returns reach the threshold,
         # or every 1000 steps, we test it on test_collector
+        hit_miss_queue_train = [hit_miss_queue_train[0]+collect_result['n/h'], hit_miss_queue_train[1] + collect_result['n/m'] + collect_result['n/h']]
         if i % args.log_interval == 0:
             print("testing collection")
-            # option.policy.set_eps(0.05)
-            test_collector.reset()
-            needs_new_param = False
-            for j in range(args.test_trials):
-                if args.max_steps > 0: result = test_collector.collect(n_term=1, n_step=args.max_steps, visualize_param=args.visualize_param)
-                else: result = test_collector.collect(n_term=1, visualize_param=args.visualize_param)
-                test_perf.append(result["rews"].mean())
-                # print("num steps, sucess, rew",result["n/st"], float(result["n/st"] != args.max_steps and (result["true_done"] < 1 or args.true_environment)), result["rews"].mean())
-                suc.append(result['terminate'])
-                needs_new_param = True
-            print(suc, test_perf)
-            print("Iters: ", i, "Steps: ", total_steps)
-            print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}", f"Hit Miss: {sum(test_collector.hit_miss_queue)/ max(1, len(test_collector.hit_miss_queue))}", f"Hit Miss train: {sum(train_collector.hit_miss_queue)/ max(1, len(train_collector.hit_miss_queue))}")
-            train_collector.reset_env() # because test collector and train collector share the same environment
-            
-            # intialize temporal extension
-            # train_collector.reset_temporal_extension()
-
+            _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss_queue_test, hit_miss_queue_train, option=option)
         # train option.policy with a sampled batch data from buffer
         losses = option.policy.update(args.batch_size, train_collector.buffer)
         if args.input_norm:
             option.policy.compute_input_norm(train_collector.buffer)
         if i % args.log_interval == 0:
-            print(losses)
+            print("losses", losses)
             # print("epsilons", epsilon, interaction, epsilon_close)
+
         if args.save_interval > 0 and (i+1) % args.save_interval == 0:
-            option.save(args.save_dir)
-            graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
+            full_save(args, option, graph)
     if args.save_interval > 0:
-        option.save(args.save_dir)
-        graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
-        save_to_pickle(os.path.join(args.record_rollouts, "action_record.pkl"), action_record)
+        full_save(args, option, graph)
     final_perf, final_suc = list(), list()
-    final_perf, final_suc, final_hit = collect_test_trials(args, test_collector, 0, 0, final_perf, final_suc)
+    final_perf, final_suc, final_hit = _collect_test_trials(args, test_collector, 0, 0, final_perf, final_suc, list(), (1,0))
 
     print("performance comparison", initial_perf, final_perf)
     if initial_perf < final_perf - 2:

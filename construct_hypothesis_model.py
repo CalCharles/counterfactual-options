@@ -2,6 +2,7 @@ import os, torch
 from arguments import get_args
 from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
 
+from Environments.environment_initializer import initialize_environment
 from EnvironmentModels.environment_model import ModelRollouts, FeatureSelector, ControllableFeature
 
 from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEnvironmentModel
@@ -30,86 +31,35 @@ if __name__ == '__main__':
     np.set_printoptions(threshold=300, linewidth=120)
     torch.set_printoptions(precision=3)
 
-    if args.env == "SelfBreakout":
-        args.continuous = False
-        environment = Screen()
-        environment.seed(args.seed)
-        environment_model = BreakoutEnvironmentModel(environment)
-    elif args.env == "Nav2D":
-        args.continuous = False
-        environment = Nav2D()
-        environment.seed(args.seed)
-        environment_model = Nav2DEnvironmentModel(environment)
-        if args.true_environment:
-            args.preprocess = environment.preprocess
-    elif args.env.find("2DPushing") != -1:
-        args.continuous = False
-        environment = Pushing(pushgripper=True)
-        if args.env == "StickPushing":
-            environment = Pushing(pushgripper=False)
-        environment.seed(args.seed)
-        environment_model = PushingEnvironmentModel(environment)
-        if args.true_environment:
-            args.preprocess = environment.preprocess
-    elif args.env.find("RoboPushing") != -1:
-        from EnvironmentModels.RobosuitePushing.robosuite_pushing_environment_model import RobosuitePushingEnvironmentModel
-        from Environments.RobosuitePushing.robosuite_pushing import RoboPushingEnvironment
-
-        args.continuous = True
-        environment = RoboPushingEnvironment(control_freq=2, horizon=30, renderable=False)
-        environment.seed(args.seed)
-        environment_model = RobosuitePushingEnvironmentModel(environment)
+    environment, environment_model, args = initialize_environment(args, set_save=False)
     args.environment, args.environment_model = environment, environment_model
     graph, controllable_feature_selectors, args = graph_construct_load(args, environment, environment_model)
-    # try:
-    #     graph = load_graph(args.graph_dir)
-    #     controllable_feature_selectors = graph.cfs
-    #     print("loaded graph from ", args.graph_dir)
-    # except OSError as e:
-    #     actions = PrimitiveOption(None, (None, environment_model), "Action")
-    #     nodes = {'Action': OptionNode('Action', actions, action_shape = environment.action_shape)}
-    #     afs = environment_model.construct_action_selector()
-    #     if environment.discrete_actions:
-    #         controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions-1],1)]
-    #     else:
-    #         controllable_feature_selectors = list()
-    #         for i, af in enumerate(afs):
-    #             step = (environment.action_space.high[i] - environment.action_space.low[i]) / 3
-    #             controllable_feature_selectors.append(ControllableFeature(af, [environment.action_space.low[i],environment.action_space.high[i]],step))
-
-    #     graph = OptionGraph(nodes, dict(), controllable_feature_selectors)
     graph.load_environment_model(environment_model)
     environment_model.shapes_dict["all_state_next"] = [args.num_samples, environment_model.state_size]
 
+    # set epsilons (TODO: find out why that matters)
     last_state = None
     for cfs in controllable_feature_selectors:
-        # print(cfs.object(), graph.nodes[cfs.object()].option.policy)
         if cfs.object() != "Action":
             graph.nodes[cfs.object()].option.policy.set_eps(0)
     
     # commented section BELOW
-    # data = read_obj_dumps(args.record_rollouts, i=-1, rng = args.num_frames, filename='object_dumps.txt')
-    # rollouts = ModelRollouts(len(data), environment_model.shapes_dict)
-    # for data_dict, next_data_dict in zip(data, data[1:]):
-    #     insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
-    #     rollouts.append(**insert_dict)
+    data = read_obj_dumps(args.record_rollouts, i=-1, rng = args.num_frames, filename='object_dumps.txt')
+    rollouts = ModelRollouts(len(data), environment_model.shapes_dict)
+    for data_dict, next_data_dict in zip(data, data[1:]):
+        insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
+        rollouts.append(**insert_dict)
     # UNCOMMENT above
     # REMOVE LATER: saves rollouts so you don't have to run each time
     # save_to_pickle("data/rollouts.pkl", rollouts)
-    rollouts = load_from_pickle("data/rollouts.pkl")
-    if args.cuda:
-        rollouts.cuda()
+    # rollouts = load_from_pickle("data/rollouts.pkl")
+    # if args.cuda:
+    #     rollouts.cuda()
     # print(len(data), rollouts.filled)
     # REMOVE ABOVE
 
-    # cf_state = CounterfactualStateDataset(environment_model)
-    # rollouts = cf_state.generate_dataset(rollouts, controllable_feature_selectors)
-    
     # Just run selection binary
 
-    # dataset_model.sample_zero = args.sample_zero
-    # hypothesis_model = NeuralInteractionForwardModel(environment_model = environment_model, target_name=args.target, contingent_nodes=[n for n in graph.nodes.values() if n.name != args.target])
-    # hypothesis_model.train(rollouts)
     if args.train:
         success = False
         if args.load_weights: # retraining an existing model

@@ -132,7 +132,7 @@ class RawEnvironment():
             pass
 
         if entity_state is not None:
-            action_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'a')
+            action_dumps = open(os.path.join(self.save_path, "action_dumps.txt"), 'a')
             action_dumps.write(action_toString(entity_state["Action"]) + "\t")
             action_dumps.close()
             object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'a')

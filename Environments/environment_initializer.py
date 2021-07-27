@@ -10,7 +10,7 @@ from Environments.Pushing.screen import Pushing
 from EnvironmentModels.Gym.gym_environment_model import GymEnvironmentModel
 
 
-def initialize_environment(args):
+def initialize_environment(args, set_save=True):
 
     args.normalized_actions = False
     args.concatenate_param = True
@@ -53,7 +53,7 @@ def initialize_environment(args):
         environment = RoboPushingEnvironment(control_freq=2, horizon=args.time_cutoff, renderable=False)
         environment.seed(args.seed)
         environment_model = RobosuitePushingEnvironmentModel(environment)
-    environment.set_save(0, args.record_rollouts, args.save_recycle, save_raw=args.save_raw)
+    if set_save: environment.set_save(0, args.record_rollouts, args.save_recycle, save_raw=args.save_raw)
     args.environment = environment
     args.environment_model = environment_model
     return environment, environment_model, args

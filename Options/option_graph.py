@@ -77,7 +77,7 @@ def load_graph(load_dir):
     graph = load_from_pickle(os.path.join(load_dir, "graph.pkl"))
     print("loaded graph")
     for node in graph.nodes.values():
-        print(node.name, load_dir, node.option.object_name +"_policy")
+        print(node.name, load_dir, node.option.name +"_policy")
         node.option.load_policy(load_dir)
         # if node.name != 'Action':
         #     node.option.rollouts = RLRollouts(length, node.option.rollout_params[1])
@@ -92,6 +92,7 @@ def graph_construct_load(args, environment, environment_model):
     '''
     try:
         graph = load_graph(args.graph_dir)
+        controllable_feature_selectors = graph.cfs
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
         args.primitive_action_map = PrimitiveActionMap(args)

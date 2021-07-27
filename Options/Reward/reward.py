@@ -16,7 +16,7 @@ class BinaryParameterizedReward(Reward):
 		super().__init__(**kwargs)
 		# self.use_diff = kwargs['use_diff'] # compare the parameter with the diff, or with the outcome
 		# self.use_both = kwargs['use_both'] # supercedes use_diff
-		self.epsilon = kwargs['epsilon']
+		self.epsilon = kwargs['epsilon_close']
 
 	def get_reward(self, inter, state, param, mask, true_reward=0):
 		# NOTE: input state is from the current state, state, param are from the next state
@@ -41,7 +41,7 @@ class BinaryParameterizedReward(Reward):
 class InteractionReward(Reward):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
-		self.interaction_model = kwargs["dataset_model"].interaction_model
+		# self.interaction_model = kwargs["dataset_model"].interaction_model
 		# self.interaction_model = kwargs["interaction_model"]
 
 	def get_reward(self, inter, state, param, mask, true_reward=0):
@@ -72,18 +72,20 @@ class CombinedReward(Reward):
 		self.interaction_reward = InteractionReward(**kwargs)
 		self.parameterized_reward = BinaryParameterizedReward(**kwargs)
 		self.plmbda = kwargs["parameterized_lambda"]
+		self.interaction_prediction = kwargs["dataset_model"].interaction_prediction
 		self.lmbda = kwargs["interaction_lambda"]
 		self.reward_constant = kwargs["reward_constant"]
+		self.epsilon_close = kwargs["epsilon_close"]
 
 	def get_reward(self, inter, state, param, mask, true_reward=0):
 		# NOTE: input state is from the current state, state, param are from the next state
+		self.parameterized_reward.epsilon = self.epsilon_close
+
 		ireward = self.interaction_reward.get_reward(inter, state, param, mask)
 		preward = self.parameterized_reward.get_reward(inter, state, param, mask)
 		interacting = pytorch_model.unwrap(inter)
+		preward = preward * (inter > self.interaction_prediction)
 		# interaction_reward = (ireward > self.interaction_probability).float() - 1 # only give parameterized reward at interactions
-		
-		# print(ireward * self.lmbda, preward, interaction_reward, )
-		# print(ireward, preward, interacting, pytorch_model.unwrap(ireward * self.lmbda + preward * interacting.squeeze() * self.plmbda + self.reward_constant))
 		return pytorch_model.unwrap(ireward * self.lmbda + self.reward_constant + preward * self.plmbda) # preward * interacting.squeeze() * self.plmbda
 
 class InstancedReward(Reward):

@@ -1,7 +1,7 @@
 import numpy as np
 from file_management import read_obj_dumps, load_from_pickle, read_action_dumps
 import cv2
-
+from Networks.network import pytorch_model
 
 EPSILON = .000001
 
@@ -13,7 +13,7 @@ def compare_factored(state1, state2):
 			return False
 	return True
 
-def compare_final(test_paths, filenames, action_sequences)
+def compare_final(test_paths, filenames, action_sequences):
     for pth, filename, acts in zip(test_paths, filenames, action_sequences):
         factored_states = read_obj_dumps(pth=pth, filename=filename+"_start.txt")
         factored_state_targets = read_obj_dumps(pth=pth, filename=filename+"_target.txt")
@@ -27,3 +27,7 @@ def compare_final(test_paths, filenames, action_sequences)
                 cv2.waitKey(1000)
             success = compare_factored(state['factored_state'], factored_state_target)
             print("compared final: ", success)
+
+def compare_full_prediction(pred_param, param_param_target):
+    return np.linalg.norm(pytorch_model.unwrap(pred_param[0]) - pytorch_model.unwrap(pred_param_target[0])), np.linalg.norm(pytorch_model.unwrap(pred_param[1]) - pytorch_model.unwrap(pred_param_target[1]))
+

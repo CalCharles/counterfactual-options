@@ -69,7 +69,6 @@ def action_toString(action):
         return str(action)
     if len(action.shape) == 0:
         return str(action)
-    print(action)
     return ",".join(map(str, action))
 
 def read_action_dumps(pth, i=0, rng=-1, filename='action_dumps.txt'):
