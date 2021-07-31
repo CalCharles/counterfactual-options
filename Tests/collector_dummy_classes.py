@@ -5,6 +5,8 @@ from ReinforcementLearning.learning_algorithms import HER
 
 
 class TestExtractor():
+    def __init__(self, target="Paddle"):
+        self.target = target
 
     def get_true_done(self, full_state):
         return full_state['factored_state']['Done']
@@ -37,12 +39,13 @@ class TestExtractor():
 
     def get_target(self, full_state):
         if type(full_state) == Batch or type(full_state) == dict:
-            return full_state['factored_state']["Paddle"]
+            return full_state['factored_state'][self.target]
         else:
             shape = full_state.shape
             if len(shape) == 1: return full_state[5:10]
             if len(shape) == 2: return full_state[:,5:10]
             if len(shape) == 3: return full_state[:,:,5:10]
+
 
     def assign_param(self, full_state, obs, param, mask):
         shape = obs.shape
@@ -94,7 +97,7 @@ class TestOption():
     def reset(self, full_state):
         return [False,False]
 
-    def extended_action_sample(self, batch, state_chain, random=False):
+    def extended_action_sample(self, batch, state_chain, term_chain, ext_terms, random=False):
         if np.random.randint(2) == 0 or self.driving:
             p = batch.param.squeeze()
             t = batch.next_target.squeeze() if 'next_target' in batch else batch.target.squeeze()
@@ -130,6 +133,27 @@ class TestOption():
     def update(self, buffer, done, last_state, act, chain, term_chain, param, masks, update_policy=True):
         return
 
+class TestOptionBall(TestOption):
+    def extended_action_sample(self, batch, state_chain, term_chain, ext_terms, random=False):
+        if np.random.randint(2) == 0 or (self.driving and np.random.randint(10) > 2):
+            p = batch.obs.squeeze()[5:10]
+            t = batch.next_target.squeeze() if 'next_target' in batch else batch.target.squeeze()
+            target = (p - t)[1]
+            if abs(target) < 1:
+                act = 0
+            elif target > 0:
+                act = 2
+            else:
+                act = 3
+        else:
+            act = np.random.randint(4)
+        chain = [act]
+        policy_batch = dict()
+        state = None
+        masks = [[0,0,1,1,0]]
+        resampled = True
+        return act, chain, policy_batch, state, masks, resampled
+
 def array_factored(factored_state):
     for k,v in factored_state.items():
         factored_state[k] = np.array(v)
@@ -146,12 +170,53 @@ class TestSampler():
     def get_mask_param(self, param, mask):
         return param * mask
 
+class TestSamplerBall():
+    def get_param(self, full_state, terminate):
+        if terminate:
+            states = full_state['factored_state']
+            shape = np.array(states['Action']).shape
+            self.mask = np.array([0,0,1,1,0])
+            self.param = np.array([0, 0, np.random.choice([-2, -1]), np.random.choice([-1,1]), 0])
+        return self.param, self.mask, terminate
+
+    def get_mask_param(self, param, mask):
+        return param * mask
+
+class TestSamplerBlock():
+    def get_param(self, full_state, terminate):
+        if terminate:
+            states = full_state['factored_state']
+            shape = np.array(states['Action']).shape
+            self.mask = np.array([0,0,0,0,1])
+            chosen = np.random.choice([exp for exp in environment_model.environment.exposed_blocks.values()])
+            self.param = np.array([exp[0], exp[1], 0, 0, 0])
+        return self.param, self.mask, terminate
+
+    def get_mask_param(self, param, mask):
+        return param
+
+
 class TestTemporalExtensionManager():
     def reset(self):
         return
 
     def get_extension(self, terminate, ext_term):
         return terminate + ((np.random.randint(2) == 1) * (np.random.randint(2) == 1)) # .25 probability of temporal extension
+
+class TestTemporalExtensionManagerBall():
+    def reset(self):
+        return
+
+    def get_extension(self, terminate, ext_term):
+        return terminate + ((np.random.randint(6) == 0))
+
+class TestTemporalExtensionManagerBall():
+    def reset(self):
+        return
+
+    def get_extension(self, terminate, ext_term):
+        return terminate + ext_term
+
 
 class TestDoneModel():
     def done_check(term, true_done):

@@ -50,6 +50,7 @@ if __name__ == '__main__':
         dataset_model = interaction_models["dummy"](environment_model=environment_model)
     else:
         dataset_model = load_hypothesis_model(args.dataset_dir)
+        dataset_model.interaction_prediction = args.interaction_prediction
         torch.cuda.empty_cache()
         dataset_model.cpu()
     if len(args.force_mask):
@@ -165,6 +166,7 @@ if __name__ == '__main__':
 
     # apply cuda
     if args.cuda:
+        option.cpu()
         option.cuda()
         option.set_device(args.gpu)
         policy.cuda()

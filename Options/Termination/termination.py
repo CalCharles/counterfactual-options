@@ -125,13 +125,13 @@ class CombinedTermination(Termination):
 		param_term = self.parameterized_termination.check(inter, state, param, mask)
 		# print(self.interaction_probability, param_term, pytorch_model.unwrap(inter), state, param)
 		if self.interaction_probability > 0:
-			chances = np.random.random(size=self.inter_pred.shape) > self.interaction_probability
+			chances = np.random.random(size=self.inter_pred.shape) < self.interaction_probability
 			if not self.param_interaction: param_inter = True
 			else: param_inter = inter
 			self.p_hit = param_term * param_inter
 			chosen = inter * chances + param_term * param_inter
 			# if np.sum(inter):
-			# 	print("checked", self.inter_pred, inter, chances, self.epsilon, self.epsilon_close, chosen, param_term, param_inter, state, param)
+				# print("checked", inter, )
 			if type(chosen) == np.ndarray:
 				chosen[chosen > 1] = 1
 			# print(pytorch_model.unwrap(chosen), pytorch_model.unwrap(inter), pytorch_model.unwrap(interaction_pred), pytorch_model.unwrap(chances), input_state)

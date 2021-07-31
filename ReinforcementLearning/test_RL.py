@@ -12,7 +12,6 @@ import imageio as imio
 from Environments.environment_specification import ProxyEnvironment
 from ReinforcementLearning.Policy.policy import pytorch_model
 from file_management import save_to_pickle
-from ReinforcementLearning.train_RL import Logger
 
 def testRL(args, test_collector, environment, environment_model, option, names, graph):
     test_perf, suc = deque(maxlen=200), deque(maxlen=200)
@@ -27,7 +26,7 @@ def testRL(args, test_collector, environment, environment_model, option, names, 
             print(result["n/st"])
             total_steps += result["n/st"]
             test_perf.append(result["rews"].mean())
-            suc.append(float(result["n/st"] != args.max_steps and result["true_done"] < 1))
+            suc.append(float(result["terminate"]))
         print("Iters: ", i, "Steps: ", total_steps)
         print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}")
         test_collector.reset_env() # because test collector and train collector share the same environment

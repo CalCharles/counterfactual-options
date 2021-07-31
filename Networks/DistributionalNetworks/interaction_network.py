@@ -13,6 +13,14 @@ class InteractionNetwork(BasicMLPNetwork):
         self.train()
         self.reset_parameters()
         
+    def cuda(self):
+        super().cuda()
+        self.normalization.cuda()
+
+    def cpu(self):
+        super().cpu()
+        self.normalization.cpu()
+
     def forward(self, x):
         x = pytorch_model.wrap(x, cuda=self.iscuda)
         x = self.normalization(x)

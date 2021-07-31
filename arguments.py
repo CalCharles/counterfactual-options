@@ -197,6 +197,8 @@ def get_args():
                         help='a hack to control the parameter mask  (default: empty list)')
     parser.add_argument('--interaction-weight', type=float, default=10,
                         help='the weight given to interaction values compared to normal values (default: 1000)')
+    parser.add_argument('--interaction-local', type=float, default=5,
+                        help='additional sampling weight in range defined by local (should be odd) (default: 5)')
     parser.add_argument('--interaction-probability', type=float, default=1,
                         help='the minimum probability needed to use interaction as termination 1 means interaction is never (solely) used for termination (default: 1)')
     parser.add_argument('--interaction-prediction', type=float, default=0,

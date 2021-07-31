@@ -24,8 +24,10 @@ from DistributionalModels.InteractionModels.interaction_model import default_mod
 from DistributionalModels.InteractionModels.feature_explorer import FeatureExplorer
 from Networks.network import pytorch_model
 import numpy as np
+import sys
 
 if __name__ == '__main__':
+    print(sys.argv)
     args = get_args()
     torch.cuda.set_device(args.gpu)
     np.set_printoptions(threshold=300, linewidth=120)

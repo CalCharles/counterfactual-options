@@ -77,6 +77,7 @@ class HER(LearningOptimizer):
                 interact, pred, var = self._hypothesize(single_batch.full_state) # edit interaction model to take numpy arrays
                 interacting = self._check_interaction(interact)
             if interacting:
+                print(len(self.replay_queue))
                 mask = full_batch.mask[0]
                 if self.option.dataset_model.multi_instanced: # if multiinstanced, param should not be masked, and needs to be defined by the instance, not just the object state
                     dataset_model = self.option.dataset_model
@@ -96,7 +97,8 @@ class HER(LearningOptimizer):
                         obs_next = self.state_extractor.assign_param(batch.full_state[0], batch.obs_next, param, mask), mask=[mask])
                     true_done = batch.true_done
                     true_reward = batch.true_reward
-                    term, rew, inter, time_cutoff = self.option.terminate_reward.check(batch.full_state[0], batch.next_full_state[0], param, mask, use_timer=False)
+                    term, rew, inter, time_cutoff = self.option.terminate_reward.check(batch.full_state[0], batch.next_full_state[0], param, mask, inter_state=inter_state, use_timer=False)
+                    # print("adding", term, inter, rew, param, inter_state, self.state_extractor.get_target(batch.full_state[0]), self.state_extractor.get_target(batch.next_full_state[0]))
                     timer, self.done_model.timer = self.done_model.timer, 0
                     done = self.done_model.check(term, true_done)
                     self.done_model.timer = timer
@@ -115,7 +117,7 @@ class HER(LearningOptimizer):
                     ptr, ep_rew, ep_len, ep_idx = self.replay_buffer.add(her_batch, buffer_ids=[0])
                     if early_stopping_counter == 0 and self.early_stopping > 0:
                         break
-                self.sample_timer = 0
+            self.sample_timer = 0
             del self.replay_queue
             self.replay_queue = list()
 

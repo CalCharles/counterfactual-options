@@ -48,6 +48,8 @@ class Option():
 
     def cuda(self):
         self.iscuda = True
+        if self.dataset_model is not None:
+            self.dataset_model.cuda()
         if self.policy is not None:
             self.policy.cuda()
         if self.sampler is not None:
@@ -57,6 +59,8 @@ class Option():
 
     def cpu(self):
         self.iscuda = False
+        if self.dataset_model is not None:
+            self.dataset_model.cpu()
         if self.policy is not None:
             self.policy.cpu()
         if self.sampler is not None:
@@ -79,12 +83,12 @@ class Option():
         batch['obs'] = self.next_option.state_extractor.get_obs(batch["full_state"], param_act, next_mask) if self.next_option.state_extractor is not None else batch['obs']
         return param, obs, mask
 
-    def extended_action_sample(self, batch, state_chain, random=False, use_model=False):
+    def extended_action_sample(self, batch, state_chain, term_chain, ext_terms, random=False, use_model=False):
         '''
         get a new action (resample) or not based on the result of TEM.check. If we don't, check downstream options
         batch must contain full_state and termination_chain
         '''
-        needs_sample, act, chain, policy_batch, state, masks = self.temporal_extension_manager.check(batch)
+        needs_sample, act, chain, policy_batch, state, masks = self.temporal_extension_manager.check(term_chain[-1], ext_terms[-1])
         if needs_sample: 
             result_tuple = self.sample_action_chain(batch, state_chain, random=random, use_model=use_model)
             if not random: self.temporal_extension_manager.update_policy(result_tuple[2], result_tuple[3][-1] if result_tuple[3] is not None else None) # result tuple  2 and 3 are policy_batch and state-chain respectively
@@ -92,7 +96,7 @@ class Option():
         else:
             # if we don't need a new sample
             param, obs, mask = self._set_next_option(batch, chain[-1])
-            _, rem_chain, _, rem_state, rem_masks, last_resmp = self.next_option.extended_action_sample(batch, state_chain, random=False, use_model=use_model)
+            _, rem_chain, _, rem_state, rem_masks, last_resmp = self.next_option.extended_action_sample(batch, state_chain, term_chain[:-1], ext_terms[:-1], random=False, use_model=use_model)
             batch['param'], batch['obs'], batch['mask'] = param, obs, mask
             result_tuple = (act, rem_chain + [chain[-1]], policy_batch, rem_state + [state[-1]] if state is not None else None, rem_masks + [mask[0]])
             resampled = False
@@ -235,7 +239,7 @@ class PrimitiveOption(Option): # primitive discrete actions
     def cuda(self):
         self.iscuda = True
     
-    def extended_action_sample(self, batch, state_chain, random=False, use_model=False):
+    def extended_action_sample(self, batch, state_chain, term_chain, ext_terms, random=False, use_model=False):
         return (*self.sample_action_chain(batch, state_chain, random, use_model), True)
 
     def sample_action_chain(self, batch, state, random=False, use_model=False): # param is an int denoting the primitive action, not protected (could send a faulty param)

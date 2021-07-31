@@ -37,7 +37,7 @@ class Sampler():
     def get_mask(self, param):
         return self.mask
 
-    def update(self, param, mask):
+    def update(self, param, mask, buffer=None):
         self.param, self.mask = param, mask
 
     def update_rates(self, masks, results):
@@ -60,7 +60,7 @@ class Sampler():
                 cfs.assign_feature(new_states, w, edit=True, clipped=True)
         else:
             for f, cfs in zip(edited_features, self.cfselectors):
-                cfs.assign_feature(new_states, f)
+                cfs.assign_feature(new_states, f, factored=type(new_states) == dict)
         return self.delta(new_states)
 
     def sample(self, states):
@@ -93,7 +93,6 @@ class Sampler():
         param = new_param
         return param
 
-
 class RawSampler(Sampler):
     # never actually samples
     def get_targets(self, states):
@@ -118,6 +117,31 @@ class LinearUniformSampling(Sampler):
                 value = self.dataset_model.sample_able.vals[np.random.randint(len(self.dataset_model.sample_able.vals))].copy()
             return copy.deepcopy(pytorch_model.unwrap(value))
 
+def find_inst_feature(state_values, sample_able, nosample, sample_exposed, environment_model): # state values has shape [num_instances, state size]
+    found = False
+    sample_able_inst = list()
+    sample_able_all = list()
+    for idx, s in enumerate(state_values):
+        for h in sample_able:
+            if np.linalg.norm(s * m - h) > nosample:
+                if sample_exposed:
+                    for exp in environment_model.environment.exposed_blocks.values():
+                        if np.linalg.norm(exp.getMidpoint() - s[:2]) < nosample:
+                            sample_able_inst.append((s, h))
+                            break
+                else:
+                    sample_able_inst.append((s, h))
+                sample_able_all.append((s,h))
+    # s, h = sample_able_inst[np.random.randint(len(sample_able_inst))]
+    if len(sample_able_inst) == 0:
+        print(sample_able_all, sample_able_inst, [exp.getMidpoint() for exp in environment_model.environment.exposed_blocks.values()])
+        return sample_able_all[np.random.randint(len(sample_able_all))]
+    return sample_able_inst[np.random.randint(len(sample_able_inst))]
+
+class InstancePredictiveSampler(Sampler):
+    def __init__(self, **kwargs):
+        self.sampler_network = PairNetwork(**kwargs)
+
 class InstanceSampling(Sampler):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -133,37 +157,17 @@ class InstanceSampling(Sampler):
         inv_m[m == 0] = -1
         inv_m[m == 1] = 0
         inv_m *= -1
-        def find_inst_feature(state_values): # state values has shape [num_instances, state size]
-            found = False
-            sample_able_inst = list()
-            sample_able_all = list()
-            for idx, s in enumerate(state_values):
-                for h in self.dataset_model.sample_able.vals:
-                    if np.linalg.norm(s * m - h) > self.nosample_epsilon:
-                        if self.sample_exposed:
-                            for exp in self.environment_model.environment.exposed_blocks.values():
-                                if np.linalg.norm(exp.getMidpoint() - s[:2]) < self.nosample_epsilon:
-                                    sample_able_inst.append((s, h))
-                                    break
-                        else:
-                            sample_able_inst.append((s, h))
-                        sample_able_all.append((s,h))
-            # s, h = sample_able_inst[np.random.randint(len(sample_able_inst))]
-            if len(sample_able_inst) == 0:
-                print(sample_able_all, sample_able_inst, [exp.getMidpoint() for exp in self.environment_model.environment.exposed_blocks.values()])
-                return sample_able_all[np.random.randint(len(sample_able_all))]
-            return sample_able_inst[np.random.randint(len(sample_able_inst))]
         if len(values.shape) == 3:
             params = list()
             # idxes = list()
             for v in values:
-                s, val = find_inst_feature(v)
+                s, val = find_inst_feature(v, self.dataset_model.sample_able.vals, self.nosample_epsilon, self.sample_exposed, self.environment_model)
                 mval = val * m + inv_m * s
                 param.append(mval)
                 # idxes.append(idx)
             return np.stack(param, axis=0)
         elif len(values.shape) == 2:
-            s, val = find_inst_feature(values)
+            s, val = find_inst_feature(values, self.dataset_model.sample_able.vals, self.nosample_epsilon, self.sample_exposed, self.environment_model)
             mval = val * m + inv_m * s
             return mval
 

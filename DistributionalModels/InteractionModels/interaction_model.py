@@ -15,6 +15,7 @@ from Networks.DistributionalNetworks.interaction_network import interaction_nets
 from Networks.network import ConstantNorm, pytorch_model
 from Networks.input_norm import InterInputNorm
 from Rollouts.rollouts import ObjDict
+from tianshou.data import Collector, Batch, ReplayBuffer
 
 def nflen(x):
     return ConstantNorm(mean= pytorch_model.wrap(sum([[84//2,84//2,0,0,0] for i in range(x // 5)], list())), variance = pytorch_model.wrap(sum([[84,84, 5, 5, 1] for i in range(x // 5)], list())), invvariance = pytorch_model.wrap(sum([[1/84,1/84, 1/5, 1/5, 1] for i in range(x // 5)], list())))
@@ -248,13 +249,17 @@ class NeuralInteractionForwardModel(nn.Module):
             interaction.append(pytorch_model.unwrap(ints))
         return np.concatenate(interaction, axis=0)
 
-    def _get_weights(self, err=None, ratio_lambda=2, passive_error_cutoff=2, passive_error_upper=10, weights=None):
+    def _get_weights(self, err=None, ratio_lambda=2, passive_error_cutoff=2, passive_error_upper=10, weights=None, local=0):
         if err is not None:
             weights = err.squeeze()
             weights[weights<=passive_error_cutoff] = 0
             weights[weights>passive_error_upper] = 0
             weights[weights>passive_error_cutoff] = 1
         weights = pytorch_model.unwrap(weights)
+        if local:
+            locality = np.array([.4 for i in range(int(local))])
+            locality[int(local // 2)] = 1 # set the midpoint to be 1
+            weights = np.convolve(weights, locality, 'same') 
         total_live = np.sum(weights)
         total_dead = np.sum((weights + 1)) - np.sum(weights)*2
         live_factor = total_dead / total_live * ratio_lambda
@@ -494,10 +499,10 @@ class NeuralInteractionForwardModel(nn.Module):
                 if train_args.interaction_iters > 0:
                     weight_lambda = train_args.interaction_weight * np.exp(-i/train_args.num_iters * 5)
                     print(weight_lambda)
-                    _, use_weights, live, dead, ratio_lambda = self._get_weights(ratio_lambda=weight_lambda, weights=trace)
+                    _, use_weights, live, dead, ratio_lambda = self._get_weights(ratio_lambda=weight_lambda, weights=trace, local=train_args.interaction_local)
                 elif train_args.passive_weighting:
                     ratio_lambda = max(.5, ratio_lambda * .99)
-                    _, use_weights, live, dead, ratio_lambda = self._get_weights(passive_error_all, ratio_lambda=weight_lambda, passive_error_cutoff=train_args.passive_error_cutoff)
+                    _, use_weights, live, dead, ratio_lambda = self._get_weights(passive_error_all, ratio_lambda=weight_lambda, passive_error_cutoff=train_args.passive_error_cutoff, local=train_args.interaction_local)
         return outputs
         # torch.save(self.forward_model, "data/active_model.pt")
         # torch.save(self.interaction_model, "data/train_int.pt")
@@ -511,7 +516,7 @@ class NeuralInteractionForwardModel(nn.Module):
             trw = torch.max(trace, dim=1)[0].squeeze() if self.multi_instanced else trace
             print(trw.sum())
             # weights the values
-            _, weights, live, dead, ratio_lambda = self._get_weights(ratio_lambda=train_args.interaction_weight, weights=trw)
+            _, weights, live, dead, ratio_lambda = self._get_weights(ratio_lambda=train_args.interaction_weight, weights=trw, local=train_args.interaction_local)
             for i in range(train_args.interaction_iters):
                 # get the input and target values
                 if idxes_sets is not None: idxes, batchvals = rollouts.get_batch(train_args.batch_size, existing=batchvals, idxes=idxes_sets[i])
@@ -565,7 +570,7 @@ class NeuralInteractionForwardModel(nn.Module):
                             "\ntraining: ", pytorch_model.unwrap(interaction_likelihood[obj_indices]),
                             "\ntarget: ", pytorch_model.unwrap(target[obj_indices]))
                     weight_lambda = train_args.interaction_weight * np.exp(-i/(train_args.interaction_iters) * 2)
-                    _, weights, live, dead, ratio_lambda = self._get_weights(ratio_lambda=weight_lambda, weights=trw)
+                    _, weights, live, dead, ratio_lambda = self._get_weights(ratio_lambda=weight_lambda, weights=trw, local=train_args.interaction_local)
             self.interaction_model.needs_grad=False # no gradient will pass through the interaction model
             # if train_args.save_intermediate:
             #     torch.save(self.interaction_model, "data/temp/interaction_model.pt")
@@ -691,11 +696,11 @@ class NeuralInteractionForwardModel(nn.Module):
             passive_error_all = self.get_prediction_error(rollouts)
             # passive_error_all = self.interaction_model(self.gamma(rollouts.get_values("state")))
             # passive_error = pytorch_model.wrap(trace)
-            weights, use_weights, total_live, total_dead, ratio_lambda = self._get_weights(passive_error_all, ratio_lambda = 4, passive_error_cutoff=train_args.passive_error_cutoff)
+            weights, use_weights, total_live, total_dead, ratio_lambda = self._get_weights(passive_error_all, ratio_lambda = 4, passive_error_cutoff=train_args.passive_error_cutoff, local=train_args.interaction_local)
         elif train_args.interaction_iters > 0:
             print("compute values")
             passive_error_all = trace.clone()
-            weights, use_weights, total_live, total_dead, ratio_lambda = self._get_weights(ratio_lambda=train_args.interaction_weight, weights=trace)
+            weights, use_weights, total_live, total_dead, ratio_lambda = self._get_weights(ratio_lambda=train_args.interaction_weight, weights=trace, local=train_args.interaction_local)
             use_weights =  copy.deepcopy(use_weights)
         else: # no weighting o nthe samples
             passive_error_all = torch.ones(rollouts.filled)
@@ -818,7 +823,7 @@ class NeuralInteractionForwardModel(nn.Module):
             inp_state = self.gamma(state)
             tar_state = self.delta(state)
         else: # assumes that state is a batch or dict
-            if 'factored_state' in state: state = state['factored_state'] # use gamma on the factored state
+            if (type(state) == Batch or type(state) == dict) and ('factored_state' in state): state = state['factored_state'] # use gamma on the factored state
             inp_state = pytorch_model.wrap(self.gamma(state), cuda=self.iscuda)
             tar_state = pytorch_model.wrap(self.delta(state), cuda=self.iscuda)
         return inp_state, tar_state
@@ -966,10 +971,13 @@ class NeuralInteractionForwardModel(nn.Module):
     def check_interaction(self, inter):
         return inter > self.interaction_minimum
 
-    def collect_samples(self, rollouts):
+    def collect_samples(self, rollouts, use_trace=False):
         self.sample_able = StateSet()
         for state,next_state in zip(rollouts.get_values("state"), rollouts.get_values("next_state")):
-            inter = self.interaction_model(self.gamma(state))
+            if use_trace:
+                inter = self._set_traces(state, [self.control_feature], [self.target_name])
+            else:
+                inter = self.interaction_model(self.gamma(state))
             if inter > .7:
                 inputs, targets = [self.gamma(state)], [self.delta(next_state)]
                 if self.multi_instanced:

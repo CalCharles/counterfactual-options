@@ -25,12 +25,13 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     else:
         print("Iters: ", i, "Steps: ", total_steps)
     mean_perf, mean_suc, mean_hit = np.array(test_perf).mean(), np.array(suc).mean(), sum(hit_miss)/ max(1, len(hit_miss))
-    print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}", f"Hit Miss train: {hit_miss_train[0]/ max(1, hit_miss_train[1])}")
+    print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}", f"Hit Miss train: {np.mean(hit_miss_train)}")
     return mean_perf, mean_suc, mean_hit 
 
 def full_save(args, option, graph):
     option.save(args.save_dir)
     graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
+
 
 def trainRL(args, train_collector, test_collector, environment, environment_model, option, names, graph):
     '''
@@ -48,14 +49,15 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
 
     total_steps = 0
     hit_miss_queue_test = deque(maxlen=2000)
-    hit_miss_queue_train = [0,0]
+    hit_miss_queue_train = deque(maxlen=100)
 
     for i in range(args.num_iters):  # total step
         collect_result = train_collector.collect(n_step=args.num_steps) # TODO: make n-episode a usable parameter for collect
         total_steps = collect_result['n/st'] + total_steps
         # once if the collected episodes' mean returns reach the threshold,
         # or every 1000 steps, we test it on test_collector
-        hit_miss_queue_train = [hit_miss_queue_train[0]+collect_result['n/h'], hit_miss_queue_train[1] + collect_result['n/m'] + collect_result['n/h']]
+        hit_miss_queue_train.append(collect_result['n/h'] / max(1, collect_result['n/m'] + collect_result['n/h']))
+
         if i % args.log_interval == 0:
             print("testing collection")
             _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss_queue_test, hit_miss_queue_train, option=option)

@@ -12,7 +12,7 @@ class ParamReplayBuffer(ReplayBuffer):
     # target, next target is the state of the target object, used for reward and termination
     # true_reward, true_done are the actual dones and rewards
     # option_terminate is for temporal extension, stating if the last object terminated
-    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", "mask", "target", "next_target", "terminate", "true_reward", "true_done", "option_resample", "mapped_act")
+    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", "mask", "target", "next_target", "terminate", "true_reward", "true_done", "option_resample", "mapped_act", "inter")
 
     def __getitem__(self, index: Union[slice, int, List[int], np.ndarray]) -> Batch:
         """Return a data batch: self[index].
@@ -49,11 +49,12 @@ class ParamReplayBuffer(ReplayBuffer):
             true_reward=self.true_reward[indice],
             true_done = self.true_done[indice],
             option_resample = self.option_resample[indice],
-            mapped_act = self.mapped_act[indice]
+            mapped_act = self.mapped_act[indice],
+            inter = self.inter[indice]
         )
 
 class ParamPriorityReplayBuffer(PrioritizedReplayBuffer): # not using double inheritance so exactly the same as above.
-    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", "mask", "target", "next_target", "terminate", "true_reward", "true_done", "option_resample", "mapped_act")
+    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", "mask", "target", "next_target", "terminate", "true_reward", "true_done", "option_resample", "mapped_act", "inter")
 
     def __getitem__(self, index: Union[slice, int, List[int], np.ndarray]) -> Batch:
         """Return a data batch: self[index].
@@ -90,5 +91,6 @@ class ParamPriorityReplayBuffer(PrioritizedReplayBuffer): # not using double inh
             true_reward=self.true_reward[indice],
             true_done = self.true_done[indice],
             option_resample = self.option_resample[indice],
-            mapped_act = self.mapped_act[indice]
+            mapped_act = self.mapped_act[indice],
+            inter = self.inter[indice]
         )

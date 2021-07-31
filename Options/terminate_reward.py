@@ -52,7 +52,7 @@ class TerminateReward():
         use_timer determines if the timer should influence computation
         '''
 
-        inter_state = self.state_extractor.get_inter(full_state) if not inter_state else inter_state
+        inter_state = self.state_extractor.get_inter(full_state) if inter_state is None else inter_state
         target_state = self.state_extractor.get_target(next_full_state)
         true_done = self.state_extractor.get_true_done(full_state)
 

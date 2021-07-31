@@ -30,7 +30,7 @@ class TemporalExtensionManager():
         self.policy_batch = policy_batch
         self.state = state
 
-    def check(self, batch):
+    def check(self, terminate, ext_term):
         '''
         returns the last action, chain, policy_batch and state if still temporally extending
         otherwise returns 
@@ -41,7 +41,7 @@ class TemporalExtensionManager():
             self.needs_sample = False
         else:
             # a temporally extended action just finished
-            needs_sample = self.get_extension(batch.terminate, batch.ext_term)
+            needs_sample = self.get_extension(terminate, ext_term)
         return needs_sample, self.act, self.chain, self.policy_batch, self.state, self.masks
 
     def get_extension(self, terminate, ext_term):
