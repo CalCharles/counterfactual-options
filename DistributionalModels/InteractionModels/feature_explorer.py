@@ -38,15 +38,18 @@ class FeatureExplorer():
             if cn in cfsdict: cfsdict[cn].append(cfs)
             else: cfsdict[cn] = [copy.deepcopy(cfs)]
 
+        # additional is extra objects added to the input state. Necessary for pushing
+        additional = [[]] + [[cfs] for cfs in cfslist]
+
         # test pair allows for training only one pair instead of greedy search
         if len(train_args.train_pair) > 0:
+            if len(train_args.train_pair) > 2:
+                additional = [train_args.train_pair[1:-1]]
             cfslist = [train_args.train_pair[0]]
-            target_names = [train_args.train_pair[1]]
+            target_names = [train_args.train_pair[-1]]
         else:
             target_names = self.em.object_names
 
-        # additional is extra objects added to the input state. Necessary for pushing
-        additional = [[]] + [[cfs] for cfs in cfslist]
         cfslist.reverse()
         print("controllable objects", [c for c in cfslist])
         # HACKED LINE TO SPEED UP TRAINING
@@ -132,8 +135,8 @@ class FeatureExplorer():
         print(model)
         train, test = rollouts.split_train_test(train_args.ratio)
         train.cpu(), test.cpu()
-        save_to_pickle("data/temp/train.pkl", train)
-        save_to_pickle("data/temp/test.pkl", test)
+        # save_to_pickle("data/temp/train.pkl", train)
+        # save_to_pickle("data/temp/test.pkl", test)
         # train = load_from_pickle("data/temp/train.pkl")
         # test = load_from_pickle("data/temp/test.pkl")
         print(train.filled, rollouts.filled)

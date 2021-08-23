@@ -19,6 +19,8 @@ def get_args():
                         help='name of the object filtering for')
     parser.add_argument('--temporal-extend', type=int, default=-1,
                         help='take temporally extended actions, max number of steps to extend before resampling (default: -1 (no extension))')
+    parser.add_argument('--env-reset', action='store_true', default=False,
+                    help='collector will call reset whenever a "done" occurs unless this is true')
     # # optimization hyperparameters
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='learning rate, not used if actor and critic learning rate used for algo (default: 1e-6)')
@@ -57,15 +59,6 @@ def get_args():
                         'components in this order: interaction_state, target state, full flattened state' +
                         'param, target state relative to param, relative interaction state, action state, diff')
 
-    # parser.add_argument('--relative-state', action='store_true', default=False,
-    #                 help='concatenates on the relative state between objects to the input state to RL network')
-    # parser.add_argument('--relative-param', type=int, default=0,
-    #                     help='adds the difference between object state and param to the network (2 should be masked, 1 unmasked) (default: 0, not used)')
-    # parser.add_argument('--param-first', action='store_true', default=False,
-    #                 help='concatenates on the parameter as the first part of the input')
-    # parser.add_argument('--no-input', type=int, default=0,
-    #                 help='does not add the other components of state to the input, if 1, no input states, if 2, no param')
-    
     parser.add_argument('--relative-action', type=float, default=-1,
                     help='the model computes actions relative to the current object position (-1 is not used)')
     parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256],
@@ -74,8 +67,12 @@ def get_args():
                         help='choose the initialization for the weights')    
     parser.add_argument('--use-layer-norm', action='store_true', default=False,
                     help='uses layer norm in the network')
+    parser.add_argument('--bound-output', action='store_true', default=False,
+                    help='bounds the critic output to [-time_cutoff, 0]')
     parser.add_argument('--input-norm', action='store_true', default=False,
                     help='normalize the inputs by the sample mean variance from the buffer')
+    parser.add_argument('--hardcode-norm', type=str, nargs='+', default=list(),
+                        help='use hardcoded input normalization, of format "env name" "layer num" "scale" (default: empty list (not used))')
     parser.add_argument('--activation', default="relu",
                         help='choose the activation function (TODO: not used at the moment)')    
     parser.add_argument('--reward-normalization', action='store_true', default=False,
@@ -116,6 +113,8 @@ def get_args():
                     help='minimum distance to end for ring schedule')
     parser.add_argument('--epsilon-close-schedule', type=float, default=0.0,
                     help='minimum distance for states to be considered the same')
+    parser.add_argument('--no-pretrain-active', action = 'store_true', default=False,
+                    help='pretrain the active model with the passive model')
     parser.add_argument('--param-interaction', action = 'store_true', default=False,
                     help='Only terminates when the param and interaction co-occur')
     parser.add_argument('--max-steps', type=int, default=-1,
@@ -187,10 +186,15 @@ def get_args():
                         help='only resamples HER when an interaction occurs')
 
     #interaction parameters
-    parser.add_argument('--train-pair', type=str, nargs=2, default=(),
-                        help='pair of objects to train interaction on (default: ())')
+    parser.add_argument('--train-pair', type=str, nargs='+', default=list(),
+                        help='pair of objects to train interaction on, [source, [additional], target] (default: list')
+    parser.add_argument('--true-interaction', action='store_true', default=False,
+                        help='instead of using the interaction model, uses the actual interaction terms')
     parser.add_argument('--interaction-iters', type=int, default=0,
-                        help='number of iterations for training the interaction network with true values (default: 0)')
+                        help='number of iterations for training the interaction network with true values (default: 0)' +
+                            'overloaded to use trace instead of interaction model for predicting samples if > 0')
+    parser.add_argument('--interaction-distance', type=int, default=0,
+                        help='number of steps within to predict interaction (default: 0)')
     parser.add_argument('--interaction-binary', type=float, nargs='+', default=list(),
                         help='difference between P,A, Active greater than, passive less than  (default: empty list)')
     parser.add_argument('--force-mask', type=float, nargs='+', default=list(),
@@ -210,8 +214,8 @@ def get_args():
                     help='changes sampling after a certain number of calls')
     parser.add_argument('--passive-error-cutoff', type=float, default=2,
                         help='the cutoff for error to weight the value (default: 2)')
-    parser.add_argument('--passive-weighting', action ='store_true', default=False,
-                        help='weight with the passive error')
+    parser.add_argument('--passive-weighting', type=float, default=0,
+                        help='weight with the passive error, if 0, then passive weighting is not used')
 
     # reward settings
     parser.add_argument('--parameterized-lambda', type=float, default=.5,
@@ -287,6 +291,10 @@ def get_args():
     # load variables
     parser.add_argument('--load-weights', action ='store_true', default=False,
                         help='load the options for the existing network')
+    parser.add_argument('--load-intermediate', action ='store_true', default=False,
+                        help='load the passive model/interaction to skip passive model training')
+    parser.add_argument('--save-intermediate', action ='store_true', default=False,
+                        help='save the passive model to skip training later')
     parser.add_argument('--load-network', default="",
                         help='path to network')
     parser.add_argument('--change-option', action ='store_true', default=False,
@@ -299,6 +307,7 @@ def get_args():
     args.critic_lr = args.lr if args.critic_lr < 0 else args.critic_lr
     args.actor_lr = args.lr if args.actor_lr < 0 else args.actor_lr
     args.deterministic_eval = not args.not_deterministic_eval
+    args.bound_output = 0 if not args.bound_output else args.time_cutoff
 
     return args
 

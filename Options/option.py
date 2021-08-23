@@ -4,7 +4,7 @@ import torch
 import gym
 from Networks.network import pytorch_model
 from Networks.distributions import Bernoulli, Categorical, DiagGaussian
-from EnvironmentModels.environment_model import FeatureSelector
+from EnvironmentModels.environment_model import FeatureSelector, cpu_state
 from tianshou.data import Batch, ReplayBuffer, to_torch_as, to_numpy
 from file_management import suppress_stdout_stderr
 
@@ -41,6 +41,7 @@ class Option():
         device = 'cpu' if not self.iscuda else 'cuda:' + str(device_no)
         if self.policy is not None:
             self.policy.to(device)
+            self.policy.assign_device(device)
         # if self.sampler is not None: # TODO: I think I will need this eventually
         #     self.sampler.to(device)
         if self.next_option is not None:
@@ -57,7 +58,7 @@ class Option():
         if self.next_option is not None:
             self.next_option.cuda()
 
-    def cpu(self):
+    def cpu(self): # does NOT set device
         self.iscuda = False
         if self.dataset_model is not None:
             self.dataset_model.cpu()
@@ -151,8 +152,9 @@ class Option():
             self.policy.update_norm(buffer)
             self.policy.update_la()
 
-    def terminate_reward_chain(self, full_state, next_full_state, param, chain, mask, mask_chain):
+    def terminate_reward_chain(self, full_state, next_full_state, param, chain, mask, mask_chain, environment_model=None):
         # recursively get all of the dones and rewards
+        true_inter = 0 # true_inter is the actual interaction, used as a base case, 0 if not used
         if self.next_option is not None: # lower levels should have masks the same as the active mask( fully trained)
             if type(self.next_option) != PrimitiveOption:
                 next_param = self.next_option.sampler.convert_param(chain[-1]) # mapped actions need to be expanded to fit param dimensions
@@ -161,12 +163,19 @@ class Option():
                 next_param = chain[-1]
                 next_mask = mask_chain[-1]
             last_done, last_rewards, last_termination, last_ext_term, _, _ = self.next_option.terminate_reward_chain(full_state, next_full_state, next_param, chain[:len(chain)-1], next_mask, mask_chain[:len(mask_chain)-1])
-        termination, reward, inter, time_cutoff = self.terminate_reward.check(full_state, next_full_state, param, mask)
+            if self.terminate_reward.true_interaction: true_inter = self.dataset_model.check_current_trace(self.next_option.name, self.name)
+        termination, reward, inter, time_cutoff = self.terminate_reward.check(full_state, next_full_state, param, mask, true_inter=true_inter)
         ext_term = self.temporal_extension_manager.get_extension(termination, last_termination[-1])
         done = self.done_model.check(termination, self.state_extractor.get_true_done(next_full_state))
 
         rewards, terminations, ext_term = last_rewards + [reward], last_termination + [termination], last_ext_term + [ext_term]
         return done, rewards, terminations, ext_term, inter, time_cutoff
+
+    def tensor_state(self, factored_state):
+        fs = copy.deepcopy(factored_state)
+        for k in factored_state.keys():
+            fs[k] = pytorch_model.wrap(fs[k], cuda=self.iscuda)
+        return fs
 
     def predict_state(self, factored_state, raw_action):
         # predict the next factored state given the action chain
@@ -180,16 +189,16 @@ class Option():
 
     def save(self, save_dir, clear=False):
         # checks and prepares for saving option as a pickle
-        policy = self.policy
         if len(save_dir) > 0:
             try:
                 os.makedirs(save_dir)
             except OSError:
                 pass
-            self.policy.cpu() 
+            self.device
+            self.policy.cpu()
             self.policy.save(save_dir, self.name +"_policy")
             if self.iscuda:
-                self.policy.cuda()
+                self.policy.cuda(device=self.device)
             if clear:
                 self.policy = None# removes the policy and rollouts for saving
             return self
@@ -212,6 +221,7 @@ class PrimitiveOption(Option): # primitive discrete actions
         self.terminate_reward = None # handles termination, reward and temporal extension termination
         self.next_option = None # the option which controls the actions
         self.action_map = args.primitive_action_map
+        self.action_featurizer = args.action_featurizer # converts raw actions into action "states" in factored state (dataset_model.controllable)
         self.temporal_extension_manager = None # manages when to temporally extend
         self.dataset_model = None
         self.initiation_set = None # TODO: handle initiation states
@@ -258,9 +268,18 @@ class PrimitiveOption(Option): # primitive discrete actions
 
     def predict_state(self, factored_state, raw_action):
         new_action = copy.deepcopy(factored_state["Action"])
-        new_action = self.action_featurizer.assign_feature({"Action": new_action}, raw_action, factored=True)
+        unsqueeze = 0
+        if len(new_action.shape) == 2:
+            new_action = new_action[0] # squeezing new_action
+            unsqueeze = 1
+        if type(self.action_map.action_featurizer) == list:
+            for af in self.action_map.action_featurizer:
+                af.assign_feature({"Action": new_action}, raw_action, factored=True)
+        else:
+            new_action = self.action_map.action_featurizer.assign_feature({"Action": new_action}, raw_action, factored=True)
+        if unsqueeze:
+            new_action["Action"] = new_action["Action"].unsqueeze(0)
         return [1], new_action
-
 
 class RawOption(Option):
     def __init__(self, args, models, policy, next_option):
@@ -287,7 +306,7 @@ class RawOption(Option):
     def cuda(self):
         super().cuda()
 
-    def sample_action_chain(self, batch, state_chain, random=False, force=False, preserve=False, use_model=False):
+    def sample_action_chain(self, batch, state_chain, random=False, use_model=False):
         '''
         Takes an action in the state, only accepts single states. Since the initiation condition extends to all states, this is always callable
         also returns whether the current state is a termination condition. The option will still return an action in a termination state
@@ -298,7 +317,7 @@ class RawOption(Option):
             policy_batch = None
             state = None
         else:
-            batch['obs'] = self.state_extractor.get_state(batch['full_state'])
+            batch['obs'] = self.state_extractor.get_raw(batch['full_state'])
             policy_batch = self.policy.forward(batch, state_chain[-1] if state_chain is not None else None)
             act, mapped_act = self.action_map.map(policy_batch.act)
         chain = [act]
@@ -320,26 +339,32 @@ class ForwardModelCounterfactualOption(ModelCounterfactualOption):
     ''' Uses the forward model to choose the action '''
     def __init__(self, args, models, policy, next_option):
         super().__init__(args, models, policy, next_option)
-        self.sample_per = 5
-        self.max_propagate = 3
-        self.epsilon_reward = .1
+        self.sample_per = 5 # number of values to sample at each time step forward
+        self.max_propagate = 3 # number of steps forward to search
+        self.epsilon_reward = .1 # minimum difference in reward
         self.time_range = list(range(0, 1)) # timesteps to sample for interaction/parameter (TODO: negative not supported)
-        self.uniform = True
-        self.stepsize = 2
-        self.use_true_model = False
+        self.uniform = True # searches uniformly over local space instead of sampling
+        self.stepsize = 2 # distance to step for sampling 
+        self.use_true_model = False # if true, uses the model instead
+        self.model_timer = 0 # keeps track of steps between last time the model was used
+        self.model_frequency = 2 # how often to run the model TODO: replace with predictive model
         if self.use_true_model:
-            self.dummy_env_model = copy.deepcopy(self.environment_model)
-        if not self.discrete_actions: # sample all discrete actions if action space is discrete
-            self.var = 6 # samples uniformly in a range around the target position, altering the values of mask
+            self.dummy_env_model = copy.deepcopy(args.environment_model) # make sure this is not saved
+        if not self.action_map.discrete_actions: # sample all discrete actions if action space is discrete
+            self.var = 6 # samples uniformly in a range around the target position, altering the values of param where mask == 1
+
+    def update(self, buffer, done, last_state, act, chain, term_chain, param, masks, update_policy=True):
+        super().update(buffer, done, last_state, act, chain, term_chain, param, masks, update_policy=update_policy)
+        self.model_timer += 1
 
     def single_step_search(self, center, mask):
         # weights for possible deviations uniformly around the center, and center (zero)
         if self.uniform:
             num = (self.var * 2) // self.stepsize + 1
-            vals = np.stack([np.linspace(-self.var, self.var, num ) for i in range(self.next_option.mask.shape[0])], axis=1)
+            vals = np.stack([np.linspace(-self.var, self.var, num ) for i in range(mask.shape[0])], axis=1)
             samples = center + vals * mask
         else:
-            vals = (np.random.rand(*[self.sample_per] + list(self.next_option.mask.shape)) - .5) * 2
+            vals = (np.random.rand(*[self.sample_per] + list(mask.shape)) - .5) * 2
             samples = center + vals * self.var * mask
         # samples are around the center with max dev self.var but only changing masked values
         
@@ -369,15 +394,17 @@ class ForwardModelCounterfactualOption(ModelCounterfactualOption):
         for i in self.time_range:
             # gather samples around the given state reached
             inters, next_factored_state = self.predict_state(factored_state, 0) # TODO: raw action hacked to no-op for now
-            next_factored_state = self.np_state(next_factored_state)
+            next_factored_state = cpu_state(next_factored_state)
             full_state = {"factored_state": next_factored_state, "PARTIAL": 1}
-            center = self.next_option.get_state(full_state, setting=self.next_option.output_setting, factored=True)
-            obj_samples = self.single_step_search(center, self.next_option.mask)
+            center = self.next_option.state_extractor.get_target(full_state)
+            obj_samples = self.single_step_search(center, self.next_option.sampler.mask)
             # for each of the samples, broadcast the object state
-            broadcast_obj_state = np.stack([next_factored_state[self.name].copy() for i in range(len(obj_samples))], axis=0)
+            # TODO: squeezing appears to happen for single step search, this requiring it here... but it is risky
+            broadcast_obj_state = np.stack([next_factored_state[self.name].copy().squeeze() for i in range(len(obj_samples))], axis=0)
             # factored state with only the pair of objects needed, because we ONLY forward predict the next factored state of the current object
             all_samples.append({self.name: broadcast_obj_state, self.next_option.name: obj_samples})
-            all_orig.append({self.name: next_factored_state[self.name].copy(), self.next_option.name: center})
+            # TODO: squeezing appears to happen for single step search, this requiring it here... but it is risky
+            all_orig.append({self.name: next_factored_state[self.name].copy().squeeze(), self.next_option.name: center.squeeze()})
             factored_state = Batch(next_factored_state)
 
         # returns the factored states, the first is giving back the original state, but propagated for the time range, the second is the factored state for the samples
@@ -386,26 +413,27 @@ class ForwardModelCounterfactualOption(ModelCounterfactualOption):
         Batch({self.name: np.concatenate([all_samples[i][self.name] for i in range(len(all_samples))], axis=0), 
         self.next_option.name: np.concatenate([all_samples[i][self.next_option.name] for i in range(len(all_samples))], axis=0)}))
     
-    def enumerate_rewards(self, factored_state):
+    def enumerate_rewards(self, factored_state, param, mask):
         # outputs the rewards, and the action state (state that can be converted to an action by the CURRENT option)
         inters, preds = self.dataset_model.predict_next_state(factored_state)
         state = {"factored_state": factored_state, "PARTIAL": 1} # hopefully limited factored state is sufficient
-        input_state = self.get_state(state, setting=self.inter_setting, factored=True)
-        action_state = self.next_option.get_state(state, setting=self.next_option.output_setting, factored=True)
+        input_state = self.state_extractor.get_inter(state)
+        action_state = self.next_option.state_extractor.get_target(state)
         object_state = pytorch_model.unwrap(preds)
         # get the first action
-        rewards = self.reward.get_reward(input_state, object_state, self.param, self.mask, 0)
+        rewards = self.terminate_reward.reward.get_reward(pytorch_model.unwrap(inters.squeeze()), object_state, param, mask, 0)
+        # print("reward enum", inters, object_state, param, input_state, rewards)
         return action_state, rewards
 
-    def propagate_state(self, batch, state_chain, mapped_act):
+    def propagate_state(self, batch, state_chain, mapped_act, param, mask):
         '''
         roll forward until time limit or we hit the end of temporal extension, then start guessing future states
         '''
         state = copy.deepcopy(batch['full_state'])
-        input_state = self.next_option.get_state(state, setting=self.next_option.inter_setting, factored=True)
-        object_state = self.next_option.get_state(state, setting=self.next_option.output_setting, factored=True)
+        input_state = self.next_option.state_extractor.get_inter(state)
+        object_state = self.next_option.state_extractor.get_target(state)
         # get the first action
-        act, chain, policy_batch, pol_state, resampled = self.sample_action_chain(batch, state_chain, preserve=True)
+        act, chain, policy_batch, pol_state, masks = super().sample_action_chain(batch, state_chain, use_model=False)
         # if self.mask is None:
         #     self.mask = self.dataset_model.get_active_mask() # doesn't use the sampler's mask
         # while we haven't reached the target location
@@ -415,25 +443,26 @@ class ForwardModelCounterfactualOption(ModelCounterfactualOption):
         while (timer < self.max_propagate and not term):
             # get the next state
             inters, factored_state = self.predict_state(factored_state, chain[0]) # TODO: add optional replacement with predictions from environment model
-            factored_state = self.np_state(factored_state)
-            state = {"factored_state": factored_state, "PARTIAL": 1} # hopefully limited factored state is sufficient
-            input_state = self.next_option.get_state(state, setting=self.next_option.inter_setting, factored=True)
-            object_state = self.next_option.get_state(state, setting=self.next_option.output_setting, factored=True)
+            factored_state = cpu_state(factored_state)
+            next_state = {"factored_state": factored_state, "PARTIAL": 1} # hopefully limited factored state is sufficient
             # get the first action
             batch = copy.deepcopy(batch) # TODO: is copy inefficient?
-            batch.update(full_state = [state], obs = self.get_state(state, setting=self.input_setting, factored=True, param=self.param))
-            act, chain, policy_batch, pol_state, resampled = self.sample_action_chain(batch, state_chain, preserve=True, use_model=False)
-            term = self.next_option.termination.check(input_state, object_state, self.next_option.convert_param(chain[-1]), self.next_option.mask, 0)
-            factored_state = Batch([factored_state])
+            batch.update(full_state = state, next_full_state = next_state, obs = self.state_extractor.get_obs(state, param=param, mask=mask))
+            act, chain, policy_batch, pol_state, masks = super().sample_action_chain(batch, state_chain, use_model=False)
+            # check if the last state terminated (temporal extension ended)
+            term, rew, inter, time_cutoff = self.next_option.terminate_reward.check(state, next_state, self.next_option.sampler.convert_param(chain[-1]), masks[-2], use_timer=False, ignore_true=True)
+            #termination.check(input_state, object_state, self.next_option.convert_param(chain[-1]), masks[-1], 0)
+            factored_state = Batch(factored_state)
+            state = next_state
             timer += 1
         state = {"factored_state": factored_state, "PARTIAL": 1}
         return state
 
     def search(self, batch, state_chain, act, mapped_act):
-        full_state = self.propagate_state(batch, state_chain, mapped_act)
+        full_state = self.propagate_state(batch, state_chain, mapped_act, batch.param[0], batch.mask[0]) # TODO: param and mask use assumed shape [1, *param/mask shape]
         base_factored_states, sample_factored_states = self.collect(full_state)
-        sample_action_state, sample_rewards = self.enumerate_rewards(sample_factored_states)
-        base_action_state, base_rewards = self.enumerate_rewards(base_factored_states)
+        sample_action_state, sample_rewards = self.enumerate_rewards(sample_factored_states, batch.param[0], batch.mask[0])
+        base_action_state, base_rewards = self.enumerate_rewards(base_factored_states, batch.param[0], batch.mask[0])
         def convert_state_to_action(obj_state):
             # TODO: assumes that obj_state is in the order of mask, which is NOT a given
             act = list()
@@ -447,14 +476,18 @@ class ForwardModelCounterfactualOption(ModelCounterfactualOption):
             return act, mapped_act
         else:
             best_sampled_at = np.argmax(sample_rewards)
+            # ind = np.unravel_index(best_sampled_at, sample_rewards.shape)
             new_act_dict = {self.next_option.name: sample_action_state[best_sampled_at]}
             new_mapped_act = convert_state_to_action(new_act_dict)
-            new_act = self.reverse_map_action(new_mapped_act, batch)
+            new_act = self.action_map.reverse_map_action(new_mapped_act, batch)
             return new_act[0], mapped_act
 
-    def sample_action_chain(self, batch, state_chain, random=False, force=False, use_model = False, preserve=False):
-        return super().sample_action_chain(batch, state_chain, random=random, force=force, use_model=True, preserve=preserve)
-
+    def sample_action_chain(self, batch, state_chain, random=False, use_model = False): # does not assign use_model because this class ALWAYS uses the model
+        if self.model_timer != 0 and self.model_timer % self.model_frequency == 0:
+            self.model_timer = 0
+            return super().sample_action_chain(batch, state_chain, random=random, use_model=True)
+        else:
+            return super().sample_action_chain(batch, state_chain, random=random, use_model=False)
 
 
 

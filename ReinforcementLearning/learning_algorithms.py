@@ -58,10 +58,15 @@ class HER(LearningOptimizer):
         self.replay_queue = deque(maxlen=args.max_hindsight)
         self.early_stopping = args.early_stopping # stops after seeing early stopping number of termiantions
 
+
     def step(self):
         self.sample_timer += 1
 
     def record_state(self, full_batch, single_batch, skipped, added):
+        '''
+        full_batch is (state, next_state) from the aggregator, handling temporal extension
+        single_batch is (state, next_state) according to the environment
+        '''
         if skipped or not added: 
             # see collector aggregate class method, but skipped follows a "true done" to avoid adding the transition
             # if not added, then temporal extension is occurring
@@ -69,57 +74,57 @@ class HER(LearningOptimizer):
         self.replay_queue.append(copy.deepcopy(full_batch))
         term_resample = np.any(full_batch.done) or np.any(full_batch.terminate)
         timer_resample = (self.sample_timer >= self.resample_timer) and not term_resample
+        inter_resample = self._check_interaction(full_batch.inter.squeeze()) and self.use_interact # TODO: uses the historical computation
 
         if (term_resample
-             or timer_resample): # either end of episode or end of timer, might be good to have if interaction, this relies on termination == interaction in the appropriate place
-            interacting = True
-            if self.use_interact:
-                interact, pred, var = self._hypothesize(single_batch.full_state) # edit interaction model to take numpy arrays
-                interacting = self._check_interaction(interact)
-            if interacting:
-                print(len(self.replay_queue))
-                mask = full_batch.mask[0]
-                if self.option.dataset_model.multi_instanced: # if multiinstanced, param should not be masked, and needs to be defined by the instance, not just the object state
-                    dataset_model = self.option.dataset_model
-                    instances = dataset_model.split_instances(self.state_extractor.get_inter(single_batch.full_state[0]))
-                    interact_bin = dataset_model.interaction_model.instance_labels(self.state_extractor.get_inter(full_batch.full_state[0]))
-                    idx = pytorch_model.unwrap(dataset_model.check_interaction(interact_bin).nonzero())
-                    idx = idx[0][1]
-                    param = self._get_mask_param(instances[idx], mask)
-                else:
-                    param = self._get_mask_param(full_batch.next_target[0], mask)# self.option.get_state(full_batch["next_full_state"][0], setting=self.option.output_setting) * mask
-                rv_search = list()
-                for i in range(1, len(self.replay_queue) + 1): # go back in the replay queue, but stop if last_done is hit
-                    batch = self.replay_queue[-i]
-                    her_batch = copy.deepcopy(batch)
-                    inter_state = batch.inter_state[0]
-                    her_batch.update(param=[param.copy()], obs = self.state_extractor.assign_param(batch.full_state[0], batch.obs, param, mask),
-                        obs_next = self.state_extractor.assign_param(batch.full_state[0], batch.obs_next, param, mask), mask=[mask])
-                    true_done = batch.true_done
-                    true_reward = batch.true_reward
-                    term, rew, inter, time_cutoff = self.option.terminate_reward.check(batch.full_state[0], batch.next_full_state[0], param, mask, inter_state=inter_state, use_timer=False)
-                    # print("adding", term, inter, rew, param, inter_state, self.state_extractor.get_target(batch.full_state[0]), self.state_extractor.get_target(batch.next_full_state[0]))
-                    timer, self.done_model.timer = self.done_model.timer, 0
-                    done = self.done_model.check(term, true_done)
-                    self.done_model.timer = timer
-                    her_batch.update(done=[done], terminate=[term], rew=[rew])
-                    rv_search.append(her_batch)
+             or timer_resample
+             or inter_resample): # either end of episode or end of timer, might be good to have if interaction, this relies on termination == interaction in the appropriate place
+            mask = full_batch.mask[0]
+            if self.option.dataset_model.multi_instanced: # if multiinstanced, param should not be masked, and needs to be defined by the instance, not just the object state
+                dataset_model = self.option.dataset_model
+                instances = dataset_model.split_instances(self.state_extractor.get_inter(single_batch.full_state[0]))
+                interact_bin = dataset_model.interaction_model.instance_labels(self.state_extractor.get_inter(full_batch.full_state[0]))
+                idx = pytorch_model.unwrap(dataset_model.check_interaction(interact_bin).nonzero())
+                idx = idx[0][1]
+                param = self._get_mask_param(instances[idx], mask)
+            else:
+                param = self._get_mask_param(full_batch.next_target[0], mask)# self.option.get_state(full_batch["next_full_state"][0], setting=self.option.output_setting) * mask
+            rv_search = list()
+            for i in range(1, len(self.replay_queue) + 1): # go back in the replay queue, but stop if last_done is hit
+                batch = self.replay_queue[-i]
+                her_batch = copy.deepcopy(batch)
+                inter_state = batch.inter_state[0]
+                her_batch.update(param=[param.copy()], obs = self.state_extractor.assign_param(batch.full_state[0], batch.obs, param, mask),
+                    obs_next = self.state_extractor.assign_param(batch.next_full_state[0], batch.obs_next, param, mask), mask=[mask])
+                true_done = batch.true_done
+                true_reward = batch.true_reward
+                term, rew, inter, time_cutoff = self.option.terminate_reward.check(batch.full_state[0], batch.next_full_state[0], param, mask, inter_state=inter_state, use_timer=False, true_inter=batch.inter.squeeze())
 
-                early_stopping_counter = self.early_stopping
-                # print(len(rv_search), len(self.replay_queue))
-                for i in range(1, len(rv_search)+1):
-                    her_batch = rv_search[-i]
-                    if self.early_stopping > 0 and np.any(her_batch.terminate):
-                        early_stopping_counter -= 1
-                        if early_stopping_counter == 0:
-                            her_batch.update(done=[i < len(rv_search)]) # force it to be done to prevent fringing effects
-                    # print("adding at ", single_batch.full_state["factored_state"]["Ball"], her_batch)
-                    ptr, ep_rew, ep_len, ep_idx = self.replay_buffer.add(her_batch, buffer_ids=[0])
-                    if early_stopping_counter == 0 and self.early_stopping > 0:
-                        break
+                timer, self.done_model.timer = self.done_model.timer, 0
+                done = self.done_model.check(term, true_done)
+
+                her_batch.info["TimeLimit.truncated"] = [her_batch.info["TimeLimit.truncated"].squeeze() and not done] if "TimeLimit.truncated" in her_batch.info else [False] # ensure that truncated is NOT true when it conincides with termination
+                self.done_model.timer = timer
+                her_batch.update(done=[done], terminate=[term], rew=[rew])
+                rv_search.append(her_batch)
+
+            early_stopping_counter = self.early_stopping
+            # print(len(rv_search), len(self.replay_queue))
+            for i in range(1, len(rv_search)+1):
+                her_batch = rv_search[-i]
+                # print("her", len(rv_search), her_batch.act, her_batch.inter_state, her_batch.target, her_batch.next_target, her_batch.rew)
+                if self.early_stopping > 0 and np.any(her_batch.terminate):
+                    early_stopping_counter -= 1
+                    if early_stopping_counter == 0:
+                        her_batch.update(done=[i < len(rv_search)]) # force it to be done to prevent fringing effects
+                # print("adding at ", single_batch.full_state["factored_state"]["Ball"], her_batch)
+                
+                ptr, ep_rew, ep_len, ep_idx = self.replay_buffer.add(her_batch, buffer_ids=[0])
+                if early_stopping_counter == 0 and self.early_stopping > 0:
+                    break
             self.sample_timer = 0
             del self.replay_queue
-            self.replay_queue = list()
+            self.replay_queue = deque(maxlen=self.max_hindsight)
 
     def sample_buffer(self, buffer):
         if np.random.random() > self.select_positive or len(self.replay_buffer) == 0:

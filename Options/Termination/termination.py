@@ -58,8 +58,14 @@ class Termination():
 class ParameterizedStateTermination(Termination):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
-		self.epsilon = kwargs['epsilon_close']
+		dataset_model = kwargs["dataset_model"]
+		self.epsilon_close = kwargs['epsilon_close']
 		self.name = kwargs['name']
+		self.inter_pred = dataset_model.interaction_prediction
+
+	def check_interaction(self, inter):
+		return inter > (1-self.inter_pred)
+
 
 	def check(self, input_state, state, param, mask, true_done=0): # handling diff/both outside
 		# NOTE: input state is from the current state, state, param are from the next state
@@ -79,9 +85,9 @@ class ParameterizedStateTermination(Termination):
 		# else:
 		if len(state.shape) == 1:
 			# print("dist", np.linalg.norm((state - param) * mask, ord  = 1), self.epsilon, state, param)
-			return np.linalg.norm((state - param) * mask, ord  = 1) <= self.epsilon
+			return np.linalg.norm((state - param) * mask, ord  = 1) <= self.epsilon_close
 		else:
-			return np.linalg.norm((state - param) * mask, ord =1, axis=1 ) <= self.epsilon
+			return np.linalg.norm((state - param) * mask, ord =1, axis=1 ) <= self.epsilon_close
 
 class InteractionTermination(Termination):
 	def __init__(self, **kwargs):
@@ -114,30 +120,22 @@ class CombinedTermination(Termination):
 		# NOTE: input state is from the current state, state, param are from the next state
 		# terminates if the parameter matches and interaction is true
 		# has some probability of terminating if interaction is true
-		# print("second", param, state)
 		# interaction_pred = pytorch_model.unwrap(self.interaction_model(pytorch_model.wrap(input_state, cuda=self.interaction_model.iscuda)).squeeze())
-		# print(interaction_pred, input_state)
-		self.parameterized_termination.epsilon = self.epsilon_close
+		self.parameterized_termination.epsilon_close = self.epsilon_close
 		self.inter_pred = inter
 		inter = self.inter_pred > (1 - self.epsilon)
 		self.inter = inter
 		self.p_hit = 0
 		param_term = self.parameterized_termination.check(inter, state, param, mask)
-		# print(self.interaction_probability, param_term, pytorch_model.unwrap(inter), state, param)
 		if self.interaction_probability > 0:
 			chances = np.random.random(size=self.inter_pred.shape) < self.interaction_probability
 			if not self.param_interaction: param_inter = True
 			else: param_inter = inter
 			self.p_hit = param_term * param_inter
 			chosen = inter * chances + param_term * param_inter
-			# if np.sum(inter):
-				# print("checked", inter, )
 			if type(chosen) == np.ndarray:
 				chosen[chosen > 1] = 1
-			# print(pytorch_model.unwrap(chosen), pytorch_model.unwrap(inter), pytorch_model.unwrap(interaction_pred), pytorch_model.unwrap(chances), input_state)
-			# error
 			return pytorch_model.unwrap(chosen)
-		# print(inter, param_term, state, (state - param), self.parameterized_termination.epsilon)
 		return pytorch_model.unwrap(inter) * param_term
 
 class CombinedTrueTermination(Termination):
@@ -150,7 +148,11 @@ class CombinedTrueTermination(Termination):
 		self.epsilon = self.comb_terminator.epsilon
 		self.epsilon_close = self.comb_terminator.epsilon_close
 
+	def check_interaction(self, inter):
+		self.comb_terminator.check_interaction(inter)
+
 	def check(self, input_state, state, param, mask, true_done=False):
+		self.comb_terminator.epsilon_close = self.epsilon_close
 		comb_term = self.comb_terminator.check(input_state, state, param, mask, true_done=true_done)
 		self.inter = self.comb_terminator.inter
 		self.inter_pred = self.comb_terminator.inter_pred
@@ -158,7 +160,6 @@ class CombinedTrueTermination(Termination):
 		vals = comb_term + true_done
 		if type(vals) == np.ndarray:
 			vals[vals > 1] = 1
-		# print(vals, comb_term, self.inter, self.inter_pred, self.p_hit)
 		return vals
 
 class InstancedTermination(Termination):

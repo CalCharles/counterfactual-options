@@ -21,14 +21,17 @@ def testRL(args, test_collector, environment, environment_model, option, names, 
         print("testing collection")
         # option.policy.set_eps(0.05)
         test_collector.reset()
+        hit_miss = list()
         for j in range(args.test_trials):
-            if args.max_steps > 0: result = test_collector.collect(n_episode=1, n_step=args.max_steps, visualize_param=args.visualize_param)
+            if args.max_steps > 0: result = test_collector.collect(n_episode=1, n_term=1, n_step=args.max_steps, visualize_param=args.visualize_param)
             print(result["n/st"])
             total_steps += result["n/st"]
+            hit_miss.append(result['n/h'])
             test_perf.append(result["rews"].mean())
             suc.append(float(result["terminate"]))
         print("Iters: ", i, "Steps: ", total_steps)
-        print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}")
+        mean_hit = sum(hit_miss)/ max(1, len(hit_miss))
+        print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}", f"Hit Miss: {mean_hit}")
         test_collector.reset_env() # because test collector and train collector share the same environment
 
 

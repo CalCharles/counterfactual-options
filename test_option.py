@@ -70,13 +70,35 @@ if __name__ == '__main__':
     # print(dataset_model.observed_outcomes)
     graph = load_graph(args.graph_dir)
 
+    # TODO: remove line below, hacked for changes
+    graph.nodes["Action"].option.action_map.action_featurizer = graph.nodes["Paddle"].option.dataset_model.controllable[0]
+    print(graph.nodes["Action"].option)
+
     option_name = dataset_model.name.split("->")[0]
     names = [args.object, option_name]
     load_option = args.object in graph.nodes
     print(load_option, args.object)
-    last_option = graph.nodes[args.object].option
     if args.change_option:
-        pass
+        load_option = graph.nodes[args.object].option
+        load_option.cuda()
+        print(load_option.policy.algo_policy.actor.last.model[0].weight.data, load_option.policy.algo_policy.actor.preprocess.model.model[0].weight.data)
+        
+        models = ObjDict()
+        models.sampler = load_option.sampler
+        models.state_extractor = load_option.state_extractor
+        models.terminate_reward = load_option.terminate_reward
+        models.action_map = load_option.action_map
+        models.dataset_model = load_option.dataset_model
+        models.temporal_extension_manager = load_option.temporal_extension_manager
+        models.done_model = load_option.done_model
+        next_option = load_option.next_option
+
+        # initialize option
+        option = option_forms[args.option_type](args, models, None, next_option)
+        option.policy = load_option.policy
+        graph.nodes[args.object] = OptionNode(args.object, option, action_shape = option.action_map.mapped_action_shape)
+        option.cpu()
+        print(load_option.policy.algo_policy.actor.last.model[0].weight.data, option.policy.algo_policy.actor.preprocess.model.model[0].weight.data)
         # TODO: make this work
         # pr.policy, pr.termination, pr.reward, pr.done_model = None, termination, reward, done_model
         # pr.next_option = None if args.true_environment else graph.nodes[option_name].option
@@ -92,11 +114,9 @@ if __name__ == '__main__':
         # option.policy.option = option
         # graph.nodes[args.object] = OptionNode(args.object, option, action_shape = option.action_shape)
     else:
-        option = last_option
+        option = graph.nodes[args.object].option
 
     np.set_printoptions(threshold = 1000000, linewidth = 150, precision=3)
-
-    print("sample able", dataset_model.sample_able.vals)
 
 
     policy = option.policy
@@ -107,7 +127,7 @@ if __name__ == '__main__':
     graph.load_environment_model(environment_model)
 
     MAXEPISODELEN = 150
-    test_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, test=True, args=args)
+    test_collector = OptionCollector(option.policy, environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, test=True, args=args, environment_model=environment_model)
 
     # if args.set_time_cutoff:
     option.time_cutoff = -1

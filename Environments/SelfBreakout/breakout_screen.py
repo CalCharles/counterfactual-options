@@ -14,7 +14,7 @@ def adjacent(i,j):
 
 
 class Screen(RawEnvironment):
-    def __init__(self, frameskip = 1, drop_stopping=False):
+    def __init__(self, frameskip = 1, drop_stopping=True):
         super(Screen, self).__init__()
         self.num_actions = 4
         self.action_space = spaces.Discrete(self.num_actions)
@@ -145,11 +145,12 @@ class Screen(RawEnvironment):
             # self.ball.move()
             for ani_obj in self.animate:
                 ani_obj.move()
-            if last_loss != self.ball.losses:
+            pre_stop = (self.ball.pos[0] == 77 and self.ball.vel[0] == 2) or (self.ball.pos[0] == 78 and self.ball.vel[0] == 1) or (self.ball.pos[0] == 78 and self.ball.vel[0] == 2)
+            if pre_stop and self.drop_stopping:
                 self.reward += -1 # negative reward for dropping the ball since done is not triggered
-            if last_loss != self.ball.losses and self.drop_stopping:
                 self.done = True
-            if self.ball.losses == 5:
+                print("dropped", self.ball.losses)
+            if self.ball.losses == 4 and pre_stop:
                 self.average_points_per_life = self.total_score / 5.0
                 self.done = True
                 self.episode_rewards.append(self.total_score)

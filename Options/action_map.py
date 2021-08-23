@@ -11,6 +11,8 @@ class PrimitiveActionMap():
         self.action_space = args.environment.action_space
         self.discrete_actions = args.environment.discrete_actions
         self.discrete_control = np.arange(args.environment.action_space.n) if args.environment.discrete_actions else None
+        self.control_max = args.environment.action_space.high if not args.environment.discrete_actions else args.environment.action_space.n
+        self.control_min = args.environment.action_space.low if not args.environment.discrete_actions else 0
 
     def sample(self):
         self.action_space.sample()
@@ -66,7 +68,7 @@ class ActionMap():
 
     def _reverse_relative_action(self, state, act):
         act = copy.deepcopy(act)
-        base = self.state_extractor.get_action(state)
+        base = self._state_extractor.get_action(state)
         return base - act
 
     def map_action(self, act, batch):

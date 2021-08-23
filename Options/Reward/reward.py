@@ -16,7 +16,7 @@ class BinaryParameterizedReward(Reward):
 		super().__init__(**kwargs)
 		# self.use_diff = kwargs['use_diff'] # compare the parameter with the diff, or with the outcome
 		# self.use_both = kwargs['use_both'] # supercedes use_diff
-		self.epsilon = kwargs['epsilon_close']
+		self.epsilon_close = kwargs['epsilon_close']
 
 	def get_reward(self, inter, state, param, mask, true_reward=0):
 		# NOTE: input state is from the current state, state, param are from the next state
@@ -34,9 +34,25 @@ class BinaryParameterizedReward(Reward):
 		# 		return ((diff - param).norm(p=1, dim=1) <= self.epsilon).float()
 		# else:
 		if len(state.shape) == 1:
-			return (np.linalg.norm((state - param) * mask, ord = 1) <= self.epsilon).astype(float)
+			return (np.linalg.norm((state - param) * mask, ord = 1) <= self.epsilon_close).astype(float)
 		else:
-			return (np.linalg.norm((state - param) * mask, ord = 1, axis=1) <= self.epsilon).astype(float)
+			return (np.linalg.norm((state - param) * mask, ord = 1, axis=1) <= self.epsilon_close).astype(float)
+
+class ConstantParameterizedReward(Reward):
+	def __init__(self, **kwargs):
+		super().__init__(**kwargs)
+		self.parameterized_reward = BinaryParameterizedReward(**kwargs)
+		self.plmbda = kwargs["parameterized_lambda"]
+		self.reward_constant = kwargs["reward_constant"]
+		self.epsilon_close = kwargs["epsilon_close"]
+
+	def get_reward(self, inter, state, param, mask, true_reward=0):
+		# NOTE: input state is from the current state, state, param are from the next state
+		self.parameterized_reward.epsilon_close = self.epsilon_close
+
+		preward = self.parameterized_reward.get_reward(inter, state, param, mask)
+		return pytorch_model.unwrap(self.reward_constant + preward * self.plmbda) # preward * interacting.squeeze() * self.plmbda
+
 
 class InteractionReward(Reward):
 	def __init__(self, **kwargs):
@@ -63,8 +79,8 @@ class TrueNegativeCombinedReward(Reward):
 			new_true = true_reward.copy()
 			new_true[true_reward > 0] = 0
 		else:
-			new_true = 0 if true_reward > 0 else 1
-		return self.combined.get_reward(inter, state, param, mask, true_reward) + self.rlambda * np.squeeze(true_reward * new_true)
+			new_true = 0 if true_reward > 0 else true_reward
+		return self.combined.get_reward(inter, state, param, mask, true_reward) + self.rlambda * np.squeeze(new_true)
 
 class CombinedReward(Reward):
 	def __init__(self, **kwargs):
@@ -79,7 +95,7 @@ class CombinedReward(Reward):
 
 	def get_reward(self, inter, state, param, mask, true_reward=0):
 		# NOTE: input state is from the current state, state, param are from the next state
-		self.parameterized_reward.epsilon = self.epsilon_close
+		self.parameterized_reward.epsilon_close = self.epsilon_close
 
 		ireward = self.interaction_reward.get_reward(inter, state, param, mask)
 		preward = self.parameterized_reward.get_reward(inter, state, param, mask)
@@ -197,5 +213,5 @@ class EnvFnReward(Reward):
 		return self.reward_fn(inter, state, param)
 
 
-reward_forms = {'bin': BinaryParameterizedReward, 'int': InteractionReward, 'comb': CombinedReward, 'inst': InstancedReward,
+reward_forms = {'bin': BinaryParameterizedReward, 'param': ConstantParameterizedReward, 'int': InteractionReward, 'comb': CombinedReward, 'inst': InstancedReward,
 				'true': TrueReward, 'env': EnvFnReward, 'tcomb': TrueNegativeCombinedReward, 'proxist': ProximityInstancedReward}

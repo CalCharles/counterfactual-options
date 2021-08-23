@@ -4,7 +4,7 @@ from Rollouts.param_buffer import ParamReplayBuffer
 from Rollouts.collector import OptionCollector
 from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
 from Tests.test_util import compare_factored
-from Tests.collector_dummy_classes import *
+from Tests.DummyClasses.collector_dummy_classes import *
 from Options.Termination.termination import terminal_forms
 from Options.Reward.reward import reward_forms
 from Options.done_model import DoneModel
@@ -41,6 +41,7 @@ def test_terminate_reward():
     args.use_termination = True
     args.terminal_type = "comb"
     args.reward_type = "tcomb"
+    args.true_interaction = False
     args.dataset_model = TestDatasetModel()
     args.not_true_done_stopping = False
 
@@ -61,7 +62,7 @@ def test_terminate_reward():
     terminate_reward = TerminateReward(args)
 
     models = ObjDict()
-    models.sampler = TestSampler()
+    models.sampler = TestSamplerLocal()
     models.state_extractor = args.state_extractor
     models.terminate_reward = terminate_reward
     models.action_map = None
@@ -102,5 +103,6 @@ def test_terminate_reward():
     for i in range(len(trainbuffer)):
         print(i, trainbuffer[i].rew, trainbuffer[i].terminate, trainbuffer[i].obs, trainbuffer[i].obs_next)
     replay_buffer = option.policy.her.replay_buffer
+    print("HER values")
     for i in range(len(replay_buffer)):
         print(i, replay_buffer[i].rew, replay_buffer[i].terminate, replay_buffer[i].obs, replay_buffer[i].obs_next)

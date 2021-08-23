@@ -16,7 +16,7 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
         trials = args.pretest_trials
     #     trials = args.test_trials * 10
     for j in range(trials):
-        result = test_collector.collect(n_episode=1, n_step=args.max_steps, random=random)
+        result = test_collector.collect(n_episode=1, n_term=1, n_step=args.max_steps, random=random)
         test_perf.append(result["rews"].mean())
         suc.append(float(result["terminate"]))
         hit_miss.append(result['n/h'])
@@ -25,12 +25,16 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     else:
         print("Iters: ", i, "Steps: ", total_steps)
     mean_perf, mean_suc, mean_hit = np.array(test_perf).mean(), np.array(suc).mean(), sum(hit_miss)/ max(1, len(hit_miss))
-    print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}", f"Hit Miss train: {np.mean(hit_miss_train)}")
+    hmt = 0.0
+    if len(list(hit_miss_train)) > 0:
+        hmt = np.sum(np.array(list(hit_miss_train)), axis=0)
+        hmt = hmt[0] / (hmt[0] + hmt[1])
+    print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}", f"Hit Miss train: {hmt}")
     return mean_perf, mean_suc, mean_hit 
 
 def full_save(args, option, graph):
     option.save(args.save_dir)
-    graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
+    graph.save_graph(args.save_graph, [args.object], args.environment_model, cuda=args.cuda)
 
 
 def trainRL(args, train_collector, test_collector, environment, environment_model, option, names, graph):
@@ -45,18 +49,18 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     if args.input_norm: option.policy.compute_input_norm(train_collector.buffer)
 
     # collect initial test trials
-    initial_perf, initial_suc, initial_hit = _collect_test_trials(args, test_collector, 0, 0, list(), list(), list(), (1,0), random=True, option=option)
+    initial_perf, initial_suc, initial_hit = _collect_test_trials(args, test_collector, 0, 0, list(), list(), list(), list(), random=True, option=option)
 
     total_steps = 0
     hit_miss_queue_test = deque(maxlen=2000)
-    hit_miss_queue_train = deque(maxlen=100)
+    hit_miss_queue_train = deque(maxlen=20)
 
     for i in range(args.num_iters):  # total step
         collect_result = train_collector.collect(n_step=args.num_steps) # TODO: make n-episode a usable parameter for collect
         total_steps = collect_result['n/st'] + total_steps
         # once if the collected episodes' mean returns reach the threshold,
         # or every 1000 steps, we test it on test_collector
-        hit_miss_queue_train.append(collect_result['n/h'] / max(1, collect_result['n/m'] + collect_result['n/h']))
+        hit_miss_queue_train.append([collect_result['n/h'], collect_result['n/m']])
 
         if i % args.log_interval == 0:
             print("testing collection")
@@ -71,10 +75,18 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
 
         if args.save_interval > 0 and (i+1) % args.save_interval == 0:
             full_save(args, option, graph)
+
+        # Buffer debugging printouts
+        # buf, hrb = train_collector.buffer, option.policy.learning_algorithm.replay_buffer
+        # print(buf) 
+        # for j, (r, rh, p, ph, itr, itrh, t, th, obs, obsh) in enumerate(zip(buf.rew, hrb.rew, buf.param, hrb.param, buf.inter_state, hrb.inter_state, buf.next_target, hrb.next_target, buf.obs_next, hrb.obs_next)):
+        #     print(j, r, rh, p, ph, itr, itrh, t, th, obs, obsh)
+        # END PRINTOUTS
+
     if args.save_interval > 0:
         full_save(args, option, graph)
     final_perf, final_suc = list(), list()
-    final_perf, final_suc, final_hit = _collect_test_trials(args, test_collector, 0, 0, final_perf, final_suc, list(), (1,0))
+    final_perf, final_suc, final_hit = _collect_test_trials(args, test_collector, 0, 0, final_perf, final_suc, list(), list())
 
     print("performance comparison", initial_perf, final_perf)
     if initial_perf < final_perf - 2:

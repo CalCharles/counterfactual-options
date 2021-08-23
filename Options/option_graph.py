@@ -30,7 +30,7 @@ class OptionGraph():
     def add_edge(self, edge):
         self.edges[(edge.tail, edge.head)] = edge
 
-    def save_graph(self, save_dir, simplify, cuda=False):
+    def save_graph(self, save_dir, simplify, environment_model, cuda=False):
         try:
             os.makedirs(save_dir)
         except OSError:
@@ -38,21 +38,18 @@ class OptionGraph():
         node_policies = dict() # don't save policies or rollouts
         node_rollouts = dict()
         es = dict()
+        env = environment_model.environment
+        environment_model.environment = None
         for name, node in self.nodes.items():
             iscuda = node.option.iscuda
             # print(node)
             node.option.cpu()
-            # print(name)
             # if hasattr(node.option, 'environment_model'):
             #     es[name] = node.option.environment_model.environment
             #     print(node.option.environment_model.environment, es[name])
             #     node.option.environment_model.environment = None
             node_policies[name] = node.option.policy
-            node.option.save(save_dir, clear=True) 
-            # node_policies[name] = (node.option.policy, iscuda)
-            # node.option.policy = None
-            # if len(simplify) > 0 and node.option.dataset_model is not None:
-            #     node.option.dataset_model.reduce_range(simplify + [node.option.object_name])
+            node.option.save(save_dir, clear=True)
         save_to_pickle(os.path.join(save_dir, "graph.pkl"), self)
         for name, node in self.nodes.items():
             if hasattr(node.option, 'environment_model'):
@@ -64,7 +61,8 @@ class OptionGraph():
         #     self.nodes[name].option.rollouts = rollouts
         if cuda:
             for name, node in self.nodes.items():
-                node.option.cuda()
+                node.option.cuda(device=node.option.device) # device is still the GPU number
+        environment_model.environment = env
             # if iscuda:
             #     node.option.cuda()
 
@@ -104,6 +102,7 @@ def graph_construct_load(args, environment, environment_model):
             for i, af in enumerate(afs):
                 step = (environment.action_space.high[i] - environment.action_space.low[i]) / 3
                 controllable_feature_selectors.append(ControllableFeature(af, [environment.action_space.low[i],environment.action_space.high[i]],step))
+        args.action_featurizer = controllable_feature_selectors
         actions = PrimitiveOption(args, None)
 
         if environment.discrete_actions:

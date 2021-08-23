@@ -6,6 +6,53 @@ def array_state(factored_state):
         factored_state[n] = np.array(factored_state[n])
     return factored_state
 
+breakout_action_norm = (np.array([0,0,0,0,1.5]), np.array([1,1,1,1,1.5]))
+breakout_paddle_norm = (np.array([72, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
+breakout_state_norm = (np.array([84 // 2, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
+breakout_relative_norm = (np.array([0,0,0,0,0]), np.array([84 // 2, 84 // 2,2,1,1]))
+
+# .10, -.31
+# .21, -.31
+# .915, .83
+
+# -.105, .2
+# -.05, .26
+# .8725, .0425
+robopush_action_norm = (np.array([0,0,0]), np.array([1,1,1]))
+robopush_gripper_norm = (np.array([-.105,-.05,.8725]), np.array([.2,.26,.0425]))
+robopush_state_norm = (np.array([-.105,-.05,.802]), np.array([.2,.26,.001]))
+robopush_relative_norm = (np.array([0,0,0]), np.array([.2,.26,.0425]))
+
+def hardcode_norm_inter(anorm, v1norm, v2norm, hardcoded_normalization):
+    if hardcoded_normalization[1] == '1':
+        mean = np.concatenate([anorm[0], v1norm[0]])
+        var = np.concatenate([anorm[1], v1norm[1]])
+    elif hardcoded_normalization[1] == '2':
+        mean = np.concatenate([v1norm[0], v2norm[0]])
+        var = np.concatenate([v1norm[1], v2norm[1]])
+    else:
+        mean = np.concatenate([v2norm[0], v2norm[0]])
+        var = np.concatenate([v2norm[1], v2norm[1]])
+    return mean, var
+
+def hardcode_norm_param(get_mask_param, hardcoded_normalization, mask, v1norm, v2norm):
+    if hardcoded_normalization[1] == '1':
+        mean = get_mask_param(v1norm[0], mask)
+        var = v1norm[1]
+    else:
+        mean = get_mask_param(v2norm[0], mask)
+        var = v2norm[1]
+    return mean, var
+
+def hardcode_norm_relative(hardcoded_normalization, v1norm, v2norm):
+    if hardcoded_normalization[1] == '1':
+        mean = v1norm[0]
+        var = v1norm[1]
+    else:
+        mean = v2norm[0]
+        var = v2norm[1]
+    return mean, var
+
 
 # state extractor
 class StateExtractor():
@@ -19,6 +66,8 @@ class StateExtractor():
         self._flatten_factored_state = args.environment_model.flatten_factored_state
         self._action_feature_selector = args.action_feature_selector # option.next_option.dataset_model.feature_selector
         self.combine_param_mask = not args.no_combine_param_mask
+        self.hardcoded_normalization = args.hardcode_norm
+        self.scale = float(self.hardcoded_normalization[2]) if len(self.hardcoded_normalization) > 0 else 1
 
         self.obs_setting = args.observation_setting
         self.update(full_state)
@@ -29,7 +78,7 @@ class StateExtractor():
         self.target_shape = self.get_state(full_state, (0,target,0,0,0,0,0,0,0)).shape
         self.flat_shape = self.get_state(full_state, (0,0,flat,0,0,0,0,0,0)).shape
         self.pre_param = self.inter_shape[0] + self.target_shape[0] + self.flat_shape[0]
-        self.param_shape = self.get_state(full_state, (0,0,0,use_param,0,0,0,0,0), param=param).shape
+        self.param_shape = self.get_state(full_state, (0,0,0,use_param,0,0,0,0,0), param=param, mask=mask).shape
         self.param_rel_shape = self.get_state(full_state, (0,0,0,0,param_relative,0,0,0,0), param=param, mask=mask).shape
         self.relative_shape = self.get_state(full_state, (0,0,0,0,0,relative,0,0,0)).shape
         self.action_shape = self.get_state(full_state, (0,0,0,0,0,0,action,0,0)).shape
@@ -41,9 +90,11 @@ class StateExtractor():
         self.object_shape = self.target_shape
 
 
+    def get_raw(self, full_state):
+        return full_state["raw_state"]
 
     def get_obs(self, full_state, param, mask=None):
-        return self.get_state(full_state, self.obs_setting, param, mask)
+        return self.get_state(full_state, self.obs_setting, param, mask, normalize=True)
 
     def get_target(self, full_state):
         return self.get_state(full_state, (0,1,0,0,0,0,0,0,0))
@@ -67,9 +118,11 @@ class StateExtractor():
         factored_state = full_state['factored_state']
         return factored_state["Done"][-1]
 
+    def get_true_reward(self, full_state):
+        factored_state = full_state['factored_state']
+        return factored_state["Reward"][-1]
 
-
-    def get_state(self, full_state, setting, param=None, mask=None): # param is expected 
+    def get_state(self, full_state, setting, param=None, mask=None, normalize = False): # param is expected 
         # form is an enumerator, 0 is flattened state, 1 is gamma/delta state, 2 is diff using last_factor
         # inp indicates if gamma or delta or gamma+param (if param is not None)
         # full_state is a batch or dict containing raw_state, factored_state
@@ -77,35 +130,57 @@ class StateExtractor():
         # factored_state may also be a batch/dict: {name: [env_num, batch_num, factored_shape]}
         inter, target, flat, use_param, param_relative, relative, action, option, diff = setting
         factored_state = full_state["factored_state"]
-        return self._combine_state(full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=param, mask=mask)
+        return self._combine_state(full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=param, mask=mask, normalize=normalize)
 
-    def _combine_state(self, full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=None, mask=None):
+    def _combine_state(self, full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=None, mask=None, normalize=False):
         # combines the possible components of state:
         # param relative
         factored_state = array_state(full_state['factored_state'])
-        shape = factored_state["Action"].shape[:-1]
+        k = list(factored_state.keys())[0]
+        shape = factored_state[k].shape[:-1]
 
         state_comb = list()
         if option: state_comb.append(self._option_featurizer(factored_state))
-        if inter: state_comb.append(self._gamma_featurizer(factored_state))
+        if inter: state_comb.append(self._get_inter(factored_state, normalize=normalize))
         if target: state_comb.append(self._delta_featurizer(factored_state))
         if flat: state_comb.append(self._flatten_factored_state(factored_state, instanced=True))
-        if use_param: state_comb.append(self._broadcast_param(shape, param)) # only handles param as a concatenation
-        if param_relative: state_comb.append(self._relative_param(shape, factored_state, param, mask))
-        if relative: state_comb.append(self._get_relative(factored_state))
+        if use_param: state_comb.append(self._broadcast_param(shape, param, mask, normalize=normalize)) # only handles param as a concatenation
+        if param_relative: state_comb.append(self._relative_param(shape, factored_state, param, mask, normalize=normalize))
+        if relative: state_comb.append(self._get_relative(factored_state, normalize=normalize))
         if action: state_comb.append(self._action_feature_selector(factored_state))
         if diff: state_comb.append(self._get_diff(factored_state))
 
         if len(state_comb) == 0:
             return np.zeros((0,))
         else:
+            # print(factored_state, state_comb, self._action_feature_selector.names, self._action_feature_selector.factored_features)
             return np.concatenate(state_comb, axis=len(shape))
         return state_comb[0]
+
+    def _get_inter(self, factored_state, normalize=False):
+        inter_state = self._gamma_featurizer(factored_state)
+        if normalize and len(self.hardcoded_normalization) > 0:
+            if self.hardcoded_normalization[0] == 'breakout':
+                mean, var = hardcode_norm_inter(breakout_action_norm, breakout_paddle_norm, breakout_state_norm, self.hardcoded_normalization)
+                return (inter_state - mean) / var * self.scale
+            elif self.hardcoded_normalization[0] == 'robopush':
+                mean, var = hardcode_norm_inter(robopush_action_norm, robopush_gripper_norm, robopush_state_norm, self.hardcoded_normalization)  
+            return (inter_state - mean) / var * self.scale
+        return inter_state
+
 
     def _get_diff(self, factored_state):
         return self._delta_featurizer(factored_state) - self.last_state
 
-    def _broadcast_param(self, shape, param):
+    def _broadcast_param(self, shape, param, mask, normalize=False):
+        if normalize and len(self.hardcoded_normalization) > 0:
+            if self.hardcoded_normalization[0] == 'breakout':
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, breakout_paddle_norm, breakout_state_norm)
+                param = (param - mean) / var * self.scale
+            if self.hardcoded_normalization[0] == 'robopush':
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_gripper_norm, robopush_state_norm)
+                param = (param - mean) / var * self.scale
+
         if len(shape) == 0:
             return param
         if len(shape) == 1:
@@ -113,13 +188,28 @@ class StateExtractor():
         if len(shape) == 2:
             return np.stack([np.stack([param.copy() for i in range(shape[1])], axis=0) for j in range(shape[0])], axis=0)
 
-    def _relative_param(self, shape, factored_state, param, mask):
+    def _relative_param(self, shape, factored_state, param, mask, normalize=False):
         target = self._delta_featurizer(factored_state)
-        param = self._broadcast_param(shape, param)
+        param = self._broadcast_param(shape, param, mask, normalize=normalize)
+        if normalize and len(self.hardcoded_normalization) > 0:
+            if self.hardcoded_normalization[0] == 'breakout':
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, breakout_paddle_norm, breakout_state_norm)
+                target = (target - mean) / var * self.scale
+            if self.hardcoded_normalization[0] == 'robopush':
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_gripper_norm, robopush_state_norm)
+                target = (target - mean) / var * self.scale
         return param - self.get_mask_param(target, mask)
 
-    def _get_relative(self, factored_state):
-        return self._gamma_featurizer.get_relative(factored_state)
+    def _get_relative(self, factored_state, normalize = False):
+        rel_state = self._gamma_featurizer.get_relative(factored_state)
+        if normalize and len(self.hardcoded_normalization) > 0:
+            if self.hardcoded_normalization[0] == 'breakout':
+                mean, var = hardcode_norm_relative(self.hardcoded_normalization, breakout_paddle_norm, breakout_state_norm)
+                rel_state = (rel_state - mean) / var
+            elif self.hardcoded_normalization[0] == 'robopush':
+                mean, var = hardcode_norm_relative(self.hardcoded_normalization, robopush_gripper_norm, robopush_state_norm)
+                rel_state = (rel_state - mean) / var
+        return rel_state
 
     def update(self, state):
         factored_state = array_state(state['factored_state'])
@@ -134,22 +224,31 @@ class StateExtractor():
         '''
         obs may be 1, 2 or 3 dimensional vector. param should be 1d vector
         full state is needed for relative param, as is mask
+        since we are assigning to obs, make sure this is normalized
         '''
+        shape = obs.shape[:-1]
+        param_norm = self._broadcast_param(shape, param, mask, normalize=True)
         if len(obs.shape) == 1:
-            obs[self.pre_param:self.pre_param + self.param_shape[0]] = param
+            obs[self.pre_param:self.pre_param + self.param_shape[0]] = param_norm
         elif len(obs.shape) == 2:
-            obs[:, self.pre_param:self.pre_param + self.param_shape[0]] = param
+            obs[:, self.pre_param:self.pre_param + self.param_shape[0]] = param_norm
         elif len(obs.shape) == 3:
-            obs[:,:,self.pre_param:self.pre_param + self.param_shape[0]] = param
-
+            obs[:,:,self.pre_param:self.pre_param + self.param_shape[0]] = param_norm
         if self.param_rel_shape[0] > 0:
             target = self.get_mask_param(self.get_target(full_state), mask)
-            shape = obs.shape[:-1]
+            if self.hardcoded_normalization[0] == 'breakout':
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, breakout_paddle_norm, breakout_state_norm)
+                target = (target - mean) / var * self.scale
+            if self.hardcoded_normalization[0] == 'robopush':
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_gripper_norm, robopush_state_norm)
+                target = (target - mean) / var * self.scale
+            diff = param_norm - target
+            pre_rel = self.pre_param + self.param_shape[0]
             if len(obs.shape) == 1:
-                obs[self.pre_param:self.pre_param + self.param_shape[0]] = self._broadcast_param(shape, param) - target
+                obs[pre_rel:pre_rel + self.param_rel_shape[0]] = diff
             elif len(obs.shape) == 2:
-                obs[:, self.pre_param:self.pre_param + self.param_shape[0]] = self._broadcast_param(shape, param) - target
+                obs[:, pre_rel:pre_rel + self.param_rel_shape[0]] = diff
             elif len(obs.shape) == 3:
-                obs[:,:,self.pre_param:self.pre_param + self.param_shape[0]] = self._broadcast_param(shape, param) - target
+                obs[:,:,pre_rel:pre_rel + self.param_rel_shape[0]] = diff
 
         return obs

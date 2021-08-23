@@ -1,9 +1,10 @@
 import numpy as np
 import os, cv2, time, copy, itertools
 import torch
+from collections import OrderedDict
 from Rollouts.rollouts import Rollouts, ObjDict
 from tianshou.data import Batch
-from Networks.network import ConstantNorm
+from Networks.network import ConstantNorm, pytorch_model
 
 class EnvironmentModel():
     def __init__(self, environment):
@@ -187,15 +188,16 @@ class EnvironmentModel():
             factored_str = name + ":" + " ".join(map(str, state)) + "\t"
         self.environment.write_objects(factored_str, save_raw=save_raw)
 
-    def get_insert_dict(self, factored_state, next_factored_state, last_state=None, instanced=False, action_shift=False):
+    def get_insert_dict(self, factored_state, next_factored_state, last_state=None, instanced=False, action_shift=False, ignore_done=True):
         if last_state is None:
             last_state = torch.zeros(self.flatten_factored_state(factored_state, instanced=instanced).shape)
         if action_shift:
             factored_state['Action'] = copy.copy(next_factored_state['Action'])
         state = torch.tensor(self.flatten_factored_state(factored_state, instanced=instanced)).float()
         next_state = torch.tensor(self.flatten_factored_state(next_factored_state, instanced=instanced)).float()
-        insert_dict = {'state': state, 'next_state': next_state, 'state_diff': next_state-state, 'done': self.get_done({"factored_state": factored_state}), 'action': self.get_action({"factored_state": factored_state})}
-        return insert_dict, state
+        skip = self.get_done({"factored_state": factored_state})
+        insert_dict = {'state': state, 'next_state': next_state, 'state_diff': next_state-state, 'done': self.get_done({"factored_state": next_factored_state}), 'action': self.get_action({"factored_state": factored_state})}
+        return insert_dict, state, skip
 
     def create_entity_selector(self, names):
         flat_features = list()
@@ -413,7 +415,7 @@ class FeatureSelector():
 
 
     def __call__(self, states):
-        if type(states) is dict or type(states) is Batch: # factored features, returns a flattened state to match the other calls
+        if type(states) is dict or type(states) is Batch or type(states) is OrderedDict: # factored features, returns a flattened state to match the other calls
             # ks = self.factored_features.keys()
             # return {name: states[name][idxes] for name, idxes in self.factored_features}
             # TODO: Above lines are old code, if new code breaks revert back, otherwise remove
@@ -454,26 +456,33 @@ class FeatureSelector():
         elif len(insert_state.shape) == 3: # a batch of flattened state
             insert_state[:, self.flat_features] = delta_state
 
+def cpu_state(factored_state):
+    fs = dict()
+    for k in factored_state.keys():
+        fs[k] = pytorch_model.unwrap(factored_state[k])
+    return fs
+
+
 def assign_feature(states, assignment, edit=False, clipped=None): 
 # assignment is a tuple assignment keys (tuples or indexes), and assignment values
 # edit means that the assignment is added 
-    if type(states) is dict: # factored features
+    if type(states) is dict: # factored features, assumes that shapes for assignment[0][1] and assignment[1] match
         states[assignment[0][0]][assignment[0][1]] = assignment[1] if not edit else states[assignment[0][0]][assignment[0][1]] + assignment[1]
         if clipped is not None:
-            states[assignment[0][0]][assignment[0][1]] = states[assignment[0][0]][assignment[0][1]].clamp(clipped[0], clipped[1])
+            states[assignment[0][0]][assignment[0][1]] = states[assignment[0][0]][assignment[0][1]].clip(clipped[0], clipped[1])
     elif len(states.shape) == 1: # a single flattened state
         states[assignment[0]] = assignment[1] if not edit else states[assignment[0]] + assignment[1]
         if clipped is not None:
-            states[assignment[0]] = states[assignment[0]].clamp(clipped[0], clipped[1])
+            states[assignment[0]] = states[assignment[0]].clip(clipped[0], clipped[1])
     elif len(states.shape) == 2: # a batch of flattened state
         states[:, assignment[0]] = assignment[1] if not edit else states[:, assignment[0]] + assignment[1]
         if clipped is not None:
-            cstates = states[:, assignment[0]].clamp(clipped[0], clipped[1])
+            cstates = states[:, assignment[0]].clip(clipped[0], clipped[1])
             states[:, assignment[0]] = cstates
     elif len(states.shape) == 3: # a batch of stacks of flattened state
         states[:, :, assignment[0]] = assignment[1] if not edit else states[:, :, assignment[0]] + assignment[1]
         if clipped is not None:
-            cstates = states[:, :, assignment[0]].clamp(clipped[0], clipped[1])
+            cstates = states[:, :, assignment[0]].clip(clipped[0], clipped[1])
             states[:, :, assignment[0]] = cstates
 
 def discretize_space(action_shape): # converts a continuous action space into a discrete one

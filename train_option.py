@@ -50,7 +50,6 @@ if __name__ == '__main__':
         dataset_model = interaction_models["dummy"](environment_model=environment_model)
     else:
         dataset_model = load_hypothesis_model(args.dataset_dir)
-        dataset_model.interaction_prediction = args.interaction_prediction
         torch.cuda.empty_cache()
         dataset_model.cpu()
     if len(args.force_mask):
@@ -69,6 +68,7 @@ if __name__ == '__main__':
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
         args.primitive_action_map = PrimitiveActionMap(args)
+        args.action_featurizer = dataset_model.controllable[0] if environment.discrete_actions else dataset_model.controllable
         if environment.discrete_actions:
             actions = PrimitiveOption(args, None)
             nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}
@@ -78,6 +78,9 @@ if __name__ == '__main__':
             nodes = {'Action': OptionNode('Action', actions, action_shape = environment.action_shape)}
             graph = OptionGraph(nodes, dict(), dataset_model.controllable)
     
+    # TODO: REMOVE LINE BELOW
+    # graph.nodes["Paddle"].option.terminate_reward.true_interaction = False
+
     # initialize sampler
     sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule, environment_model=environment_model, init_state=init_state, no_combine_param_mask=args.no_combine_param_mask)
 
@@ -95,9 +98,8 @@ if __name__ == '__main__':
     # initialize termination function, reward function, done model
     tt = args.terminal_type[:4] if args.terminal_type.find('inst') != -1 else args.terminal_type
     rt = args.reward_type[:4] if args.reward_type.find('inst') != -1 else args.reward_type
-    args.interaction_prediction = dataset_model.interaction_prediction
     termination = terminal_forms[tt](name=args.object, **vars(args))
-    reward = reward_forms[rt](interaction_minimum=dataset_model.interaction_minimum, **vars(args)) # using the same epsilon for now, but that could change
+    reward = reward_forms[rt](**vars(args)) # using the same epsilon for now, but that could change
     done_model = DoneModel(use_termination = args.use_termination, time_cutoff=args.time_cutoff, true_done_stopping = not args.not_true_done_stopping)
     
     # initialize terminate-reward
@@ -183,9 +185,9 @@ if __name__ == '__main__':
         trainbuffer = ParamReplayBuffer(args.buffer_len, stack_num=1)
 
     train_collector = OptionCollector(option.policy, environment, trainbuffer, exploration_noise=True, test=False,
-                        option=option, args = args) # for now, no preprocess function
+                        option=option, environment_model = environment_model, args = args) # for now, no preprocess function
     MAXEPISODELEN = 100
-    test_collector = OptionCollector(option.policy, test_environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, test=True, args=args)
+    test_collector = OptionCollector(option.policy, test_environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, test=True, args=args, environment_model=test_environment_model)
 
     trained = trainRL(args, train_collector, test_collector, environment, environment_model, option, names, graph)
     if trained and not args.true_environment: # if trained, add control feature to the graph
@@ -196,4 +198,4 @@ if __name__ == '__main__':
         option.save(args.save_dir)
     if len(args.save_graph) > 0:
         print(args.object)
-        graph.save_graph(args.save_graph, [args.object], cuda=args.cuda)
+        graph.save_graph(args.save_graph, [args.object], args.environment_model, cuda=args.cuda)

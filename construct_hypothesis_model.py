@@ -49,8 +49,9 @@ if __name__ == '__main__':
     data = read_obj_dumps(args.record_rollouts, i=-1, rng = args.num_frames, filename='object_dumps.txt')
     rollouts = ModelRollouts(len(data), environment_model.shapes_dict)
     for data_dict, next_data_dict in zip(data, data[1:]):
-        insert_dict, last_state = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
-        rollouts.append(**insert_dict)
+        insert_dict, last_state, skip = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
+        if not skip:
+            rollouts.append(**insert_dict)
     # UNCOMMENT above
     # REMOVE LATER: saves rollouts so you don't have to run each time
     # save_to_pickle("data/rollouts.pkl", rollouts)
@@ -75,7 +76,7 @@ if __name__ == '__main__':
             success = True
         else:
             model_args = default_model_args(args.predict_dynamics, args.policy_type) # input and output sizes should not be needed
-            model_args.hidden_sizes, model_args.interaction_binary, model_args.interaction_prediction, model_args.init_form, model_args.activation = args.hidden_sizes, args.interaction_binary, args.interaction_prediction, args.init_form, args.activation
+            model_args.hidden_sizes, model_args.interaction_binary, model_args.interaction_prediction, model_args.init_form, model_args.activation, model_args.interaction_distance = args.hidden_sizes, args.interaction_binary, args.interaction_prediction, args.init_form, args.activation, args.interaction_distance
             model_args['controllable'], model_args['environment_model'] = controllable_feature_selectors, environment_model
             feature_explorer = FeatureExplorer(graph, controllable_feature_selectors, environment_model, model_args) # args should contain the model args, might want subspaces for arguments or something since args is now gigantic
             print(rollouts.filled)
@@ -108,7 +109,7 @@ if __name__ == '__main__':
         # afs = environment_model.construct_action_selector() 
         # controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
         hypothesis_model.determine_active_set(rollouts)
-        hypothesis_model.collect_samples(rollouts)
+        hypothesis_model.collect_samples(rollouts, use_trace=args.interaction_iters > 0)
         hypothesis_model.cpu()
         hypothesis_model.save(args.save_dir)
         print(hypothesis_model.selection_binary)

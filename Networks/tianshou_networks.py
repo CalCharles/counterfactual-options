@@ -14,6 +14,7 @@ class TSNet(nn.Module):
         self.use_input_norm = False # set these to true
         self.continuous_critic = False if "continuous_critic" not in kwargs else kwargs["continuous_critic"]
         self.action_dim = 0 if "action_dim" not in kwargs else kwargs["action_dim"]
+        self.bound_output = kwargs["bound_output"] # if 0, then not used, otherwise, bound the output to [-bound_output, 0]
 
     def update_norm(self, input_mean, input_var):
         self.use_input_norm = True
@@ -48,6 +49,9 @@ class TSNet(nn.Module):
         batch = obs.shape[0]
         obs = obs.reshape(batch, -1)
         logits = self.model(obs)
+        if self.bound_output != 0:
+            logits = torch.tanh(logits)
+            logits = (1 - logits) * -self.bound_output
         return logits, state
 
 

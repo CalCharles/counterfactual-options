@@ -120,6 +120,7 @@ class RoboPushingEnvironment(RawEnvironment):
         self.num_actions = -1 # this must be defined, -1 for continuous. Only needed for primitive actions
         self.name = "RobosuitePushing" # required for an environment 
         self.itr = 0 # this is used for saving, and is set externally
+        self.timer = 0
         self.recycle = 0 # if we don't want to save all of the data
         self.save_path = "" # save dir also is set using set_save
         self.episode_rewards = deque(maxlen=10) # the episode rewards for the last 10 episodes
@@ -164,6 +165,7 @@ class RoboPushingEnvironment(RawEnvironment):
         # cv2.imshow('state', next_obs["frontview_image"][::-1].astype(np.uint8))
         # cv2.waitKey(1)
         self.itr += 1
+        self.timer += 1
         if len(self.save_path) != 0:
             if self.itr == 0:
                 object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
@@ -172,6 +174,7 @@ class RoboPushingEnvironment(RawEnvironment):
         if self.done:
             reward = self.reward
             self.reset()
+            self.timer = 0
             self.done = True
             self.reward = reward
             # self.full_state['factored_state']['Done'] = [self.done]

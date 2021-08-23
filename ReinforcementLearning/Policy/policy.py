@@ -55,6 +55,7 @@ class TSPolicy(nn.Module):
         kwargs["exploration_noise"] = GaussianNoise(sigma=args.epsilon)
         kwargs["action_space"] = action_space
         kwargs["discrete_actions"] = discrete_actions
+        self.discrete_actions = discrete_actions
         self.algo_policy = self.init_algorithm(**kwargs)
         self.parameterized = kwargs["parameterized"]
         self.param_process = None
@@ -62,6 +63,43 @@ class TSPolicy(nn.Module):
         self.exploration_noise = self.algo_policy.exploration_noise
         self.grad_epoch = kwargs['grad_epoch']
         self.input_norm_timer = 0
+
+    def cpu(self):
+        super().cpu()
+        self.assign_device("cpu")
+
+    def cuda(self, device=None):
+        super().cuda()
+        if device is not None:
+            self.assign_device(device)
+
+
+    def assign_device(self, device):
+        '''
+        Tianshou stores the device on a variable inside the internal models. This must be pudated when changing CUDA/CPU devices
+        '''
+        if type(device) == int:
+            device = 'cuda:' + str(device)
+        self.algo_policy.device = device
+        if self.algo_name in ["ddpg"]:
+            self.algo_policy.actor.last.device = device
+            self.algo_policy.critic.last.device = device
+            self.algo_policy.actor.device = device
+            self.algo_policy.critic.device = device
+        if self.algo_name in ["sac"]: # TODO: should have dependence on discrete actions 
+            self.algo_policy.actor.mu.device = device
+            self.algo_policy.actor.sigma.device = device
+            self.algo_policy.critic1.last.device = device
+            self.algo_policy.critic2.last.device = device
+            self.algo_policy.actor.device = device
+            self.algo_policy.critic1.device = device
+            self.algo_policy.critic2.device = device
+        if self.algo_name in ["ppo"]: # TODO: should have dependence on discrete actions
+            self.algo_policy.actor.mu.device = device
+            self.algo_policy.actor.sigma.device = device
+            self.algo_policy.critic.last.device = device
+            self.algo_policy.actor.device = device
+            self.algo_policy.critic.device = device
 
     def init_networks(self, args, input_shape, action_shape, discrete_actions, max_action = 1):
         if discrete_actions:
@@ -87,7 +125,10 @@ class TSPolicy(nn.Module):
                 aout_shape = action_shape
                 hidden_sizes = args.hidden_sizes
 
+            critic_bo = args.bound_output
+            args.bound_output = 0
             actor = PolicyType(num_inputs=input_shape, num_outputs=aout_shape, **args)
+            args.bound_output = critic_bo
             critic = PolicyType(num_inputs=cinp_shape, num_outputs=cout_shape, action_dim=ainp_dim, continuous_critic=True, **args)
             if discrete_actions: critic = Critic(critic, last_size=action_shape, device=device).to(device)
             else: critic = Critic(critic, device=device).to(device)
@@ -118,7 +159,7 @@ class TSPolicy(nn.Module):
                 args.hidden_sizes = hsizes
                 actor = Actor(net, action_shape, device=device).to(device)
                 critic = Critic(net, device=device).to(device)
-            else:
+            else: # there might be some issues with bound_output
                 hsizes = args.hidden_sizes
                 args.hidden_sizes = args.hidden_sizes[:-1]
                 net = PolicyType(cuda=args.cuda, num_inputs=input_shape, num_outputs=action_shape, **args)
@@ -175,7 +216,30 @@ class TSPolicy(nn.Module):
         return policy
 
     def save(self, pth, name):
+        collect_fn = self.collect
+        la = self.learning_algorithm
+        sample_buffer = self.sample_buffer
+        self.collect = None
+        self.learning_algorithm = None
+        self.sample_buffer = None
         torch.save(self, os.path.join(pth, name + ".pt"))
+        self.collect = collect_fn
+        self.learning_algorithm = la
+        self.sample_buffer = sample_buffer
+
+
+
+    def compute_Q(
+        self, batch: Batch, nxt: bool
+    ) -> torch.Tensor:
+        comp = batch.obs_next if nxt else batch.obs
+        if self.algo_name in ['sac']:
+            Q_val = self.algo_policy.critic1(comp, batch.act)
+        if self.algo_name in ['ddpg']:
+            Q_val = self.algo_policy.critic(comp, batch.act)
+        if self.algo_name in ['dqn']:
+            Q_val = self.algo_policy(batch, input="obs_next" if nxt else "obs").logits
+        return Q_val
 
     def add_param(self, batch, indices = None):
         orig_obs, orig_next = None, None
@@ -259,9 +323,10 @@ class TSPolicy(nn.Module):
 
     def compute_input_norm(self, buffer):
         if len(buffer) > 0:
+            error
             avail = buffer.sample(0)[0]
             # print("trying compute", len(buffer), avail.obs.shape)
-            print(len(avail))
+            # print(len(avail))
             if len (avail) >= 500: # need at least 500 values before applying input variance, typically this is the number of random actions
                 if len(avail) > 20000: # only use the last 20k states
                     avail = avail[len(avail) - 20000:]
@@ -271,10 +336,10 @@ class TSPolicy(nn.Module):
                 # print("computing input norm", self.input_mean, self.input_var)
                 if self.algo_name in _actor_critic + ['ppo']:
                     self.algo_policy.actor.preprocess.update_norm(self.input_mean, self.input_var)
-                if self.algo_name in _actor_critic: 
+                if self.algo_name in ['sac']: 
                     self.algo_policy.critic1.preprocess.update_norm(self.input_mean, self.input_var)
                     self.algo_policy.critic1_old.preprocess.update_norm(self.input_mean, self.input_var)
-                if self.algo_name in ['ppo']:
+                if self.algo_name in ['ppo', 'ddpg']:
                     self.algo_policy.critic.preprocess.update_norm(self.input_mean, self.input_var)
                     self.algo_policy.critic_old.preprocess.update_norm(self.input_mean, self.input_var)
                 if self.algo_name in ['dqn']:
@@ -291,10 +356,11 @@ class TSPolicy(nn.Module):
             batch.update(obs=(batch.obs - self.input_mean) / self.input_var)
 
     def update_norm(self, buffer):
-        if self.input_norm_timer == 1000:
-            if self.compute_input_norm(buffer):
-                self.input_norm_timer = 0
-        self.input_norm_timer += 1
+        if self.use_input_norm:
+            if self.input_norm_timer == 1000:
+                if self.compute_input_norm(buffer):
+                    self.input_norm_timer = 0
+            self.input_norm_timer += 1
 
     def update_la(self):
         if self.is_her:

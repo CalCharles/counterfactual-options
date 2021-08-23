@@ -11,7 +11,7 @@ class Sampler():
         self.sample_continuous = True # kwargs["sample_continuous"] # hardcoded for now
         self.combine_param_mask = not kwargs["no_combine_param_mask"] # whether to multiply the returned param with the mask
         self.rate = 0
-        
+
         # specifit to CFselectors
         self.cfselectors = self.dataset_model.cfselectors
         self.lower_cfs = np.array([i for i in [cfs.feature_range[0] for cfs in self.cfselectors]])
@@ -57,7 +57,7 @@ class Sampler():
         new_states = states.copy()
         if centered:
             for f, w, cfs in zip(edited_features, self.len_cfs * weights, self.cfselectors):
-                cfs.assign_feature(new_states, w, edit=True, clipped=True)
+                cfs.assign_feature(new_states, w, factored=type(new_states) == dict, edit=True, clipped=True) # TODO: factored might be possible to be batch
         else:
             for f, cfs in zip(edited_features, self.cfselectors):
                 cfs.assign_feature(new_states, f, factored=type(new_states) == dict)
@@ -243,21 +243,41 @@ class HistorySampling(Sampler):
 class GaussianCenteredSampling(Sampler):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.distance = .05 # normalized
+        self.distance = .03 # normalized
         self.schedule = kwargs["sample_schedule"]
         self.schedule_counter = 0
 
     def get_targets(self, states):
-        if self.sctargets > 0 and self.schedule_counter % self.schedule == 0:
-            self.distance = min(self.distance * 2, .4)
-        self.schedule_counter += 1
+        distance = .4
+        if self.schedule > 0: # the distance changes, otherwise it is a set constant .15 of the maximum TODO: add hyperparam
+            distance = self.distance + (.4 - self.distance) * np.exp(-self.schedule/self.schedule_counter)
         if self.dataset_model.sample_continuous:
             cfselectors = self.dataset_model.cfselectors
             weights = np.random.normal(loc=0, scale=self.distance, size=(len(cfselectors,))) # random weight vector
-            print(weights)
             return self.weighted_samples(states, weights, centered=True)
         else: # sample discrete with weights
             return
+
+class LinearUniformCenteredSampling(Sampler):
+    def __init__(self, **kwargs):
+        self.distance = .03 # normalized
+        self.schedule_counter = 0
+        self.schedule = kwargs["sample_schedule"]
+        super().__init__(**kwargs)
+
+    def update(self, param, mask, buffer=None):
+        super().update(param, mask, buffer=None)
+        self.schedule_counter += 1
+
+    def get_targets(self, states):
+        distance = .2
+        if self.schedule > 0: # the distance changes, otherwise it is a set constant .15 of the maximum TODO: add hyperparam
+            distance = self.distance + (distance - self.distance) * np.exp(-self.schedule/self.schedule_counter)
+        cfselectors = self.dataset_model.cfselectors
+        weights = (np.random.random((len(cfselectors,))) - .5) * 2 * distance # random weight vector bounded between -distance, distance
+        return self.weighted_samples(states, weights, centered=True)
+
+
 
 class GaussianOffCenteredSampling(Sampler):
     def __init__(self, **kwargs):
@@ -284,4 +304,4 @@ class GaussianOffCenteredSampling(Sampler):
 # class ReachedSampling
 
 mask_samplers = {"rans": RandomSubsetSampling, "pris": PrioritizedSubsetSampling} # must be 4 characters
-samplers = {"uni": LinearUniformSampling, "gau": GaussianCenteredSampling, "hst": HistorySampling, 'inst': InstanceSampling}
+samplers = {"uni": LinearUniformSampling, "cuni": LinearUniformCenteredSampling, "gau": GaussianCenteredSampling, "hst": HistorySampling, 'inst': InstanceSampling}
