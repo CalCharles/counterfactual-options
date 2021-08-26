@@ -30,8 +30,8 @@ if __name__ == '__main__':
     print(sys.argv)
     args = get_args()
     torch.cuda.set_device(args.gpu)
-    np.set_printoptions(threshold=300, linewidth=120)
-    torch.set_printoptions(precision=3)
+    np.set_printoptions(threshold=3000, linewidth=120)
+    torch.set_printoptions(precision=4, sci_mode=False)
 
     environment, environment_model, args = initialize_environment(args, set_save=False)
     args.environment, args.environment_model = environment, environment_model
@@ -48,10 +48,12 @@ if __name__ == '__main__':
     # commented section BELOW
     data = read_obj_dumps(args.record_rollouts, i=-1, rng = args.num_frames, filename='object_dumps.txt')
     rollouts = ModelRollouts(len(data), environment_model.shapes_dict)
+    i=0
     for data_dict, next_data_dict in zip(data, data[1:]):
         insert_dict, last_state, skip = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
         if not skip:
             rollouts.append(**insert_dict)
+        i += 1
     # UNCOMMENT above
     # REMOVE LATER: saves rollouts so you don't have to run each time
     # save_to_pickle("data/rollouts.pkl", rollouts)
@@ -99,6 +101,11 @@ if __name__ == '__main__':
         hypothesis_model.environment_model = environment_model
         hypothesis_model.cpu()
         hypothesis_model.cuda()
+
+        forward_error, passive_error = hypothesis_model.assess_error(rollouts, passive_error_cutoff=args.passive_error_cutoff)
+        passed = forward_error < (passive_error - args.model_error_significance)
+        print("comparison", forward_error, passive_error, args.model_error_significance, passed)
+
         # delta, gamma = hypothesis_model.delta, hypothesis_model.gamma
         # rollouts.cuda()
         # passive_error = hypothesis_model.get_prediction_error(rollouts)
@@ -108,6 +115,8 @@ if __name__ == '__main__':
         #     hypothesis_model.compute_interaction_stats(rollouts, passive_error_cutoff=args.passive_error_cutoff)
         # afs = environment_model.construct_action_selector() 
         # controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
+        # if args.hardcode_norm[0] == "RoboPushing":
+        #     hardcode_norm = (np.array([-.31, -.31, .83]), np.array([.10, .21, .915])) 
         hypothesis_model.determine_active_set(rollouts)
         hypothesis_model.collect_samples(rollouts, use_trace=args.interaction_iters > 0)
         hypothesis_model.cpu()

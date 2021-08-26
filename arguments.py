@@ -27,7 +27,8 @@ def get_args():
     parser.add_argument('--actor-lr', type=float, default=-1,
                         help='actor learning rate (default: -1 (replace wih lr))')
     parser.add_argument('--critic-lr', type=float, default=-1,
-                        help='critic learning rate (default: -1 (replace with lr))')
+                        help='critic learning rate (default: -1 (replace with lr))' +
+                        'overloaded to also be the interaction model lr')
     parser.add_argument('--eps', type=float, default=1e-5,
                         help='RMSprop/Adam optimizer epsilon (default: 1e-5)')
     parser.add_argument('--alpha', type=float, default=0.99,
@@ -180,8 +181,8 @@ def get_args():
                         help='stop adding too many terminal states to HER (default: -1)')
     parser.add_argument('--max-hindsight', type=int, default=500,
                         help='most timesteps to look behind for credit assignment (default: 500)')
-    parser.add_argument('--resample-interact', action='store_true', default=False,
-                        help='forces HER to resample whenever an interaction occurs TODO: not actually implemented')
+    parser.add_argument('--her-only-interact', action='store_true', default=False,
+                        help='only resample if an interaction occurs at some point')
     parser.add_argument('--use-interact', action='store_true', default=False,
                         help='only resamples HER when an interaction occurs')
 
@@ -201,8 +202,8 @@ def get_args():
                         help='a hack to control the parameter mask  (default: empty list)')
     parser.add_argument('--interaction-weight', type=float, default=10,
                         help='the weight given to interaction values compared to normal values (default: 1000)')
-    parser.add_argument('--interaction-local', type=float, default=5,
-                        help='additional sampling weight in range defined by local (should be odd) (default: 5)')
+    parser.add_argument('--interaction-local', type=float, default=0,
+                        help='additional sampling weight in range defined by local (should be odd) (default: 0)')
     parser.add_argument('--interaction-probability', type=float, default=1,
                         help='the minimum probability needed to use interaction as termination 1 means interaction is never (solely) used for termination (default: 1)')
     parser.add_argument('--interaction-prediction', type=float, default=0,

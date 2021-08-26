@@ -78,9 +78,12 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
 
         # Buffer debugging printouts
         # buf, hrb = train_collector.buffer, option.policy.learning_algorithm.replay_buffer
-        # print(buf) 
-        # for j, (r, rh, p, ph, itr, itrh, t, th, obs, obsh) in enumerate(zip(buf.rew, hrb.rew, buf.param, hrb.param, buf.inter_state, hrb.inter_state, buf.next_target, hrb.next_target, buf.obs_next, hrb.obs_next)):
-        #     print(j, r, rh, p, ph, itr, itrh, t, th, obs, obsh)
+        # print("main buffer", buf) 
+        # for j, (r, p, itr, t, obs) in enumerate(zip(buf.rew, buf.param, buf.inter_state, buf.next_target, buf.obs_next)):
+        #     print(j, r, p, itr, t, obs)
+        # print("hindsight buffer", hrb)
+        # for j, (rh, ih, ph, itrh, th, obsh) in enumerate(zip(hrb.rew, hrb.inter, hrb.param, hrb.inter_state, hrb.next_target, hrb.obs_next)):
+        #     print(j, rh, ih, ph, itrh, th, obsh)
         # END PRINTOUTS
 
     if args.save_interval > 0:

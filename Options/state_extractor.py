@@ -28,12 +28,32 @@ def hardcode_norm_inter(anorm, v1norm, v2norm, hardcoded_normalization):
         mean = np.concatenate([anorm[0], v1norm[0]])
         var = np.concatenate([anorm[1], v1norm[1]])
     elif hardcoded_normalization[1] == '2':
-        mean = np.concatenate([v1norm[0], v2norm[0]])
-        var = np.concatenate([v1norm[1], v2norm[1]])
+        mean = np.concatenate([anorm[0], v1norm[0], v2norm[0]])
+        var = np.concatenate([anorm[1], v1norm[1], v2norm[1]])
     else:
         mean = np.concatenate([v2norm[0], v2norm[0]])
         var = np.concatenate([v2norm[1], v2norm[1]])
     return mean, var
+
+def hardcode_norm_option(hardcoded_normalization, anorm, v1norm, v2norm):
+    if hardcoded_normalization[1] == '1':
+        mean = anorm[0]
+        var = anorm[1]
+    else:
+        mean = v1norm[0]
+        var = v1norm[1]
+    return mean, var
+
+def hardcode_norm_target(hardcoded_normalization, anorm, v1norm, v2norm):
+    if hardcoded_normalization[1] == '1':
+        mean = v1norm[0]
+        var = v1norm[1]
+    else:
+        mean = v2norm[0]
+        var = v2norm[1]
+    return mean, var
+
+
 
 def hardcode_norm_param(get_mask_param, hardcoded_normalization, mask, v1norm, v2norm):
     if hardcoded_normalization[1] == '1':
@@ -61,7 +81,7 @@ class StateExtractor():
         hyperparameters for deciding the getter functions actual getting process
         '''
         self._gamma_featurizer = args.dataset_model.gamma
-        self._option_featurizer = option_selector
+        self._option_featurizer = option_selector # selects the TAIL
         self._delta_featurizer = args.dataset_model.delta
         self._flatten_factored_state = args.environment_model.flatten_factored_state
         self._action_feature_selector = args.action_feature_selector # option.next_option.dataset_model.feature_selector
@@ -156,6 +176,29 @@ class StateExtractor():
             # print(factored_state, state_comb, self._action_feature_selector.names, self._action_feature_selector.factored_features)
             return np.concatenate(state_comb, axis=len(shape))
         return state_comb[0]
+
+    def _get_target(self, factored_state, normalize=False):
+        unnorm_target = self._delta_featurizer(factored_state)
+        if normalize and len(self.hardcoded_normalization) > 0: 
+            if self.hardcoded_normalization[0] == 'breakout':
+                mean, var = hardcode_norm_target(breakout_action_norm, breakout_paddle_norm, breakout_state_norm, self.hardcoded_normalization)
+                return (unnorm_target - mean) / var * self.scale
+            elif self.hardcoded_normalization[0] == 'robopush':
+                mean, var = hardcode_norm_target(robopush_action_norm, robopush_gripper_norm, robopush_state_norm, self.hardcoded_normalization)  
+            return (unnorm_target - mean) / var * self.scale
+        return unnorm_target
+
+    def _get_option(self, factored_state, normalize=False):
+        unnorm_target = self._option_featurizer(factored_state)
+        if normalize and len(self.hardcoded_normalization) > 0: 
+            if self.hardcoded_normalization[0] == 'breakout':
+                mean, var = hardcode_norm_option(breakout_action_norm, breakout_paddle_norm, breakout_state_norm, self.hardcoded_normalization)
+                return (unnorm_target - mean) / var * self.scale
+            elif self.hardcoded_normalization[0] == 'robopush':
+                mean, var = hardcode_norm_option(robopush_action_norm, robopush_gripper_norm, robopush_state_norm, self.hardcoded_normalization)  
+            return (unnorm_target - mean) / var * self.scale
+        return unnorm_target
+
 
     def _get_inter(self, factored_state, normalize=False):
         inter_state = self._gamma_featurizer(factored_state)

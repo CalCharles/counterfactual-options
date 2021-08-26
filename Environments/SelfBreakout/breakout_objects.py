@@ -188,10 +188,10 @@ class Wall(Object):
 		self.name = side + "Wall"
 
 class Block(Object):
-	def __init__(self, pos, attribute, index, index2d):
+	def __init__(self, pos, attribute, index, index2d, size=1):
 		super(Block, self).__init__(pos, attribute)
-		self.width = 3
-		self.height = 2
+		self.width = 3 * size
+		self.height = 2 * size
 		self.name = "Block" + str(index)
 		self.index2D = index2d
 

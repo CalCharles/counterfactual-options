@@ -53,10 +53,10 @@ class HER(LearningOptimizer):
         self.resample_timer = args.resample_timer
         self.select_positive = args.select_positive
         self.use_interact = not args.true_environment and args.use_interact
-        self.resample_interact = args.resample_interact # resample whenever an interaction occurs
         self.max_hindsight = args.max_hindsight
         self.replay_queue = deque(maxlen=args.max_hindsight)
         self.early_stopping = args.early_stopping # stops after seeing early stopping number of termiantions
+        self.only_interaction = args.her_only_interact # only resamples if at least one interaction occurs
 
 
     def step(self):
@@ -90,6 +90,7 @@ class HER(LearningOptimizer):
             else:
                 param = self._get_mask_param(full_batch.next_target[0], mask)# self.option.get_state(full_batch["next_full_state"][0], setting=self.option.output_setting) * mask
             rv_search = list()
+            total_interaction = 0
             for i in range(1, len(self.replay_queue) + 1): # go back in the replay queue, but stop if last_done is hit
                 batch = self.replay_queue[-i]
                 her_batch = copy.deepcopy(batch)
@@ -100,6 +101,7 @@ class HER(LearningOptimizer):
                 true_reward = batch.true_reward
                 term, rew, inter, time_cutoff = self.option.terminate_reward.check(batch.full_state[0], batch.next_full_state[0], param, mask, inter_state=inter_state, use_timer=False, true_inter=batch.inter.squeeze())
 
+                total_interaction += float(self._check_interaction(inter.squeeze()))
                 timer, self.done_model.timer = self.done_model.timer, 0
                 done = self.done_model.check(term, true_done)
 
@@ -110,18 +112,19 @@ class HER(LearningOptimizer):
 
             early_stopping_counter = self.early_stopping
             # print(len(rv_search), len(self.replay_queue))
-            for i in range(1, len(rv_search)+1):
-                her_batch = rv_search[-i]
-                # print("her", len(rv_search), her_batch.act, her_batch.inter_state, her_batch.target, her_batch.next_target, her_batch.rew)
-                if self.early_stopping > 0 and np.any(her_batch.terminate):
-                    early_stopping_counter -= 1
-                    if early_stopping_counter == 0:
-                        her_batch.update(done=[i < len(rv_search)]) # force it to be done to prevent fringing effects
-                # print("adding at ", single_batch.full_state["factored_state"]["Ball"], her_batch)
-                
-                ptr, ep_rew, ep_len, ep_idx = self.replay_buffer.add(her_batch, buffer_ids=[0])
-                if early_stopping_counter == 0 and self.early_stopping > 0:
-                    break
+            if (self.only_interaction and total_interaction > 0) or not self.only_interaction:
+                for i in range(1, len(rv_search)+1):
+                    her_batch = rv_search[-i]
+                    # print("her", len(rv_search), her_batch.act, her_batch.inter_state, her_batch.target, her_batch.next_target, her_batch.rew)
+                    if self.early_stopping > 0 and np.any(her_batch.terminate):
+                        early_stopping_counter -= 1
+                        if early_stopping_counter == 0:
+                            her_batch.update(done=[i < len(rv_search)]) # force it to be done to prevent fringing effects
+                    # print("adding at ", single_batch.full_state["factored_state"]["Ball"], her_batch)
+                    
+                    ptr, ep_rew, ep_len, ep_idx = self.replay_buffer.add(her_batch, buffer_ids=[0])
+                    if early_stopping_counter == 0 and self.early_stopping > 0:
+                        break
             self.sample_timer = 0
             del self.replay_queue
             self.replay_queue = deque(maxlen=self.max_hindsight)

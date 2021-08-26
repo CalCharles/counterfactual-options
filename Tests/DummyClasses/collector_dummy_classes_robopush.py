@@ -130,11 +130,16 @@ def array_factored(factored_state):
         factored_state[k] = np.array(v)
 
 class TestSampler():
+    def __init__(self, block=False):
+        if block:
+            self.mask = np.array([1,1,0])
+        else:
+            self.mask = np.array([1,1,1])
     def get_param(self, full_state, terminate):
         if terminate:
             states = full_state['factored_state']
             shape = np.array(states['Action']).shape
-            self.mask = np.array([1,1,1])
+            self.mask = self.mask.copy()
             self.param = np.array([ -.31 + np.random.rand() * .4, -.31 + .52 * np.random.rand(), .83 + .085 * np.random.rand()])
         return self.param, self.mask, terminate
 
@@ -142,11 +147,17 @@ class TestSampler():
         return param * mask
 
 class TestTemporalExtensionManager():
+    def __init__(self, block=False):
+        self.block=False
+
     def reset(self):
         return
 
     def get_extension(self, terminate, ext_term):
-        return 1
+        if block:
+            return np.random.randint(2)
+        else:
+            return 1
 
 class TestDoneModel():
     def done_check(term, true_done):

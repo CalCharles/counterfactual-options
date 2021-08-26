@@ -47,16 +47,18 @@ class Option():
         if self.next_option is not None:
             self.next_option.set_device(device_no)
 
-    def cuda(self):
+    def cuda(self, device=None):
         self.iscuda = True
+        if device is not None:
+            self.device=device
         if self.dataset_model is not None:
             self.dataset_model.cuda()
         if self.policy is not None:
-            self.policy.cuda()
+            self.policy.cuda(device=device)
         if self.sampler is not None:
             self.sampler.cuda()
         if self.next_option is not None:
-            self.next_option.cuda()
+            self.next_option.cuda(device=device)
 
     def cpu(self): # does NOT set device
         self.iscuda = False
@@ -229,6 +231,7 @@ class PrimitiveOption(Option): # primitive discrete actions
 
         # cuda handling
         self.iscuda = False
+        self.device = None
 
 
     def reset(self, full_state):
@@ -246,8 +249,10 @@ class PrimitiveOption(Option): # primitive discrete actions
     def cpu(self):
         self.iscuda = False
 
-    def cuda(self):
+    def cuda(self, device=None):
         self.iscuda = True
+        if device is not None:
+            self.device=device
     
     def extended_action_sample(self, batch, state_chain, term_chain, ext_terms, random=False, use_model=False):
         return (*self.sample_action_chain(batch, state_chain, random, use_model), True)
@@ -340,14 +345,14 @@ class ForwardModelCounterfactualOption(ModelCounterfactualOption):
     def __init__(self, args, models, policy, next_option):
         super().__init__(args, models, policy, next_option)
         self.sample_per = 5 # number of values to sample at each time step forward
-        self.max_propagate = 3 # number of steps forward to search
+        self.max_propagate = 2 # number of steps forward to search
         self.epsilon_reward = .1 # minimum difference in reward
         self.time_range = list(range(0, 1)) # timesteps to sample for interaction/parameter (TODO: negative not supported)
         self.uniform = True # searches uniformly over local space instead of sampling
         self.stepsize = 2 # distance to step for sampling 
         self.use_true_model = False # if true, uses the model instead
         self.model_timer = 0 # keeps track of steps between last time the model was used
-        self.model_frequency = 2 # how often to run the model TODO: replace with predictive model
+        self.model_frequency = 1 # how often to run the model TODO: replace with predictive model
         if self.use_true_model:
             self.dummy_env_model = copy.deepcopy(args.environment_model) # make sure this is not saved
         if not self.action_map.discrete_actions: # sample all discrete actions if action space is discrete

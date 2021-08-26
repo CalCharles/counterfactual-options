@@ -17,8 +17,8 @@ class TemporalExtensionManager():
     def update(self, act, chain, TEterm, masks):
         # update the policy action and mapped action chain and the timer
         self.timer += 1
-        if TEterm:
-            self.timer = 0
+        if TEterm or self.timer > self.ext_cutoff:
+            self.timer = 1
         self.act = act # this is the policy action ONLY for the highest option
         self.chain = chain
         self.masks = masks

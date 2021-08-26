@@ -14,13 +14,14 @@ def adjacent(i,j):
 
 
 class Screen(RawEnvironment):
-    def __init__(self, frameskip = 1, drop_stopping=True):
+    def __init__(self, frameskip = 1, drop_stopping=True, target_mode = False):
         super(Screen, self).__init__()
         self.num_actions = 4
         self.action_space = spaces.Discrete(self.num_actions)
         self.observation_space = spaces.Box(low=0, high=255, shape=(84, 84), dtype=np.uint8)
 
         self.drop_stopping = drop_stopping
+        self.target_mode = target_mode
         self.done = False
         self.reward = 0
         self.seed_counter = -1
@@ -47,15 +48,20 @@ class Screen(RawEnvironment):
         self.reward = 0
         self.blocks = []
         self.blocks2D = list()
-        for i in range(5):
-            block2D_row = list()
-            for j in range(20):
-                block = Block(np.array([22 + i * 2,12 + j * 3]), 1, i * 20 + j, (i,j))
-                self.blocks.append(block)
-                # self.blocks.append(Block(np.array([32 + i * 2,12 + j * 3]), 1, i * 20 + j))
-                block2D_row.append(block)
-            self.blocks2D.append(block2D_row)
-        self.blocks2D = np.array(self.blocks2D)
+        if self.target_mode:
+            self.blocks = [Block(np.array([22,15 + np.random.randint(4) * 15]), 1, i * 20 + j, (0,0), size = 10)]
+            self.blocks[0].name = "Block"
+            self.blocks2D = [self.blocks]
+        else:
+            for i in range(5):
+                block2D_row = list()
+                for j in range(20):
+                    block = Block(np.array([22 + i * 2,12 + j * 3]), 1, i * 20 + j, (i,j))
+                    self.blocks.append(block)
+                    # self.blocks.append(Block(np.array([32 + i * 2,12 + j * 3]), 1, i * 20 + j))
+                    block2D_row.append(block)
+                self.blocks2D.append(block2D_row)
+            self.blocks2D = np.array(self.blocks2D)
         self.walls = []
         # Topwall
         self.walls.append(Wall(np.array([4, 4]), 1, "Top"))

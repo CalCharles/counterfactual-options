@@ -17,8 +17,13 @@ class InputNorm():
         if self.use_input_norm:
             batch.update(obs=(batch.obs - self.input_mean) / self.input_var)
 
-class InterInputNorm(): # should eventually be deprecated, input norm for rollout type data
+class InterInputNorm(): # input norm for rollout type data
+    def __init__(self):
+        self.iscuda=False
+        self.device=None
+
     def compute_input_norm(self, vals, device=None):
+        self.device=device
         if type(vals) != torch.tensor:
             vals = pytorch_model.unwrap(vals)
         self.input_var = np.ones((vals.shape[-1], ))
@@ -27,7 +32,10 @@ class InterInputNorm(): # should eventually be deprecated, input norm for rollou
             self.input_var = np.sqrt(np.var(vals, axis=0))
             self.input_var[self.input_var < .0001] = .0001 # to prevent divide by zero errors
             self.input_mean = np.mean(vals, axis=0)
-        self.input_mean, self.input_var = pytorch_model.wrap(self.input_mean, device=device), pytorch_model.wrap(self.input_var, device=device)
+        self.input_mean, self.input_var = pytorch_model.wrap(self.input_mean, device=self.device), pytorch_model.wrap(self.input_var, device=self.device)
+
+    def assign_mean_var(self, mean, var):
+        self.input_mean, self.input_var = pytorch_model.wrap(mean, cuda=self.iscuda, device=self.device), pytorch_model.wrap(var, cuda=self.iscuda, device=self.device)
 
     def __call__(self, val):
         # print(val-self.input_mean)
@@ -39,7 +47,7 @@ class InterInputNorm(): # should eventually be deprecated, input norm for rollou
     def cuda(self, device = None):
         self.iscuda = True
         self.device = device 
-        self.input_mean, self.input_var = pytorch_model.wrap(self.input_mean, cuda=True, device=device), pytorch_model.wrap(self.input_var, cuda=True, device=device)
+        self.input_mean, self.input_var = pytorch_model.wrap(self.input_mean, cuda=True, device=self.device), pytorch_model.wrap(self.input_var, cuda=True, device=self.device)
 
     def cpu(self):
         self.iscuda = False

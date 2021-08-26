@@ -66,12 +66,13 @@ class TemporalAggregator():
         self.current_data.option_resample = data.option_resample
         self.current_data.info["TimeLimit.truncated"] = data.info["TimeLimit.truncated"] if "TimeLimit.truncated" in data.info else False
         self.current_data.update(time=[self.time_counter])
+        self.current_data.inter = [max(data.inter[0], self.current_data.inter[0])]
         next_data = copy.deepcopy(self.current_data)
         # if we just resampled (meaning temporal extension occurred)
         added = False
         # print(np.any(data.ext_term) # going to resample a new action
         # ,np.any(data.done)
-        # ,np.any(data.terminate), self.current_data.inter_state, self.current_data.target, self.current_data.next_target)
+        # ,np.any(data.terminate), self.temporal_skip, self.current_data.inter_state, self.current_data.act)
         # print("at", self.current_data.obs, self.current_data.obs_next)
         if (np.any(data.ext_term) # going to resample a new action
             or np.any(data.done)
@@ -286,7 +287,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             if type(cutoff) != bool: cutoff = cutoff.squeeze()
             info[0]["TimeLimit.truncated"] = bool(cutoff + info[0]["TimeLimit.truncated"]) # environment might send truncated itself
             if term:
-                print(term, true_done, done, inter, not time_cutoff, rew, param, next_target)
+                print("term", term, true_done, done, inter, not time_cutoff, rew, param, next_target)
             self.option.update(self.buffer, done, self.data.full_state[0], act, action_chain, terminations, param, masks, not self.test)
 
             # update hit-miss values
@@ -323,7 +324,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             if not self.test: self.policy_collect(next_data, self.data, skipped, added)
 
             # debugging and visualization
-            # if self.test: print(self.data.inter_state.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=True).squeeze()))
+            if self.test: print(self.data.inter_state.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=True).squeeze()))
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()
                 new_frame = visualize(frame, self.data.target[0], param, mask)

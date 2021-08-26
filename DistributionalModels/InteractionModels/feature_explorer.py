@@ -8,6 +8,7 @@ from EnvironmentModels.environment_model import ModelRollouts
 from Rollouts.rollouts import merge_rollouts
 from DistributionalModels.InteractionModels.interaction_model import interaction_models, default_model_args, nf5, nflen
 from Networks.input_norm import InterInputNorm
+from EnvironmentModels.environment_normalization import hardcode_norm
 
 class FeatureExplorer():
     def __init__(self, graph, controllable_feature_selectors, environment_model, model_args):
@@ -107,10 +108,10 @@ class FeatureExplorer():
         aosize = 0
         model_name = cfs + "->"+ name
         if len(additional_object) > 0:
-            additional_object = additional_object[0]
-            ao_size = self.em.object_sizes[additional_object] * self.em.object_num[additional_object]
-            print("Training ", cfs, " + ", additional_object, " -> ", name)
-            model_name = cfs + "+" + additional_object+ "->" + name
+            additional_obj = additional_object[0]
+            ao_size = self.em.object_sizes[additional_obj] * self.em.object_num[additional_obj]
+            print("Training ", cfs, " + ", additional_obj, " -> ", name)
+            model_name = cfs + "+" + additional_obj+ "->" + name
         self.model_args['name'] = model_name
         self.model_args['gamma'] = entity_selection
         self.model_args['delta'] = self.em.create_entity_selector([name])
@@ -120,9 +121,16 @@ class FeatureExplorer():
         nout = self.em.object_sizes[name] * self.em.object_num[name]
         nin = self.em.object_sizes[cfs] * self.em.object_num[cfs] + nout
         input_norm_fun = InterInputNorm()
-        input_norm_fun.compute_input_norm(entity_selection(rollouts.get_values("state")))
         delta_norm_fun = InterInputNorm()
-        delta_norm_fun.compute_input_norm(self.model_args['delta'](rollouts.get_values("state")))
+        if len(train_args.hardcode_norm) > 0:
+            gamma_names = [cfs] + additional_object + [name]
+            gamma_norm = hardcode_norm(train_args.hardcode_norm[0], gamma_names)
+            delta_norm = hardcode_norm(train_args.hardcode_norm[0], [name])
+            input_norm_fun.assign_mean_var(*gamma_norm)
+            delta_norm_fun.assign_mean_var(*delta_norm)
+        else:
+            input_norm_fun.compute_input_norm(entity_selection(rollouts.get_values("state")))
+            delta_norm_fun.compute_input_norm(self.model_args['delta'](rollouts.get_values("state")))
         self.model_args['normalization_function'] = input_norm_fun#nflen(nin)
         self.model_args['delta_normalization_function'] = delta_norm_fun#nflen(nout) if not train_args.predict_dynamics else nf5
         self.model_args['base_variance'] = train_args.base_variance
@@ -141,6 +149,6 @@ class FeatureExplorer():
         # test = load_from_pickle("data/temp/test.pkl")
         print(train.filled, rollouts.filled)
         train.cuda(), test.cuda()
-        model.train(train, train_args, control=cfs, controllers=cfss, target_name=name)
+        model.train(train, test, train_args, control=cfs, controllers=cfss, target_name=name)
         return model, test, self.model_args['gamma'], self.model_args['delta']
 

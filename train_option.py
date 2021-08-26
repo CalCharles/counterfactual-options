@@ -80,6 +80,7 @@ if __name__ == '__main__':
     
     # TODO: REMOVE LINE BELOW
     # graph.nodes["Paddle"].option.terminate_reward.true_interaction = False
+    graph.nodes["Action"].option.device = None
 
     # initialize sampler
     sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule, environment_model=environment_model, init_state=init_state, no_combine_param_mask=args.no_combine_param_mask)
