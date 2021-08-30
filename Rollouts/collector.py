@@ -287,7 +287,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             if type(cutoff) != bool: cutoff = cutoff.squeeze()
             info[0]["TimeLimit.truncated"] = bool(cutoff + info[0]["TimeLimit.truncated"]) # environment might send truncated itself
             if term:
-                print("term", term, true_done, done, inter, not time_cutoff, rew, param, next_target)
+                print("term", term, true_done, done, inter, not time_cutoff, rew, param, next_target, inter_state)
             self.option.update(self.buffer, done, self.data.full_state[0], act, action_chain, terminations, param, masks, not self.test)
 
             # update hit-miss values
@@ -324,7 +324,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             if not self.test: self.policy_collect(next_data, self.data, skipped, added)
 
             # debugging and visualization
-            if self.test: print(self.data.inter_state.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=True).squeeze()))
+            if self.test: print(self.data.obs.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=True).squeeze()))
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()
                 new_frame = visualize(frame, self.data.target[0], param, mask)

@@ -19,7 +19,7 @@ def initialize_environment(args, set_save=True):
 
     if args.env == "SelfBreakout":
         args.continuous = False
-        environment = Screen(drop_stopping=args.drop_stopping)
+        environment = Screen(drop_stopping=args.drop_stopping, target_mode=False)
         environment.seed(args.seed)
         environment_model = BreakoutEnvironmentModel(environment)
     elif args.env == "Nav2D":

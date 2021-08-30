@@ -303,7 +303,7 @@ class NeuralInteractionForwardModel(nn.Module):
         use_weights = (weights * live_factor) + 1
         use_weights = use_weights / np.sum(use_weights)
         # use_weights = pytorch_model.unwrap(use_weights)
-        print(weights + 1, local)
+        # print(weights + 1, local)
         print("live, dead, factor", total_live, total_dead, live_factor)
         return weights, use_weights, total_live, total_dead, ratio_lambda
 
@@ -371,6 +371,9 @@ class NeuralInteractionForwardModel(nn.Module):
         outputs = list()
         inter_loss = nn.BCELoss()
         weight_lambda = ratio_lambda
+        trw = trace
+        if train_args.interaction_iters > 0:
+            trw = torch.max(trace, dim=1)[0].squeeze() if self.multi_instanced else trace
         for i in range(train_args.num_iters):
             # passive failure weights
             if idxes_sets is None: idxes, batchvals = rollouts.get_batch(train_args.batch_size, weights=use_weights, existing=batchvals)
@@ -463,17 +466,18 @@ class NeuralInteractionForwardModel(nn.Module):
                 if i % (train_args.log_interval * 10) == 0:
                     print("assessing full train")
                     self.assess_losses(rollouts)
-                    self.assess_error(rollouts, passive_error_cutoff=train_args.passive_error_cutoff)
+                    # self.assess_error(rollouts, passive_error_cutoff=train_args.passive_error_cutoff)
                     print("assessing test rollouts")
                     self.assess_losses(test_rollout)
-                    self.assess_error(test_rollout, passive_error_cutoff=train_args.passive_error_cutoff)
+                    # self.assess_error(test_rollout, passive_error_cutoff=train_args.passive_error_cutoff)
                 if self.multi_instanced: 
                     target = self.split_instances(target)
+                    inp = self.gamma(batchvals.values.state)
                     inp = self.split_instances(inp)
                     active = self.split_instances(self.rv(prediction_params[0])).squeeze()
-                    # print(self.rv(target).shape, self.rv(prediction_params[0]).shape)
-                    adiff = self.rv(target) - self.split_instances(self.rv(prediction_params[0]))
-                    pdiff = self.rv(target) - self.split_instances(self.rv(passive_prediction_params[0]))
+                    print(self.rv(target).shape, self.rv(prediction_params[0]).shape)
+                    adiff = self.split_instances(self.rv(target) - self.rv(prediction_params[0]))
+                    pdiff = self.split_instances(self.rv(target) - self.rv(passive_prediction_params[0]))
 
                     obj_indices = pytorch_model.unwrap((trace[idxes] > 0).nonzero())
                     all_indices = []
@@ -549,7 +553,7 @@ class NeuralInteractionForwardModel(nn.Module):
                 if train_args.interaction_iters > 0:
                     weight_lambda = train_args.interaction_weight * np.exp(-i/train_args.num_iters * 5)
                     print(weight_lambda)
-                    _, use_weights, live, dead, ratio_lambda = self._get_weights(ratio_lambda=weight_lambda, weights=trace, local=train_args.interaction_local)
+                    _, use_weights, live, dead, ratio_lambda = self._get_weights(ratio_lambda=weight_lambda, weights=trw, local=train_args.interaction_local)
                 elif train_args.passive_weighting:
                     weight_lambda = train_args.passive_weighting * np.exp(-i/train_args.num_iters * 5)
                     print("weight lambda", weight_lambda)
@@ -593,7 +597,7 @@ class NeuralInteractionForwardModel(nn.Module):
                         # print out only the interaction instances which are true
                         # TODO: a ton of logging code that I no longer understand
                         # target = target
-                        inp = split_instances(inp, self.object_dim)
+                        inp = self.split_instances(inp, self.object_dim)
                         obj_indices = pytorch_model.unwrap((trace[idxes] > 0).nonzero())
                         objective = self.delta(self.get_targets(batchvals))
                         all_indices = []
@@ -779,8 +783,11 @@ class NeuralInteractionForwardModel(nn.Module):
         elif train_args.interaction_iters > 0:
             print("compute values")
             passive_error_all = trace.clone()
-            weights, use_weights, total_live, total_dead, ratio_lambda = self._get_weights(ratio_lambda=train_args.interaction_weight, weights=trace, local=train_args.interaction_local)
+            trw = torch.max(trace, dim=1)[0].squeeze() if self.multi_instanced else trace
+            print(trw.sum())
+            weights, use_weights, total_live, total_dead, ratio_lambda = self._get_weights(ratio_lambda=train_args.interaction_weight, weights=trw, local=train_args.interaction_local)
             use_weights =  copy.deepcopy(use_weights)
+            print(use_weights.shape)
         elif train_args.change_weighting:
             target_mag = self._get_target_mag(rollouts)
             weights, use_weights, total_live, total_dead, ratio_lambda = self._get_weights(target_mag, ratio_lambda = train_args.change_weighting, passive_error_cutoff=train_args.passive_error_cutoff)
@@ -1065,7 +1072,7 @@ class NeuralInteractionForwardModel(nn.Module):
         inp_state, tar_state = self._wrap_state(state)
         rv = self.output_normalization_function.reverse
         if self.multi_instanced:
-            return self.interaction_model.instance_labels(inp_state), self.split_instances(rv(self.forward_model(inp_state)[0])), self.split_instances(rv(self.passive_model(tar_state)[0])) if tar_state else None
+            return self.interaction_model.instance_labels(inp_state), self.split_instances(rv(self.forward_model(inp_state)[0])), self.split_instances(rv(self.passive_model(tar_state)[0])) if tar_state is not None else None
         else:
             return self.interaction_model(inp_state), rv(self.forward_model(inp_state)[0]), rv(self.passive_model(tar_state)[0]) if tar_state is not None else None
 

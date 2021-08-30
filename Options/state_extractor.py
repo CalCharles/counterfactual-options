@@ -30,6 +30,9 @@ def hardcode_norm_inter(anorm, v1norm, v2norm, hardcoded_normalization):
     elif hardcoded_normalization[1] == '2':
         mean = np.concatenate([anorm[0], v1norm[0], v2norm[0]])
         var = np.concatenate([anorm[1], v1norm[1], v2norm[1]])
+    elif hardcoded_normalization[1] == '3':
+        mean = np.concatenate([v1norm[0], v2norm[0]])
+        var = np.concatenate([v1norm[1], v2norm[1]])
     else:
         mean = np.concatenate([v2norm[0], v2norm[0]])
         var = np.concatenate([v2norm[1], v2norm[1]])
@@ -80,6 +83,9 @@ class StateExtractor():
         '''
         hyperparameters for deciding the getter functions actual getting process
         '''
+        self.use_pair_gamma = args.use_pair_gamma
+
+        self._pair_featurizer = args.environment_model.create_entity_selector(args.name_pair)
         self._gamma_featurizer = args.dataset_model.gamma
         self._option_featurizer = option_selector # selects the TAIL
         self._delta_featurizer = args.dataset_model.delta
@@ -97,7 +103,8 @@ class StateExtractor():
         self.inter_shape = self.get_state(full_state, (inter,0,0,0,0,0,0,0,0)).shape
         self.target_shape = self.get_state(full_state, (0,target,0,0,0,0,0,0,0)).shape
         self.flat_shape = self.get_state(full_state, (0,0,flat,0,0,0,0,0,0)).shape
-        self.pre_param = self.inter_shape[0] + self.target_shape[0] + self.flat_shape[0]
+        obs_inter_shape = self.get_state(full_state, (inter,0,0,0,0,0,0,0,0), use_pair=self.use_pair_gamma).shape
+        self.pre_param = obs_inter_shape[0] + self.target_shape[0] + self.flat_shape[0]
         self.param_shape = self.get_state(full_state, (0,0,0,use_param,0,0,0,0,0), param=param, mask=mask).shape
         self.param_rel_shape = self.get_state(full_state, (0,0,0,0,param_relative,0,0,0,0), param=param, mask=mask).shape
         self.relative_shape = self.get_state(full_state, (0,0,0,0,0,relative,0,0,0)).shape
@@ -114,7 +121,7 @@ class StateExtractor():
         return full_state["raw_state"]
 
     def get_obs(self, full_state, param, mask=None):
-        return self.get_state(full_state, self.obs_setting, param, mask, normalize=True)
+        return self.get_state(full_state, self.obs_setting, param, mask, normalize=True, use_pair=self.use_pair_gamma)
 
     def get_target(self, full_state):
         return self.get_state(full_state, (0,1,0,0,0,0,0,0,0))
@@ -142,7 +149,7 @@ class StateExtractor():
         factored_state = full_state['factored_state']
         return factored_state["Reward"][-1]
 
-    def get_state(self, full_state, setting, param=None, mask=None, normalize = False): # param is expected 
+    def get_state(self, full_state, setting, param=None, mask=None, normalize = False, use_pair=False): # param is expected 
         # form is an enumerator, 0 is flattened state, 1 is gamma/delta state, 2 is diff using last_factor
         # inp indicates if gamma or delta or gamma+param (if param is not None)
         # full_state is a batch or dict containing raw_state, factored_state
@@ -150,9 +157,9 @@ class StateExtractor():
         # factored_state may also be a batch/dict: {name: [env_num, batch_num, factored_shape]}
         inter, target, flat, use_param, param_relative, relative, action, option, diff = setting
         factored_state = full_state["factored_state"]
-        return self._combine_state(full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=param, mask=mask, normalize=normalize)
+        return self._combine_state(full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=param, mask=mask, normalize=normalize, use_pair=use_pair)
 
-    def _combine_state(self, full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=None, mask=None, normalize=False):
+    def _combine_state(self, full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=None, mask=None, normalize=False, use_pair=False):
         # combines the possible components of state:
         # param relative
         factored_state = array_state(full_state['factored_state'])
@@ -161,13 +168,13 @@ class StateExtractor():
 
         state_comb = list()
         if option: state_comb.append(self._option_featurizer(factored_state))
-        if inter: state_comb.append(self._get_inter(factored_state, normalize=normalize))
+        if inter: state_comb.append(self._get_inter(factored_state, normalize=normalize, use_pair = use_pair))
         if target: state_comb.append(self._delta_featurizer(factored_state))
         if flat: state_comb.append(self._flatten_factored_state(factored_state, instanced=True))
         if use_param: state_comb.append(self._broadcast_param(shape, param, mask, normalize=normalize)) # only handles param as a concatenation
         if param_relative: state_comb.append(self._relative_param(shape, factored_state, param, mask, normalize=normalize))
-        if relative: state_comb.append(self._get_relative(factored_state, normalize=normalize))
-        if action: state_comb.append(self._action_feature_selector(factored_state))
+        if relative: state_comb.append(self._get_relative(factored_state, normalize=normalize, use_pair=use_pair))
+        if action: state_comb.append(self._select_action_feature(factored_state))
         if diff: state_comb.append(self._get_diff(factored_state))
 
         if len(state_comb) == 0:
@@ -176,6 +183,12 @@ class StateExtractor():
             # print(factored_state, state_comb, self._action_feature_selector.names, self._action_feature_selector.factored_features)
             return np.concatenate(state_comb, axis=len(shape))
         return state_comb[0]
+
+    def _select_action_feature(self, factored_state):
+        if type(self._action_feature_selector) == list:
+            return np.concatenate([a(factored_state) for a in self._action_feature_selector], axis=-1)
+        else:
+            return self._action_feature_selector(factored_state)
 
     def _get_target(self, factored_state, normalize=False):
         unnorm_target = self._delta_featurizer(factored_state)
@@ -200,8 +213,11 @@ class StateExtractor():
         return unnorm_target
 
 
-    def _get_inter(self, factored_state, normalize=False):
-        inter_state = self._gamma_featurizer(factored_state)
+    def _get_inter(self, factored_state, normalize=False, use_pair=False):
+        if use_pair:
+            inter_state = self._pair_featurizer(factored_state)
+        else:
+            inter_state = self._gamma_featurizer(factored_state)
         if normalize and len(self.hardcoded_normalization) > 0:
             if self.hardcoded_normalization[0] == 'breakout':
                 mean, var = hardcode_norm_inter(breakout_action_norm, breakout_paddle_norm, breakout_state_norm, self.hardcoded_normalization)
@@ -243,8 +259,12 @@ class StateExtractor():
                 target = (target - mean) / var * self.scale
         return param - self.get_mask_param(target, mask)
 
-    def _get_relative(self, factored_state, normalize = False):
-        rel_state = self._gamma_featurizer.get_relative(factored_state)
+    def _get_relative(self, factored_state, normalize = False, use_pair=False):
+        if use_pair:
+            rel_state = self._pair_featurizer.get_relative(factored_state)
+        else:
+            rel_state = self._gamma_featurizer.get_relative(factored_state)
+
         if normalize and len(self.hardcoded_normalization) > 0:
             if self.hardcoded_normalization[0] == 'breakout':
                 mean, var = hardcode_norm_relative(self.hardcoded_normalization, breakout_paddle_norm, breakout_state_norm)

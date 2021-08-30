@@ -11,6 +11,8 @@ def get_args():
     # environment hyperparameters
     parser.add_argument('--true-environment', action='store_true', default=False,
                         help='triggers the baseline methods')
+    parser.add_argument('--primitive-actions', action='store_true', default=False,
+                        help='take primitive actions instead of next level options')
     parser.add_argument('--frameskip', type=int, default=1,
                         help='number of frames to skip (default: 1 (no skipping))')
     parser.add_argument('--object', default='',
@@ -74,6 +76,8 @@ def get_args():
                     help='normalize the inputs by the sample mean variance from the buffer')
     parser.add_argument('--hardcode-norm', type=str, nargs='+', default=list(),
                         help='use hardcoded input normalization, of format "env name" "layer num" "scale" (default: empty list (not used))')
+    parser.add_argument('--use-pair-gamma', action='store_true', default=False,
+                    help='uses the two objects in obs instead of the full gamma')
     parser.add_argument('--activation', default="relu",
                         help='choose the activation function (TODO: not used at the moment)')    
     parser.add_argument('--reward-normalization', action='store_true', default=False,

@@ -42,7 +42,10 @@ class InterInputNorm(): # input norm for rollout type data
         return (val - self.input_mean) / (self.input_var * 2)
 
     def reverse(self, val):
-        return val * (self.input_var * 2) + self.input_mean
+        input_var, input_mean = self.input_var, self.input_mean
+        if val.shape[-1] != self.input_var.shape[-1]: # broadcast mean and variance to fit shape
+            val = val.reshape(-1, self.input_var.shape[-1])
+        return val * (input_var * 2) + input_mean
 
     def cuda(self, device = None):
         self.iscuda = True

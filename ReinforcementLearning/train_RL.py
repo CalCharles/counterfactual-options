@@ -84,7 +84,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
         # print("hindsight buffer", hrb)
         # for j, (rh, ih, ph, itrh, th, obsh) in enumerate(zip(hrb.rew, hrb.inter, hrb.param, hrb.inter_state, hrb.next_target, hrb.obs_next)):
         #     print(j, rh, ih, ph, itrh, th, obsh)
-        # END PRINTOUTS
+        # # END PRINTOUTS
 
     if args.save_interval > 0:
         full_save(args, option, graph)

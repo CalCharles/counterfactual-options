@@ -1,83 +1,21 @@
-requirements: pytorch, opencv, imageio
+requirements: pytorch, opencv, imageio, tianshou, robosuite
 
-python generate_breakout_data.py data/random 3000
-
-python construct_dataset_model.py --graph-dir data/graph/ --dataset-dir data/random/ --num-frames 1000 --object Action
-python add_option.py --dataset-dir data/random/ --object Paddle --buffer-steps 5 --num-steps 5 --factor 8 --learning-type a2c --gamma .1 --batch-size 5 --gpu 2 --normalize --entropy-coef .01 --record-rollouts data/paddle --num-iters 10000 --save-graph data/tempgraph --train --save-interval 1000 > paddletrain.txt
-
-python construct_dataset_model.py --graph-dir data/paddlegraph/ --dataset-dir data/paddle/ --num-frames 10000 --object Paddle --target Ball
-
-python construct_hypothesis_model.py --dataset-dir data/random/ --log-interval 500 --factor 8 --num-layers 2 --predict-dynamics --action-shift --batch-size 10 --pretrain-iters 0 --epsilon-schedule 3000 --num-iters 18000 --interaction-binary -1 -8 --save-dir data/interaction_ln > train_hypothesis.txt
-
-<!-- python add_option.py --dataset-dir data/paddle/ --object Ball --buffer-steps 5 --num-steps 5 --factor 32 --learning-type a2c --gamma .99 --batch-size 5 --gpu 2 --normalize --entropy-coef .01 --num-iters 100000 --save-interval 1000 --save-graph data/tempgraph --set-time-cutoff --graph-dir data/paddlegraph --record-rollouts data/Ball
-
-python add_option.py --dataset-dir data/paddle/ --object Ball --buffer-steps 5 --num-steps 5 --factor 32 --learning-type a2c --gamma .99 --batch-size 5 --gpu 2 --normalize --entropy-coef .01 --num-iters 1000000 --save-interval 1000 --save-graph data/tempgraph --set-time-cutoff --graph-dir data/paddlegraph --record-rollouts data/Ball --use-both 1 --min-use 0
-
-python add_option.py --dataset-dir data/hackedpaddle/ --object Ball --buffer-steps 5 --num-steps 5 --factor 16 --num-layers 2 --learning-type a2c --gamma .99 --batch-size 5 --gpu 2 --normalize --entropy-coef .01 --num-iters 1000000 --save-interval 1000 --save-graph data/tempgraph --set-time-cutoff --graph-dir data/paddlegraph --record-rollouts data/Ball --use-both 1 --min-use 5 > ball.txt
-
-python add_option.py --dataset-dir data/hackedpaddle/ --object Ball --buffer-steps 5 --num-steps 5 --factor 16 --num-layers 2 --learning-type a2c --gamma .99 --batch-size 5 --gpu 2 --normalize --entropy-coef .01 --num-iters 1000000 --set-time-cutoff --graph-dir data/paddlegraph --record-rollouts data/Ball --use-both 1 --min-use 5 
-
-python add_option.py --dataset-dir data/hackedpaddle/ --object Ball --buffer-steps 32 --num-steps 32 --factor 16 --num-layers 2 --learning-type a2c --gamma .99 --batch-size 32 --gpu 2 --normalize --entropy-coef .01 --num-iters 1000000 --set-time-cutoff --graph-dir data/paddlegraph --use-both 0 --min-use 0 --train --record-rollouts ../datasets/caleb_data/balla2c/ --save-interval 1000 --save-graph data/tempa2cgraph > balla2c.txt
-
-python add_option.py --dataset-dir data/hackedpaddle/ --object Ball --buffer-steps 10000 --num-steps 32 --factor 64 --num-layers 1 --learning-type dqn --gamma .99 --batch-size 16 --grad-epoch 5 --gpu 2 --normalize --entropy-coef .01 --warm-up 100 --num-iters 1000000 --behavior-type greedyQ --epsilon .9 --epsilon-schedule 10000 --set-time-cutoff --lr 1e-6 --graph-dir data/paddlegraph --use-both 0 --min-use 0 --Q-critic --train --record-rollouts ../datasets/caleb_data/balldqn/  --save-interval 1000 --save-graph data/tempdqngraph > balldqn.txt 
-
-python add_option.py --dataset-dir data/hackedpaddle/ --object Ball --buffer-steps 10000 --num-steps 32 --factor 64 --num-layers 1 --learning-type her --gamma .99 --batch-size 16 --grad-epoch 10 --gpu 3 --normalize --entropy-coef .01 --warm-up 100 --num-iters 1000000 --behavior-type greedyQ --Q-critic --epsilon .9 --epsilon-schedule 10000 --set-time-cutoff --lr 1e-6 --graph-dir data/paddlegraph --use-both 0 --min-use 0 --train --record-rollouts ../datasets/caleb_data/ballher/ --save-interval 1000 --save-graph data/temphergraph > ballher.txt 
-
-python add_option.py --dataset-dir data/hackedpaddle/ --object Ball --buffer-steps 10000 --num-steps 32 --factor 64 --num-layers 1 --learning-type gsr --gamma .99 --batch-size 16 --grad-epoch 10 --gpu 3 --normalize --entropy-coef .01 --warm-up 100 --num-iters 1000000 --behavior-type greedyQ --Q-critic --epsilon .95 --epsilon-schedule 10000 --set-time-cutoff --lr 1e-6 --graph-dir data/paddlegraph --use-both 0 --min-use 0 --train --record-rollouts ../datasets/caleb_data/ballgsr/ --save-interval 1000 --save-graph data/tempgsrgraph > ballgsr.txt 
-
-python add_option.py --dataset-dir data/hackedpaddle/ --object Ball --buffer-steps 10000 --num-steps 32 --factor 64 --num-layers 1 --learning-type her --gamma .99 --batch-size 16 --grad-epoch 10 --gpu 3 --normalize --entropy-coef .01 --warm-up 100 --num-iters 1000000 --behavior-type greedyQ --Q-critic --epsilon .95 --epsilon-schedule 10000 --set-time-cutoff --lr 1e-6 --graph-dir data/paddlegraph --use-both 0 --min-use 0 --train --record-rollouts ../datasets/caleb_data/ballpri/ --save-interval 1000 --save-graph data/tempprigraph --prioritized-replay max_reward --weighting-lambda .05 > ballpri.txt 
-
-python add_option.py --dataset-dir data/random/ --object Paddle --buffer-steps 100000 --num-steps 5 --factor 16 --warm-up 10000 --esilon 1 --epsilon-schedule 10000 --learning-type a2c --gamma .99 --batch-size 4 --grad-epoch 4 --gpu 2 --lr .00025 --option-type raw --policy-type image --normalize --num-iters 500000 --entropy-coef 0.01 --init-form orth > rawtestdqn.txt
-
-
-Hacked commands
-python construct_interaction_model.py --graph-dir data/PAgraph/ --dataset-dir data/random/ --num-frames 1000 --object Action --target Paddle > interactiontest.txt
-python add_option.py --dataset-dir data/random/ --object Paddle --option-type hacked --buffer-steps 5 --num-steps 5 --gamma .1 --batch-size 5 --record-rollouts data/paddle --num-iters 1000 > hackedpaddletrain.txt
- -->
-
-New interaction model
-Train paddle model
-python construct_hypothesis_model.py --record-rollouts data/random/ --log-interval 500 --factor 8 --num-layers 2 --predict-dynamics --action-shift --batch-size 10 --pretrain-iters 0 --epsilon-schedule 3000 --num-iters 100000 --interaction-binary -1 -8 10 --train --save-dir data/interaction_ln > train_hypothesis.txt
-
-python add_option.py --dataset-dir data/interaction_ln/ --object Paddle --option-type model --buffer-steps 500000 --num-steps 50 --gamma .99 --batch-size 16 --record-rollouts data/paddle --num-iters 4000 --terminal-type comb --reward-type comb --parameterized-lambda 0 --epsilon-close 1 --time-cutoff 50 --set-time-cutoff --init-form none --train --normalize  --num-layers 3 --factor 8 --learning-type her --grad-epoch 50 --warm-up 100 --warm-update 100 --lr 1e-4 --epsilon .1 --epsilon-schedule 100 --behavior-type greedyQ --return-form none --Q-critic --select-positive .5 --gpu 1 --resample-timer 50 --double-Q 50 --log-interval 25 --reward-constant -1 --save-interval 100 --save-graph data/paddle_graph3 > logs/train_paddle_3.txt
-
-python test_option.py --dataset-dir data/interaction_ln/ --object Paddle --option-type model --buffer-steps 1000 --gamma .99 --batch-size 5 --record-rollouts data/paddle_test --num-iters 1000 --terminal-type comb --reward-type comb --parameterized-lambda 0 --epsilon-close 1 --normalize --lr 1e-5 --behavior-type greedyQ --gpu 1 --graph-dir data/paddle_graph/
-
-Train ball model
-python construct_hypothesis_model.py --record-rollouts data/paddle/ --log-interval 500 --factor 16 --num-layers 2 --predict-dynamics --action-shift --batch-size 32 --pretrain-iters 0 --epsilon-schedule 30000 --num-iters 1000000 --interaction-binary -1 -8 -10 --num-frames 1000000 --graph-dir data/paddle_graph/ --train --save-dir data/interaction_bp > train_ball_hypothesis.txt
-
-python construct_hypothesis_model.py --record-rollouts data/paddle/ --log-interval 500 --factor 24 --num-layers 3 --batch-size 32 --pretrain-iters 100000 --epsilon-schedule 1000 --num-iters 100000 --interaction-iters 0 --log-interval 1000 --interaction-binary -2 -6 -10 --num-frames 50000 --graph-dir data/paddle_graph2/
-
-python construct_hypothesis_model.py --record-rollouts data/paddle/ --log-interval 500 --factor 24 --num-layers 3 --batch-size 32 --pretrain-iters 0 --epsilon-schedule 1000 --num-iters 100000 --log-interval 1000 --interaction-binary -2 -6 -10 --num-frames 50000 --graph-dir data/paddle_graph2/ --train --save-dir data/interaction_bp > logs/trace_logs/train_ball_hypothesis.txt
-
-python construct_hypothesis_model.py --record-rollouts data/paddle/ --log-interval 500 --factor 8 --num-layers 3 --batch-size 32 --pretrain-iters 100000 --epsilon-schedule 1000 --num-iters 100000 --interaction-iters 0 --log-interval 1000 --interaction-binary -2 -6 -10 --num-frames 50000 --graph-dir data/paddle_graph2/ --dataset-dir data/interaction_bp --save-dir data/interaction_bp_vals> logs/ball_paddle_int_test.txt
-
-python construct_hypothesis_model.py --record-rollouts data/paddle/ --factor 12 --num-layers 3 --batch-size 32 --pretrain-iters 100000 --epsilon-schedule 1000 --num-iters 200000 --posttrain-iters 100000 --log-interval 1000 --interaction-binary -2 -5 -10 --num-frames 100000 --graph-dir data/paddle_graph2/ --train --save-dir data/interaction_bp0 > logs/ball_paddle_interaction0.txt
-
-
-python add_option.py --dataset-dir data/interaction_bps3p2/ --object Ball --option-type model --buffer-steps 500000 --num-steps 100 --gamma .99 --batch-size 16 --record-rollouts data/ball --num-iters 50000 --terminal-type comb --reward-type comb --continuous --parameterized-lambda 10 --epsilon-close .5 --time-cutoff 100 --set-time-cutoff --init-form none --train --normalize  --num-layers 3 --factor 16 --learning-type her --grad-epoch 50 --warm-up 100 --warm-update 100 --lr 1e-4 --epsilon .1 --epsilon-schedule 100 --behavior-type greedyQ --return-form none --Q-critic --select-positive .5 --gpu 1 --resample-timer 100 --double-Q 100 --log-interval 50 --reward-constant -.1 --graph-dir data/paddle_graph2 --save-graph data/ball_graph > logs/train_ball.txt
-
-
-
-Nav2D:
-python add_option.py --object Raw --option-type raw --true-environment --env Nav2D --buffer-steps 500000 --num-steps 50 --gamma .99 --batch-size 16 --record-rollouts data/paddle --num-iters 4000 --terminal-type true --reward-type true --epsilon-close 1 --time-cutoff 50 --set-time-cutoff --init-form none --train --normalize --policy-type grid --learning-type her --grad-epoch 50 --warm-up 400 --warm-update 0 --lr 1e-4 --epsilon .1 --behavior-type greedyQ --return-form none --Q-critic --select-positive .5 --gpu 2 --epsilon-schedule 250 --log-interval 25 --optim Adam --resample-timer 50 --factor 16 --double-Q 60
-
-Pendulum
-python add_option.py --object Raw --option-type raw --true-environment --env Pend-Gym --continuous --buffer-steps 500000 --num-steps 50 --gamma .99 --batch-size 16 --record-rollouts data/paddle --num-iters 4000 --terminal-type true --reward-type true --epsilon-close 1 --time-cutoff 50 --set-time-cutoff --init-form none --train --normalize --policy-type grid --learning-type her --grad-epoch 50 --warm-up 400 --warm-update 0 --lr 1e-4 --epsilon .1 --behavior-type greedyQ --return-form none --Q-critic --select-positive .5 --gpu 2 --epsilon-schedule 250 --log-interval 25 --optim Adam --resample-timer 50 --factor 16 --double-Q 60
-
-
-<!-- conda install pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch
- -->
-conda create -n ts python=3.8
+# Installation creating conda environment 
+conda create -n rbt python=3.8
+conda install pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch
 pip install tianshou
 conda install imageio
 pip install opencv-python
 
+
+Installing Robosuite
+https://robosuite.ai/docs/installation.html
+conda activate rbt
+copy mujoco download to: ~/.mujoco/mujoco200
+copy mujoco key to ~/.mujoco/mjkey.txt
+pip install robosuite
+
 python add_option.py --object Raw --option-type raw --true-environment --env Pend-Gym --buffer-steps 500000 --num-steps 1 --gamma .99 --batch-size 128 --num-iters 20000 --terminal-type true --reward-type true --epsilon-close 1 --init-form none --train --normalize --policy-type actorcritic --learning-type ddpg --grad-epoch 5 --warm-up 128 --warm-update 0 --lr 1e-4 --epsilon 0 --behavior-type greedyQ --return-form none --Q-critic --gpu 2 --log-interval 200 --optim Adam --factor 8 --num-layers 2 --use-layer-norm --double-Q .001 --actor-critic-optimizer
-
-Baseline tests:
-point transformer largent koinenet
-
 
 python add_option.py --object Raw --option-type raw --true-environment --env Nav2D --buffer-steps 500000 --num-steps 50 --gamma .99 --batch-size 16 --num-iters 4000 --terminal-type true --reward-type true --epsilon-close 1 --time-cutoff 50 --policy-type grid --learning-type herdqn --grad-epoch 50 --warm-up 10000 --lr 1e-4 --epsilon .1 --return-form none --select-positive .5 --gpu 2 --epsilon-schedule 250 --log-interval 25 --resample-timer 50 --factor 16--tau 60
 
@@ -143,6 +81,9 @@ python train_option.py --dataset-dir data/interaction_bpIv/ --object Ball --opti
 # 100, 200 reward
 python train_option.py --dataset-dir data/breakout/interaction_pbIv/ --graph-dir data/breakout/paddle_graph --object Ball --option-type model --buffer-len 500000 --num-steps 250 --gamma .99 --batch-size 128 --num-iters 5000 --terminal-type comb --reward-type tcomb --interaction-lambda 100 --parameterized-lambda 200 --true-reward-lambda 100 --epsilon-close .5 --time-cutoff 100 --train  --hidden-sizes 256 256 256 --learning-type hersac --grad-epoch 150 --pretrain-iters 10000 --lr 1e-4 --epsilon 0 --behavior-type greedyQ --select-positive .3 --resample-timer 100 --tau .001 --log-interval 50 --reward-constant 0 --interaction-probability 0 --max-steps 75  --relative-action 6 --pretest-trials 20 --prioritized-replay 0.2 0.4 --temporal-extend 6 --sac-alpha .3 --lookahead 4 --print-test --force-mask 0 0 1 1 0 --use-interact --max-hindsight 10 --param-interaction --use-termination --gpu 1 --observation-setting 1 0 0 1 0 1 0 0 0 --drop-stopping --record-rollouts data/breakout/ball --save-graph data/breakout/ball_vel_graphs --save-interval 100 > logs/breakout/train_ball_velocity.txt
 
+python train_option.py --dataset-dir data/breakout/interaction_pbIv/ --graph-dir data/breakout/paddle_graph --object Ball --option-type model --buffer-len 500000 --num-steps 250 --gamma .99 --batch-size 128 --num-iters 5000 --terminal-type tcomb --reward-type tcomb --interaction-lambda 1 --parameterized-lambda 200 --true-reward-lambda 0 --epsilon-close .5 --time-cutoff 300 --train --hidden-sizes 128 128 128 128 128 --learning-type herddpg --grad-epoch 50 --pretrain-iters 1000 --lr 1e-4 --epsilon 0.1 --behavior-type greedyQ --select-positive .5 --tau .001 --log-interval 100 --reward-constant -1 --interaction-probability 1 --interaction-prediction 0 --max-steps 300 --relative-action 6 --pretest-trials 20 --prioritized-replay 0.2 0.4 --temporal-extend 3 --lookahead 4 --print-test --force-mask 0 0 1 1 0 --use-interact --max-hindsight 20 --param-interaction --use-termination --gpu 1 --hardcode-norm breakout 2 1 --drop-stopping --observation-setting 1 0 0 1 0 1 0 0 0 --env-reset --record-rollouts data/breakout/ball --save-graph data/breakout/ball_graph --save-interval 100 > logs/breakout/ball.txt
+
+
 <!-- # no done termination
 python train_option.py --dataset-dir data/interaction_pbIv/ --object Ball --option-type model --buffer-len 500000 --num-steps 300 --gamma .99 --batch-size 128 --record-rollouts data/ball --num-iters 2000 --terminal-type comb --reward-type tcomb --interaction-lambda 1 --parameterized-lambda 2 --true-reward-lambda 1 --epsilon-close .5 --time-cutoff -1 --train  --hidden-sizes 256 256 256 --learning-type hersac --grad-epoch 200 --pretrain-iters 10000 --lr 1e-4 --epsilon 0 --behavior-type greedyQ --select-positive .3 --gpu 1 --resample-timer 500 --tau .001 --log-interval 50 --reward-constant 0 --graph-dir data/paddle_graph --interaction-probability 1 --max-steps 75 --relative-state --relative-action 4 --pretest-trials 20 --prioritized-replay 0.2 0.4 --temporal-extend 6 --sac-alpha .3 --lookahead 4 --print-test --force-mask 0 0 1 1 0 --use-interact --max-hindsight 40 --param-interaction  --save-graph data/ball_vel_graphnt --save-interval 100 > logs/param_tests/train_ball_velocitynt.txt
  -->
@@ -166,7 +107,7 @@ python test_option.py --dataset-dir data/breakout/interaction_pbIv/ --graph-dir 
 <!-- python construct_hypothesis_model.py --env SelfBreakout --record-rollouts data/ball_test/ --hidden-sizes 512 512 --batch-size 64 --pretrain-iters 20000 --interaction-iters 30000 --epsilon-schedule 1000 --num-iters 30000 --posttrain-iters 0 --log-interval 1000 --num-frames 100000 --interaction-binary -1 -13 -13 --graph-dir data/ball_vel_graphs/ --train  --interaction-prediction .3 --policy-type pair --interaction-weight 10 --predict-dynamics --gpu 2 --save-dir data/interaction_bbI > logs/ball_block_interactionI.txt
  -->
 # train block interaction model
-python construct_hypothesis_model.py --record-rollouts data/ball_test/ --graph-dir data/ball_vel_graphs/ --env SelfBreakout --hidden-sizes 512 512 --batch-size 64 --pretrain-iters 10000 --interaction-iters 20000 --epsilon-schedule 1000 --num-iters 40000 --posttrain-iters 0 --log-interval 1000 --num-frames 100000 --interaction-binary -1 -13 -13 --train --gpu 2  --interaction-prediction .3 --policy-type pair --interaction-weight 10 --predict-dynamics --multi-instanced --save-dir data/interaction_bbI > logs/ball_block_interactionI.txt
+python construct_hypothesis_model.py --record-rollouts data/breakout/ball/ --graph-dir data/ball_graph/ --env SelfBreakout --hidden-sizes 512 512 --batch-size 64 --pretrain-iters 10 --interaction-iters 20000 --epsilon-schedule 1000 --num-iters 40000 --posttrain-iters 0 --log-interval 1000 --num-frames 100000 --interaction-binary -1 -13 -13 --train --gpu 2  --interaction-prediction .3 --policy-type pair --interaction-weight 10 --predict-dynamics --multi-instanced --train-pair Ball Block --save-dir data/interaction_bbI > logs/ball_block_interactionI.txt
 
 # test block interaction model
 python construct_hypothesis_model.py --record-rollouts data/ball_test/ --graph-dir data/ball_vel_graphs/ --env SelfBreakout --hidden-sizes 512 512 --batch-size 64 --epsilon-schedule 1000 --log-interval 1000 --num-frames 100000 --interaction-binary -1 -13 -13 --gpu 2 --dataset-dir data/interaction_bbI --save-dir data/interaction_bbIv > logs/ball_block_interactionIv.txt
@@ -237,9 +178,14 @@ python construct_hypothesis_model.py --record-rollouts data/robopushing/gripper/
 python construct_hypothesis_model.py --record-rollouts data/robopushing/gripper/ --graph-dir data/robopushing/gripper_graph/ --env RoboPushing --log-interval 500 --hidden-sizes 512 512 --predict-dynamics --action-shift --batch-size 128 --interaction-binary -1 -1 -1 --interaction-prediction .3 --model-error-significance .01 --train-pair Gripper Action Block --hardcode-norm RoboPushing --active-epsilon .01 --dataset-dir data/robopushing/interaction_gb --save-dir data/robopushing/interaction_gbv > logs/robopushing/gripper_block_interactionv.txt
 
 # Train the Block policy with HER and ddpg
-python train_option.py --dataset-dir data/robopushing/interaction_gbv/ --graph-dir data/robopushing/gripper_graph --object Block --env RoboPushing --option-type model --buffer-len 500000 --num-steps 90 --gamma .99 --batch-size 32 --num-iters 1000 --terminal-type param --reward-type param --parameterized-lambda 1 --epsilon-close 0.04 --time-cutoff 30  --hidden-sizes 128 128 --learning-type herddpg --grad-epoch 75 --pretrain-iters 1000 --lr 1e-4 --epsilon .1 --param-recycle .1 --sample-continuous 2 --epsilon-schedule 200 --select-positive .5 --gpu 1 --resample-timer 30 --tau .001 --log-interval 25 --reward-constant -1 --max-steps 30 --print-test --pretest-trials 20 --hardcode-norm robopush 2 1 --observation-setting 1 0 0 1 1 0 0 0 0 --interaction-probability 0 --interaction-prediction 0 --her-only-interact --relative-action .1 --temporal-extend 4 --early-stopping 1 --record-rollouts data/robopushing/block --save-graph data/robopushing/block_graph --save-interval 100 > logs/robopushing/train_block.txt
+python train_option.py --dataset-dir data/robopushing/interaction_gbv/ --graph-dir data/robopushing/gripper_graph --object Block --env RoboPushing --option-type model --buffer-len 500000 --num-steps 150 --gamma .99 --batch-size 128 --num-iters 1000 --terminal-type param --reward-type param --parameterized-lambda 1 --epsilon-close 0.02 --hidden-sizes 128 128 64 --learning-type herddpg --grad-epoch 75 --pretrain-iters 1000 --lr 1e-4 --epsilon .1 --param-recycle .1 --sample-continuous 2 --epsilon-schedule 200 --select-positive .5 --gpu 1 --tau .001 --log-interval 25 --reward-constant -1 --time-cutoff 50 --resample-timer 50 --max-steps 50 --print-test --pretest-trials 20 --hardcode-norm robopush 3 1 --observation-setting 1 0 0 1 1 1 0 0 0 --interaction-probability 0 --interaction-prediction 0 --her-only-interact --relative-action .1 --temporal-extend 4 --early-stopping 1 --use-pair-gamma --record-rollouts data/robopushing/block --save-graph data/robopushing/block_graph --save-interval 100 > logs/robopushing/train_block.txt
 
-python train_option.py --dataset-dir data/robopushing/interaction_gbv/ --graph-dir data/robopushing/gripper_graph --object Block --env RoboPushing --option-type model --buffer-len 300 --num-steps 90 --gamma .99 --batch-size 16 --num-iters 4 --terminal-type param --reward-type param --parameterized-lambda 1 --epsilon-close 0.02 --time-cutoff 30  --hidden-sizes 128 128 --learning-type herddpg --grad-epoch 75 --pretrain-iters 1000 --lr 1e-4 --epsilon .1 --param-recycle .1 --sample-continuous 2 --epsilon-schedule 200 --select-positive .5 --gpu 1 --resample-timer 30 --tau .001 --log-interval 25 --reward-constant -1 --max-steps 30 --print-test --pretest-trials 1 --test-trials 1 --hardcode-norm robopush 2 1 --observation-setting 1 0 0 1 1 0 0 0 0 --interaction-probability 0 --interaction-prediction 0 --her-only-interact --relative-action .1 --temporal-extend 4 --early-stopping 1 > out.txt
+python train_option.py --dataset-dir data/robopushing/interaction_gbv/ --graph-dir data/robopushing/gripper_graph --object Block --env RoboPushing --option-type model --buffer-len 300 --num-steps 90 --gamma .99 --batch-size 16 --num-iters 4 --terminal-type param --reward-type param --parameterized-lambda 1 --epsilon-close 0.02 --time-cutoff 30  --hidden-sizes 128 128 --learning-type herddpg --grad-epoch 75 --pretrain-iters 1000 --lr 1e-4 --epsilon .1 --param-recycle .1 --sample-continuous 2 --epsilon-schedule 200 --select-positive .5 --gpu 1 --resample-timer 30 --tau .001 --log-interval 25 --reward-constant -1 --max-steps 30 --print-test --pretest-trials 1 --test-trials 1 --hardcode-norm robopush 3 1 --observation-setting 1 0 0 1 1 1 0 0 0 --interaction-probability 0 --interaction-prediction 0 --her-only-interact --relative-action .1 --temporal-extend 4 --early-stopping 1 --use-pair-gamma > out.txt
+
+# Training Block policy with primitive actions
+python train_option.py --dataset-dir data/robopushing/interaction_gbv/ --graph-dir data/robopushing/gripper_graph --object Block --env RoboPushing --option-type model --buffer-len 500000 --num-steps 150 --gamma .99 --batch-size 128 --num-iters 5000 --terminal-type param --reward-type param --parameterized-lambda 1 --epsilon-close 0.02 --time-cutoff 50 --hidden-sizes 128 128 64 --learning-type herddpg --grad-epoch 75 --pretrain-iters 10000 --lr 1e-4 --epsilon .1 --param-recycle .1 --sample-continuous 2 --epsilon-schedule 200 --select-positive .5 --gpu 1 --resample-timer 50 --tau .001 --log-interval 25 --reward-constant -1 --max-steps 50 --print-test --pretest-trials 20 --hardcode-norm robopush 3 1 --observation-setting 1 0 0 1 1 1 0 0 0 --interaction-probability 0 --interaction-prediction 0 --her-only-interact --early-stopping 1 --use-pair-gamma --primitive-actions --record-rollouts data/robopushing/hyper/block_primitive --save-graph data/robopushing/hyper/block_primitive_graph --save-interval 100 > logs/robopushing/hyper/train_block_primitive.txt
+
+python train_option.py --dataset-dir data/robopushing/interaction_gbv/ --graph-dir data/robopushing/gripper_graph --object Block --env RoboPushing --option-type model --buffer-len 500 --num-steps 150 --gamma .99 --batch-size 8 --num-iters 3 --terminal-type param --reward-type param --parameterized-lambda 1 --epsilon-close 0.02 --time-cutoff 50 --hidden-sizes 128 128 64 --learning-type herddpg --grad-epoch 5 --pretrain-iters 100 --lr 1e-4 --epsilon .1 --param-recycle .1 --sample-continuous 2 --epsilon-schedule 200 --select-positive .5 --gpu 1 --resample-timer 50 --tau .001 --log-interval 25 --reward-constant -1 --max-steps 50 --print-test --pretest-trials 1 --test-trials 1 --hardcode-norm robopush 3 1 --observation-setting 1 0 0 1 1 1 0 0 0 --interaction-probability 0 --interaction-prediction 0 --her-only-interact --early-stopping 1 --use-pair-gamma --primitive-actions > out.txt
 
 
 single step action distribution

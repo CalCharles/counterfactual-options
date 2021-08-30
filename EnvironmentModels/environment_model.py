@@ -241,7 +241,7 @@ class EnvironmentModel():
         if self.environment.discrete_actions:
             return FeatureSelector([self.indexes['Action'][1] - 1], {'Action': [self.object_sizes['Action'] - 1]}, {'Action': np.array([self.indexes['Action'][1] - 1, self.object_sizes['Action'] - 1])}, ['Action'])
         else:
-            return [FeatureSelector([self.indexes['Action'][0] + i], {'Action': i}, {'Action': np.array([self.indexes['Action'][0] + i, i])}, ['Action']) for i in range( self.object_sizes['Action'])]
+            return [FeatureSelector([self.indexes['Action'][0] + i], {'Action': np.array([i])}, {'Action': np.array([self.indexes['Action'][0] + i, i])}, ['Action']) for i in range( self.object_sizes['Action'])]
 
 def get_selection_list(cfss): # TODO: put this inside ControllableFeature as a static function
     possibility_lists = list()
@@ -396,7 +396,7 @@ class FeatureSelector():
 
     def get_relative(self, states):
         # print("states", states, self.relative_indexes)
-        if type(states) is dict or type(states) is Batch: # factored features
+        if type(states) is dict or type(states) is Batch or type(states) is OrderedDict: # factored features
             if type(states[self.names[0]]) == np.ndarray:
                 cat = lambda x, a: np.concatenate(x, axis=a)
             elif type(states[self.names[0]]) == torch.Tensor:
@@ -436,6 +436,7 @@ class FeatureSelector():
                 return cat([states[name][self.factored_features[name]] for name in self.names], 0)
             if len(states[self.names[0]].shape) == 2: # only support internal dimension up to 2
                 # print(self.factored_features)
+                # print(states[self.names[0]], [states[name][:, self.factored_features[name]] for name in self.names], self.names, self.factored_features[self.names[0]])
                 # print(states[self.names[0]], states[self.names[0]][:, self.factored_features[self.names[0]]], self.factored_features[self.names[0]], [states[name][:, self.factored_features[name]] for name in self.names])
                 return cat([states[name][:, self.factored_features[name]] for name in self.names], 1)
         elif len(states.shape) == 1: # a single flattened state

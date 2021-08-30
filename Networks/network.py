@@ -204,11 +204,11 @@ class BasicMLPNetwork(Network):
                 layers = [nn.LayerNorm(self.num_inputs), nn.Linear(self.num_inputs, self.num_outputs)]
         elif self.use_layer_norm:
             layers = ([nn.LayerNorm(self.num_inputs), nn.Linear(self.num_inputs, self.hs[0]), nn.ReLU(inplace=True),nn.LayerNorm(self.hs[0])] + 
-                  sum([[nn.Linear(self.hs[i-1], self.hs[i]), nn.ReLU(inplace=True), nn.LayerNorm(self.hs[i])] for i in range(len(self.hs))], list()) + 
+                  sum([[nn.Linear(self.hs[i-1], self.hs[i]), nn.ReLU(inplace=True), nn.LayerNorm(self.hs[i])] for i in range(1, len(self.hs))], list()) + 
                 [nn.Linear(self.hs[-1], self.num_outputs)])
         else:
             layers = ([nn.Linear(self.num_inputs, self.hs[0]), nn.ReLU(inplace=True)] + 
-                  sum([[nn.Linear(self.hs[i-1], self.hs[i]), nn.ReLU(inplace=True)] for i in range(len(self.hs))], list()) + 
+                  sum([[nn.Linear(self.hs[i-1], self.hs[i]), nn.ReLU(inplace=True)] for i in range(1, len(self.hs))], list()) + 
                 [nn.Linear(self.hs[-1], self.num_outputs)])
         self.model = nn.Sequential(*layers)
         self.train()

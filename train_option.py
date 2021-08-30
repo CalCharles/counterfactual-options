@@ -81,13 +81,20 @@ if __name__ == '__main__':
     # TODO: REMOVE LINE BELOW
     # graph.nodes["Paddle"].option.terminate_reward.true_interaction = False
     graph.nodes["Action"].option.device = None
+    if "Paddle" in graph.nodes: graph.nodes["Paddle"].option.state_extractor.use_pair_gamma = False
+    if "Gripper" in graph.nodes: graph.nodes["Gripper"].option.state_extractor.use_pair_gamma = False
 
     # initialize sampler
     sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule, environment_model=environment_model, init_state=init_state, no_combine_param_mask=args.no_combine_param_mask)
 
     # initialize state extractor
     option_name = dataset_model.name.split("->")[0] # TODO: assumes only one option in the tail for now
+    args.name_pair = [option_name, args.object]
     next_option = None if args.true_environment else graph.nodes[option_name].option
+    if args.primitive_actions:
+        args.primitive_action_map = PrimitiveActionMap(args)
+        args.action_featurizer = dataset_model.controllable[0] if environment.discrete_actions else [c for c in dataset_model.controllable if c.object() == "Action"]
+        next_option = PrimitiveOption(args, None)
     option_selector = environment_model.create_entity_selector([option_name]) 
     full_state = environment.reset()
     args.dataset_model = dataset_model
