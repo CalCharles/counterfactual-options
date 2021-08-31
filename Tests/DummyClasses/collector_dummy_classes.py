@@ -3,7 +3,6 @@ from tianshou.data import Collector, Batch, ReplayBuffer
 from Networks.network import pytorch_model
 from ReinforcementLearning.learning_algorithms import HER
 
-
 class TestExtractor():
     def __init__(self, target="Paddle"):
         self.target = target
@@ -55,6 +54,22 @@ class TestExtractor():
         if len(shape) == 1: obs[15:20] = param.squeeze() * mask.squeeze()
         else: obs[:, 15:20] = np.stack([param.squeeze() * mask.squeeze() for i in range(shape[0])], axis=0)
         return obs
+
+class DummyBlockDatasetModel():
+    def __init__(self, environment_model, multi_instanced = False):
+        self.interaction_prediction = .3
+        self.interaction_minimum = .9
+        self.multi_instanced = multi_instanced
+        self.gamma = environment_model.create_entity_selector(["Ball", "Block"])
+        self.delta = environment_model.create_entity_selector(["Block"])
+        fs = FeatureSelector([ff], {factored[0]: factored[1]}, {factored[0]: np.array([factored[1], ff])}, [factored[0]])
+        rng = np.array([0,1])
+        self.cfselectors = [ControllableFeature(fs, rng, 1, self)]
+
+    def hypothesize(self, state): # gives an "interaction" at some random locations
+    if abs(state['factored_state']['Ball'][0] - state['factored_state']['Block'][0]) < 15 and abs(state['factored_state']['Ball'][1] - state['factored_state']['Block'][1] < 10): 
+        return np.array(1), np.array(0), np.array(0)
+    return np.array(0), np.array(0), np.array(0)
 
 
 class TestDatasetModel():

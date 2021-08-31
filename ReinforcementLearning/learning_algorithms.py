@@ -90,11 +90,13 @@ class HER(LearningOptimizer):
             else:
                 param = self._get_mask_param(full_batch.next_target[0], mask)# self.option.get_state(full_batch["next_full_state"][0], setting=self.option.output_setting) * mask
             rv_search = list()
+            total_change = 0
             total_interaction = 0
             for i in range(1, len(self.replay_queue) + 1): # go back in the replay queue, but stop if last_done is hit
                 batch = self.replay_queue[-i]
                 her_batch = copy.deepcopy(batch)
                 inter_state = batch.inter_state[0]
+                total_change += np.linalg.norm(param - self._get_mask_param(her_batch.next_target[0], mask), ord=1) 
                 her_batch.update(param=[param.copy()], obs = self.state_extractor.assign_param(batch.full_state[0], batch.obs, param, mask),
                     obs_next = self.state_extractor.assign_param(batch.next_full_state[0], batch.obs_next, param, mask), mask=[mask])
                 true_done = batch.true_done
@@ -111,8 +113,8 @@ class HER(LearningOptimizer):
                 rv_search.append(her_batch)
 
             early_stopping_counter = self.early_stopping
-            # print(len(rv_search), len(self.replay_queue))
-            if (self.only_interaction and total_interaction > 0) or not self.only_interaction:
+            if (self.only_interaction and total_change > 0.003) or not self.only_interaction: # only keep cases where an interaction occurred in the trajectory TODO: interaction model unreliable, use differences in state instead
+                print("adding change", total_change, param, rv_search[-1].target[0])
                 for i in range(1, len(rv_search)+1):
                     her_batch = rv_search[-i]
                     # print("her", len(rv_search), her_batch.act, her_batch.inter_state, her_batch.target, her_batch.next_target, her_batch.rew)
