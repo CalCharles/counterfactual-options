@@ -31,3 +31,27 @@ class DummyBlockDatasetModel():
             return np.array(1), np.array(0), np.array(0)
         return np.array(0), np.array(0), np.array(0)
 
+class DummyModel():
+    def __init__(self,**kwargs):
+        self.environment_model = kwargs['environment_model']
+        self.gamma = self.environment_model.get_raw_state
+        self.delta = self.environment_model.get_object
+        self.controllable = list()
+        self.name = "RawModel"
+        self.selection_binary = torch.ones([1])
+        self.interaction_model = None
+        self.interaction_prediction = None
+        self.predict_dynamics = False
+        self.iscuda = False
+
+    def cuda(self):
+        self.iscuda = True
+
+    def cpu(self):
+        self.iscuda = False
+
+    def sample(self, states):
+        return self.environment_model.get_param(states), self.selection_binary
+
+    def get_active_mask(self):
+        return self.selection_binary.clone()
