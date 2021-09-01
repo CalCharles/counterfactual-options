@@ -9,6 +9,7 @@ from EnvironmentModels.environment_model import get_selection_list, FeatureSelec
 from EnvironmentModels.environment_normalization import hardcode_norm
 from Counterfactual.counterfactual_dataset import counterfactual_mask
 from DistributionalModels.distributional_model import DistributionalModel
+from DistributionalModels.InteractionModels.dummy_models import DummyModel
 from file_management import save_to_pickle, load_from_pickle
 from Networks.distributions import Bernoulli, Categorical, DiagGaussian
 from Networks.DistributionalNetworks.forward_network import forward_nets
