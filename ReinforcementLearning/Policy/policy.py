@@ -63,6 +63,7 @@ class TSPolicy(nn.Module):
         self.exploration_noise = self.algo_policy.exploration_noise
         self.grad_epoch = kwargs['grad_epoch']
         self.input_norm_timer = 0
+        self.sample_merged = True
 
     def cpu(self):
         super().cpu()
@@ -375,33 +376,32 @@ class TSPolicy(nn.Module):
         '''
         for i in range(self.grad_epoch):
             use_buffer = buffer
-            if self.is_her:
-                use_buffer = self.sample_buffer(buffer)
-                # print(len(use_buffer))
-            if use_buffer is None:
-                return {}
-            batch, indice = use_buffer.sample(sample_size)
-            # print(batch)
-            self.algo_policy.updating = True
-            # print(use_buffer.param.shape, batch.param.shape, batch.obs_next.shape)
-            # orig_obs, orig_next = self.add_param(batch)
-            # orig_obs_buffer, orig_next_buffer, buffer_idces = self.add_param_buffer(use_buffer, indice)
-            # for done, frame, last_frame,param in zip(batch.done, batch.obs_next, batch.obs, batch.param):
-            #     target = np.argwhere(frame[:,:,2] == 10.0)[0]
-            #     pos = np.argwhere(frame[:,:,1] == 10.0)[0]
-            #     target_last = np.argwhere(frame[:,:,2] == 10.0)[0]
-            #     pos_last = np.argwhere(last_frame[:,:,1] == 10.0)[0]
-            #     p = np.argwhere(param == 10.0)[0]
-            #     print(done, target, target_last, pos, pos_last, p)
-            # print("input", batch.obs[:5])
-            # print(len(batch))
-            batch = self.algo_policy.process_fn(batch, use_buffer, indice)
-            # for o,on,r,d,a in zip(batch.obs, batch.obs_next, batch.rew, batch.done, batch.act):
-            #     print(r,d,a)
-            #     cv2.imshow('state', o)
-            #     cv2.waitKey(500)
-            #     cv2.imshow('state', on)
-            #     cv2.waitKey(500)
+            if self.sample_merged:
+                her_buffer = self.learning_algorithm.replay_buffer
+                if buffer is None or her_buffer is None:
+                    return {}
+                self.algo_policy.updating = True
+
+                # sample from the main buffer and assign returns
+                batch, indice = buffer.sample(sample_size)
+                main_batch = self.algo_policy.process_fn(batch, buffer, indice)
+
+                # sample from the HER buffer and assign returns
+                her_batch, her_indice = her_buffer.sample(sample_size)
+                batch = self.algo_policy.process_fn(her_batch, her_buffer, her_indice)
+                
+                num_her = int(sample_size * self.learning_algorithm.select_positive) # always samples the same ratio from HER and main
+                batch[:num_her].cat_([main_batch[:sample_size-num_her]])
+            else:
+                if self.is_her:
+                    use_buffer = self.sample_buffer(buffer)
+                    # print(len(use_buffer))
+                if use_buffer is None:
+                    return {}
+                batch, indice = use_buffer.sample(sample_size)
+                self.algo_policy.updating = True
+                batch = self.algo_policy.process_fn(batch, use_buffer, indice)
+
             kwargs["batch_size"] = sample_size
             kwargs["repeat"] = 2
             # print("process fn", batch.obs[:5])

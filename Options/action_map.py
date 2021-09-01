@@ -21,7 +21,7 @@ class ActionMap():
     def __init__(self, args, next_act_map):
         # input variables
         self.discrete_actions = args.discrete_actions # 0 if continuous, also 0 if discretize_acts is used
-        self.discretize_acts = args.discretize_acts # none if not used
+        self.discretize_acts = args.discretize_acts# none if not used
         self.discrete_control = args.discrete_params # if the parameter is sampled from a discrete dict
         self.num_actions = args.num_actions 
         self.control_min, self.control_max = np.array(args.control_min), np.array(args.control_max) # from dataset model
@@ -38,8 +38,11 @@ class ActionMap():
             self.policy_min = -1 * np.ones(self.policy_action_shape) # policy space is always the same
             self.policy_max = 1 * np.ones(self.policy_action_shape)
             self.policy_action_space = gym.spaces.Box(self.policy_min, self.policy_max)
-        if self.discretize_acts:
-            self.discrete_dict = discretize_space(next_act_map.control_max.shape)
+        if self.discretize_acts is not None:
+            if type(self.discretize_acts) == dict: # use the hardcoded discrete dict
+                self.discrete_dict = self.discretize_acts
+            else:
+                self.discrete_dict = discretize_space(next_act_map.control_max.shape)
             self.policy_action_shape = (1,)
             self.policy_action_space = gym.spaces.Discrete(len(list(self.discrete_dict.keys())))
 

@@ -59,7 +59,7 @@ def intersection(a, b):
 	return (abs(midax - midbx) * 2 < (a.width + b.width)) and (abs(miday - midby) * 2 < (a.height + b.height))
 
 class Ball(animateObject):
-	def __init__(self, pos, attribute, vel):
+	def __init__(self, pos, attribute, vel, top_reset = False):
 		super(Ball, self).__init__(pos, attribute, vel)
 		self.width = 2
 		self.height = 2
@@ -67,6 +67,7 @@ class Ball(animateObject):
 		self.losses = 0
 		self.paddlehits = 0
 		self.reset_seed = -1
+		self.top_reset = top_reset
 
 		# MODE 1 # only odd lengths valid, prefer 7,11,15, etc. 
 		self.paddle_interact = dict()
@@ -107,8 +108,19 @@ class Ball(animateObject):
 				self.vel = np.array([self.vel[0], -self.vel[1]])
 				self.apply_move = False
 			elif other.name.find("TopWall") != -1:
-				self.vel = np.array([-self.vel[0], self.vel[1]])
-				self.apply_move = False
+				if self.top_reset:
+					if self.reset_seed > 0:
+						np.random.seed(self.reset_seed)
+					print(self.pos, self.vel, "top dropped", intersection(self,other))
+					self.pos = np.array([46, np.random.randint(20, 36)])
+					self.vel = np.array([1, np.random.choice([-1,1])])
+					# self.pos = np.array([46, 24])
+					# self.vel = np.array([1, 1])
+					self.apply_move = False
+					self.losses += 1
+				else:
+					self.vel = np.array([-self.vel[0], self.vel[1]])
+					self.apply_move = False
 			elif other.name.find("BottomWall") != -1:
 				if self.reset_seed > 0:
 					np.random.seed(self.reset_seed)
@@ -192,7 +204,10 @@ class Block(Object):
 		super(Block, self).__init__(pos, attribute)
 		self.width = 3 * size
 		self.height = 2 * size
-		self.name = "Block" + str(index)
+		if index >= 0:
+			self.name = "Block" + str(index)
+		else:
+			self.name = "Block"
 		self.index2D = index2d
 
 	# def interact(self, other):

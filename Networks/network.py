@@ -46,7 +46,7 @@ class NormalizationFunctions():
     def reverse(self, val):
         return
 
-class ConstantNorm():
+class ConstantNorm(NormalizationFunctions):
     def __init__(self, **kwargs):
         self.mean = kwargs['mean']
         self.std = kwargs['variance']
@@ -314,10 +314,11 @@ class PairNetwork(Network):
             self.model = [self.conv]
 
     def forward(self, x):
-        if len(x.shape) == 1:
+        if len(x.shape) == 1: # if there is only one input
+            # outputs the target shape, which is all the output objects but not the input object
             batch_size = 1
             output_shape = x.shape[0] - self.first_obj_dim
-            if self.first_obj_dim > 0:
+            if self.first_obj_dim > 0: # if there is a "first" object like the ball
                 fx = x[:self.first_obj_dim] # TODO: always assumes first object dim is the first dimensions
                 x = x[self.first_obj_dim:]
             nobj = x.shape[0] // self.object_dim

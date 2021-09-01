@@ -23,6 +23,8 @@ def get_args():
                         help='take temporally extended actions, max number of steps to extend before resampling (default: -1 (no extension))')
     parser.add_argument('--env-reset', action='store_true', default=False,
                     help='collector will call reset whenever a "done" occurs unless this is true')
+    parser.add_argument('--target-mode', action='store_true', default=False,
+                    help='in breakout, induces a domain where there is a single block to target')
     # # optimization hyperparameters
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='learning rate, not used if actor and critic learning rate used for algo (default: 1e-6)')

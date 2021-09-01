@@ -57,3 +57,50 @@ class InterInputNorm(): # input norm for rollout type data
         self.input_mean, self.input_var = self.input_mean.cpu(), self.input_var.cpu()
 
 
+
+class PointwiseNorm(InterInputNorm):
+    def __init__(self, **kwargs):
+        # norms, but with broadcasting for multiple instances flattened
+        super().__init__(**kwargs)
+
+    def __call__(self, val):
+        # print(val, self.mean, self.inv_std)
+        count = val.shape[-1] // self.mean.shape[0]
+        broadcast_mean = torch.cat([self.mean.clone() for _ in range(count)]) if count > 1 else self.mean
+        broadcast_inv_std = torch.cat([self.inv_std.clone() for _ in range(count)]) if count > 1 else self.inv_std
+        return (val - broadcast_mean) * broadcast_inv_std
+
+    def reverse(self, val):
+        count = val.shape[-1] // self.mean.shape[0]
+        broadcast_mean = np.concatenate([self.mean.copy() for _ in range(count)]) if count > 1 else self.mean
+        broadcast_std = np.concatenate([self.std.copy() for _ in range(count)]) if count > 1 else self.std
+        return val * broadcast_std + broadcast_mean
+
+class PointwiseConcatNorm(InterInputNorm):
+    def __init__(self, **kwargs):
+        # norms, but with broadcasting for multiple instances flattened
+        super().__init__(**kwargs)
+        self.first_dim = kwargs['first_obj_dim']
+        self.first_mean = kwargs['first_mean']
+        self.first_std = kwargs['first_variance']
+        self.first_inv_std = kwargs['first_invvariance']
+
+    def __call__(self, val):
+        # print(val, self.mean, self.inv_std)
+        count = (val.shape[-1] - self.first_dim) // self.mean.shape[0]
+        broadcast_mean = np.concatenate([self.mean.copy() for _ in range(count)]) if count > 1 else self.mean
+        broadcast_inv_std = np.concatenate([self.inv_std.copy() for _ in range(count)]) if count > 1 else self.inv_std
+
+        first_val = (val[...,:self.first_dim] - self.first_mean) * self.first_inv_std
+        rem = (val[...,self.first_dim:] - broadcast_mean) * broadcast_inv_std
+        return np.concatenate([first_val, rem], axis=len(val.shape) - 1)
+
+    def reverse(self, val):
+        count = (val.shape[-1] - self.first_dim) // self.mean.shape[0]
+        broadcast_mean = np.concatenate([self.mean.copy() for _ in range(count)]) if count > 1 else self.mean
+        broadcast_std = np.concatenate([self.std.copy() for _ in range(count)]) if count > 1 else self.std
+        
+        first_val = (val[...,:self.first_dim] * self.first_std) + self.first_mean
+        rem = (val[...,self.first_dim:] * broadcast_std) + broadcast_mean
+        return np.concatenate([first_val, rem], axis=len(val.shape) - 1)
+

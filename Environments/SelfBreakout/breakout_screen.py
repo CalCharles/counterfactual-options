@@ -42,15 +42,14 @@ class Screen(RawEnvironment):
             np.random.seed(self.seed_counter)
         vel= np.array([np.random.randint(1,2), np.random.choice([-1,1])])
         # self.ball = Ball(np.array([52, np.random.randint(14, 70)]), 1, vel)
-        self.ball = Ball(np.array([46, np.random.randint(20, 36)]), 1, vel)
+        self.ball = Ball(np.array([46, np.random.randint(20, 36)]), 1, vel, top_reset=self.target_mode)
         self.paddle = Paddle(np.array([71, 84//2]), 1, np.zeros((2,), dtype = np.int64))
         self.actions = Action(np.zeros((2,), dtype = np.int64), 0)
         self.reward = 0
         self.blocks = []
         self.blocks2D = list()
         if self.target_mode:
-            self.blocks = [Block(np.array([22,15 + np.random.randint(4) * 15]), 1, i * 20 + j, (0,0), size = 10)]
-            self.blocks[0].name = "Block"
+            self.blocks = [Block(np.array([22,15 + np.random.randint(4) * 15]), 1, -1, (0,0), size = 10)]
             self.blocks2D = [self.blocks]
         else:
             for i in range(5):

@@ -47,6 +47,7 @@ class HER(LearningOptimizer):
         self.done_model = option.done_model
         self.terminate_reward = option.terminate_reward
 
+        self.at = 0
         self.last_done = 0
         self.last_res = 0
         self.sample_timer = 0
@@ -113,8 +114,8 @@ class HER(LearningOptimizer):
                 rv_search.append(her_batch)
 
             early_stopping_counter = self.early_stopping
-            if (self.only_interaction and total_change > 0.003) or not self.only_interaction: # only keep cases where an interaction occurred in the trajectory TODO: interaction model unreliable, use differences in state instead
-                print("adding change", total_change, param, rv_search[-1].target[0])
+            if (self.only_interaction and total_change > 0.001) or not self.only_interaction: # only keep cases where an interaction occurred in the trajectory TODO: interaction model unreliable, use differences in state instead
+                print("adding change", term_resample, timer_resample, self.sample_timer, total_change, param, self._get_mask_param(her_batch.next_target[0], mask))
                 for i in range(1, len(rv_search)+1):
                     her_batch = rv_search[-i]
                     # print("her", len(rv_search), her_batch.act, her_batch.inter_state, her_batch.target, her_batch.next_target, her_batch.rew)
@@ -124,12 +125,15 @@ class HER(LearningOptimizer):
                             her_batch.update(done=[i < len(rv_search)]) # force it to be done to prevent fringing effects
                     # print("adding at ", single_batch.full_state["factored_state"]["Ball"], her_batch)
                     
-                    ptr, ep_rew, ep_len, ep_idx = self.replay_buffer.add(her_batch, buffer_ids=[0])
+                    self.at, ep_rew, ep_len, ep_idx = self.replay_buffer.add(her_batch, buffer_ids=[0])
                     if early_stopping_counter == 0 and self.early_stopping > 0:
                         break
             self.sample_timer = 0
             del self.replay_queue
             self.replay_queue = deque(maxlen=self.max_hindsight)
+
+    def get_buffer_idx(self):
+        return self.at
 
     def sample_buffer(self, buffer):
         if np.random.random() > self.select_positive or len(self.replay_buffer) == 0:

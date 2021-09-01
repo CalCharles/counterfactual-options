@@ -191,6 +191,9 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             param, mask = self.data.param.squeeze(), self.data.mask.squeeze()
         return param, mask, new_param
 
+    def get_buffer_idx(self):
+        return self.at
+
     def collect(
         self,
         n_step: Optional[int] = None,

@@ -4,7 +4,7 @@ from Networks.network import pytorch_model
 breakout_action_norm = (np.array([0,0,0,0,1.5]), np.array([1,1,1,1,1.5]))
 breakout_paddle_norm = (np.array([72, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
 breakout_state_norm = (np.array([84 // 2, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
-breakout_block_norm = (np.array([84 // 2, 84 // 2, 0,0,.5]), np.array([.1, .1, .1,.1,.5]))
+breakout_block_norm = (np.array([27, 42, 0,0,.5]), np.array([.1, .1, .1,.1,.5]))
 breakout_relative_norm = (np.array([0,0,0,0,.5]), np.array([84 // 2, 84 // 2,2,1,.5]))
 
 # .10, -.31

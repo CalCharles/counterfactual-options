@@ -41,7 +41,7 @@ class InteractionPairNetwork(PairNetwork):
 
     def instance_labels(self, x):
         x = pytorch_model.wrap(x, cuda=self.iscuda)
-        x = self.normalization(x)
+        # x = self.normalization(x) # TODO: input normalization handled pointwise by PairNetwork
         v = super().forward(x)
         v = torch.sigmoid(v)
         return v

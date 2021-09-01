@@ -9,7 +9,7 @@ from Environments.environment_initializer import initialize_environment
 from Rollouts.rollouts import ObjDict
 from ReinforcementLearning.train_RL import trainRL
 from ReinforcementLearning.Policy.policy import TSPolicy, pytorch_model
-from EnvironmentModels.environment_model import FeatureSelector
+from EnvironmentModels.environment_model import FeatureSelector, discretize_space
 from Options.Termination.termination import terminal_forms
 from Options.done_model import DoneModel
 from Options.option_graph import OptionGraph, OptionNode, OptionEdge, load_graph
@@ -19,9 +19,9 @@ from Options.action_map import PrimitiveActionMap, ActionMap
 from Options.state_extractor import StateExtractor
 from Options.terminate_reward import TerminateReward
 from Options.temporal_extension_manager import TemporalExtensionManager
-from DistributionalModels.DatasetModels.dataset_model import FactoredDatasetModel
-from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model, interaction_models
 from DistributionalModels.distributional_model import load_factored_model
+from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel
+from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model, interaction_models
 from DistributionalModels.InteractionModels.samplers import samplers
 from Rollouts.collector import OptionCollector
 from Rollouts.param_buffer import ParamReplayBuffer, ParamPriorityReplayBuffer
@@ -56,9 +56,15 @@ if __name__ == '__main__':
         dataset_model.selection_binary = pytorch_model.wrap(args.force_mask, cuda = dataset_model.iscuda)
     dataset_model.environment_model = environment_model
     init_state = environment.reset() # get an initial state to define shapes
-    # if args.object == "Block":
-    #     dataset_model.sample_able.vals = np.array([dataset_model.sample_able.vals[0]]) # for some reason, there are some interaction values that are wrong
-    #     args.discretize_actions = {0: np.array([-1,-1]), 1: np.array([-2,-1]), 2: np.array([-2,1]), 3: np.array([-1,1])}
+
+    # block specific shortcuts
+    discretize_actions = args.discretize_actions
+    if args.object == "Block" and args.env == "SelfBreakout":
+        if args.target_mode:
+            dataset_model = DummyBlockDatasetModel(environment_model)
+            dataset_model.environment_model = environment_model
+        dataset_model.sample_able.vals = np.array([dataset_model.sample_able.vals[0]]) # for some reason, there are some interaction values that are wrong
+        discretize_actions = {0: np.array([-1,-1]), 1: np.array([-2,-1]), 2: np.array([-2,1]), 3: np.array([-1,1])}
 
     if args.cuda: dataset_model.cuda()
     else: dataset_model.cpu()
@@ -82,6 +88,8 @@ if __name__ == '__main__':
     # graph.nodes["Paddle"].option.terminate_reward.true_interaction = False
     graph.nodes["Action"].option.device = None
     if "Paddle" in graph.nodes: graph.nodes["Paddle"].option.state_extractor.use_pair_gamma = False
+    if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.use_pair_gamma = False
+    if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.hardcoded_normalization = ["breakout", 3, 1]
     if "Gripper" in graph.nodes: graph.nodes["Gripper"].option.state_extractor.use_pair_gamma = False
 
     # initialize sampler
@@ -184,7 +192,7 @@ if __name__ == '__main__':
     
     # debugging lines
     torch.set_printoptions(precision=2)
-    np.set_printoptions(precision=2, linewidth = 150, threshold=200)
+    np.set_printoptions(precision=3, linewidth = 150, threshold=200, suppress=True)
     
     # TODO: only initializes with ReplayBuffer, prioritizedReplayBuffer at the moment, but could extend to vector replay buffer if multithread possible
     if len(args.prioritized_replay) > 0:

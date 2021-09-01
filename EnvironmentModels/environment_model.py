@@ -345,8 +345,8 @@ class FeatureSelector():
                     return idx
             return -1
 
-        def hash_names(n, on): # TODO: relative state defined by object order rather than ord order
-            if n < on:
+        def hash_names(n, on): # relative state defined by object order
+            if find_idx(n, self.names) < find_idx(on, self.names):
                 return (n, on)
             return (on, n)
 

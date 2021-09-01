@@ -899,7 +899,12 @@ class NeuralInteractionForwardModel(nn.Module):
         sfe = np.linalg.norm(forward - pytorch_model.unwrap(dtarget), ord =1, axis=axis) * interaction.squeeze() # per state forward error
         spe = np.linalg.norm(passive - pytorch_model.unwrap(dtarget), ord =1, axis=axis) * interaction.squeeze() # per state passive error
         # print(self.output_normalization_function.mean, self.output_normalization_function.std)
-        print("forward, passive, interaction", np.concatenate([forward[:100], (forward - pytorch_model.unwrap(dtarget))[:100], (passive - pytorch_model.unwrap(dtarget))[:100], pytorch_model.unwrap(dtarget)[:100], pytorch_model.unwrap(interaction)[:100]], axis=1))
+        cat_ax = 1
+        if self.multi_instanced:
+            interaction = np.expand_dims(interaction, axis=2)
+            cat_ax = 2
+        print(forward[:100].shape, (forward - pytorch_model.unwrap(dtarget))[:100].shape, (passive - pytorch_model.unwrap(dtarget))[:100].shape, pytorch_model.unwrap(dtarget)[:100].shape, pytorch_model.unwrap(interaction)[:100].shape)
+        print("forward, passive, interaction", np.concatenate([forward[:100], (forward - pytorch_model.unwrap(dtarget))[:100], (passive - pytorch_model.unwrap(dtarget))[:100], pytorch_model.unwrap(dtarget)[:100], pytorch_model.unwrap(interaction)[:100]], axis=cat_ax))
         sfeat = sfe[interaction.squeeze() > .5]
         speat = spe[interaction.squeeze() > .5]
         dtargetat = dtarget[interaction.squeeze() > .5]
@@ -1130,7 +1135,7 @@ class StateSet():
         self.close = epsilon_close
         if init_vals is not None:
             for v in init_vals: 
-                self.lst.append(v)
+                self.vals.append(v)
         self.iscuda = False
 
     # def cuda(self):

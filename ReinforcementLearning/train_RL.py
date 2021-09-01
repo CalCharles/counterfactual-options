@@ -77,13 +77,25 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
             full_save(args, option, graph)
 
         # Buffer debugging printouts
-        # buf, hrb = train_collector.buffer, option.policy.learning_algorithm.replay_buffer
-        # print("main buffer", buf) 
-        # for j, (r, p, itr, t, obs) in enumerate(zip(buf.rew, buf.param, buf.inter_state, buf.next_target, buf.obs_next)):
-        #     print(j, r, p, itr, t, obs)
-        # print("hindsight buffer", hrb)
-        # for j, (rh, ih, ph, itrh, th, obsh) in enumerate(zip(hrb.rew, hrb.inter, hrb.param, hrb.inter_state, hrb.next_target, hrb.obs_next)):
-        #     print(j, rh, ih, ph, itrh, th, obsh)
+        if i % args.log_interval == 0:
+            buf, hrb = train_collector.buffer, option.policy.learning_algorithm.replay_buffer
+            print("main buffer", len(buf), train_collector.get_buffer_idx()) 
+            rv_mean = [-.105,-.05,.8725, -.105,-.05,.824, -.105,-.05,.824, 0,0,0, 0,0,0.03]
+            rv_variance = [.2,.26,.0425, .2,.26,.001, .2,.26,.001, .2,.26,.0425, .2,.26,.0425]
+
+            rv = lambda x: (x * rv_variance) + rv_mean 
+
+            for j in range(100):
+                idx = (train_collector.get_buffer_idx() + (j - 100)) % args.buffer_len
+                d, info,r, bi, p, itr, t, obs = buf[idx].done, buf[idx].info, buf[idx].rew, buf[idx].inter, buf[idx].param, buf[idx].inter_state, buf[idx].next_target, buf[idx].obs_next
+                print(j, idx, d, info["TimeLimit.truncated"], r, bi, p, itr, t, obs, rv(obs))
+
+            if len(hrb) > 100:
+                print("hindsight buffer", len(hrb), option.policy.learning_algorithm.get_buffer_idx())
+                for j in range(100):
+                    idx = (option.policy.learning_algorithm.get_buffer_idx() + (j - 100)) % args.buffer_len
+                    dh, infoh, rh, ih, ph, itrh, th, obsh = hrb[idx].done, hrb[idx].info, hrb[idx].rew, hrb[idx].inter, hrb[idx].param, hrb[idx].inter_state, hrb[idx].next_target, hrb[idx].obs_next
+                    print(j, idx, dh, infoh["TimeLimit.truncated"], rh, ih, ph, itrh, th, obsh, rv(obsh))
         # # END PRINTOUTS
 
     if args.save_interval > 0:

@@ -10,6 +10,8 @@ breakout_action_norm = (np.array([0,0,0,0,1.5]), np.array([1,1,1,1,1.5]))
 breakout_paddle_norm = (np.array([72, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
 breakout_state_norm = (np.array([84 // 2, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
 breakout_relative_norm = (np.array([0,0,0,0,0]), np.array([84 // 2, 84 // 2,2,1,1]))
+breakout_paddle_ball_norm = (np.array([20,0,1.5,0,0]), np.array([84 // 2, 84 // 2,2,1,1]))
+breakout_ball_block_norm = (np.array([20,0,-1.5,0,0]), np.array([84 // 2, 84 // 2,2,1,1]))
 
 # .10, -.31
 # .21, -.31
@@ -20,8 +22,9 @@ breakout_relative_norm = (np.array([0,0,0,0,0]), np.array([84 // 2, 84 // 2,2,1,
 # .8725, .0425
 robopush_action_norm = (np.array([0,0,0]), np.array([1,1,1]))
 robopush_gripper_norm = (np.array([-.105,-.05,.8725]), np.array([.2,.26,.0425]))
-robopush_state_norm = (np.array([-.105,-.05,.802]), np.array([.2,.26,.001]))
+robopush_state_norm = (np.array([-.105,-.05,.824]), np.array([.2,.26,.001]))
 robopush_relative_norm = (np.array([0,0,0]), np.array([.2,.26,.0425]))
+robopush_gripper_block_norm = (np.array([0,0,0.03]), np.array([.2,.26,.0425]))
 
 def hardcode_norm_inter(anorm, v1norm, v2norm, hardcoded_normalization):
     if hardcoded_normalization[1] == '1':
@@ -67,8 +70,11 @@ def hardcode_norm_param(get_mask_param, hardcoded_normalization, mask, v1norm, v
         var = v2norm[1]
     return mean, var
 
-def hardcode_norm_relative(hardcoded_normalization, v1norm, v2norm):
+def hardcode_norm_relative(hardcoded_normalization, bnorm, v1norm, v2norm):
     if hardcoded_normalization[1] == '1':
+        mean = bnorm[0]
+        var = bnorm[1]
+    if hardcoded_normalization[1] == '2' or hardcoded_normalization[1] == '3':
         mean = v1norm[0]
         var = v1norm[1]
     else:
@@ -180,7 +186,7 @@ class StateExtractor():
         if len(state_comb) == 0:
             return np.zeros((0,))
         else:
-            # print(factored_state, state_comb, self._action_feature_selector.names, self._action_feature_selector.factored_features)
+            print(factored_state, state_comb)
             return np.concatenate(state_comb, axis=len(shape))
         return state_comb[0]
 
@@ -221,6 +227,7 @@ class StateExtractor():
         if normalize and len(self.hardcoded_normalization) > 0:
             if self.hardcoded_normalization[0] == 'breakout':
                 mean, var = hardcode_norm_inter(breakout_action_norm, breakout_paddle_norm, breakout_state_norm, self.hardcoded_normalization)
+                print(inter_state, mean)
                 return (inter_state - mean) / var * self.scale
             elif self.hardcoded_normalization[0] == 'robopush':
                 mean, var = hardcode_norm_inter(robopush_action_norm, robopush_gripper_norm, robopush_state_norm, self.hardcoded_normalization)  
@@ -232,12 +239,13 @@ class StateExtractor():
         return self._delta_featurizer(factored_state) - self.last_state
 
     def _broadcast_param(self, shape, param, mask, normalize=False):
+        print(param, mask)
         if normalize and len(self.hardcoded_normalization) > 0:
             if self.hardcoded_normalization[0] == 'breakout':
-                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, breakout_paddle_norm, breakout_state_norm)
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, breakout_relative_norm, breakout_relative_norm)
                 param = (param - mean) / var * self.scale
             if self.hardcoded_normalization[0] == 'robopush':
-                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_gripper_norm, robopush_state_norm)
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_relative_norm, robopush_relative_norm)
                 param = (param - mean) / var * self.scale
 
         if len(shape) == 0:
@@ -252,10 +260,10 @@ class StateExtractor():
         param = self._broadcast_param(shape, param, mask, normalize=normalize)
         if normalize and len(self.hardcoded_normalization) > 0:
             if self.hardcoded_normalization[0] == 'breakout':
-                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, breakout_paddle_norm, breakout_state_norm)
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, breakout_relative_norm, breakout_relative_norm)
                 target = (target - mean) / var * self.scale
             if self.hardcoded_normalization[0] == 'robopush':
-                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_gripper_norm, robopush_state_norm)
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_relative_norm, robopush_relative_norm)
                 target = (target - mean) / var * self.scale
         return param - self.get_mask_param(target, mask)
 
@@ -264,13 +272,12 @@ class StateExtractor():
             rel_state = self._pair_featurizer.get_relative(factored_state)
         else:
             rel_state = self._gamma_featurizer.get_relative(factored_state)
-
         if normalize and len(self.hardcoded_normalization) > 0:
             if self.hardcoded_normalization[0] == 'breakout':
-                mean, var = hardcode_norm_relative(self.hardcoded_normalization, breakout_paddle_norm, breakout_state_norm)
+                mean, var = hardcode_norm_relative(self.hardcoded_normalization, breakout_relative_norm, breakout_paddle_ball_norm, breakout_ball_block_norm)
                 rel_state = (rel_state - mean) / var
             elif self.hardcoded_normalization[0] == 'robopush':
-                mean, var = hardcode_norm_relative(self.hardcoded_normalization, robopush_gripper_norm, robopush_state_norm)
+                mean, var = hardcode_norm_relative(self.hardcoded_normalization, robopush_relative_norm, robopush_gripper_block_norm, robopush_relative_norm)
                 rel_state = (rel_state - mean) / var
         return rel_state
 

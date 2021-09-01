@@ -178,6 +178,23 @@ class InstanceSampling(Sampler):
         val = self.get_targets(states)
         return val, mask # does not mask out target, justified by behavior
 
+class HistoryInstanceSampling(Sampler):
+    def sample(self, states):
+        states = states["factored_state"]
+        for k in states.keys():
+            states[k] = np.array(states[k])
+        mask = self.get_binary(states)
+        inv_m = mask.copy()
+        inv_m[mask == 0] = -1
+        inv_m[mask == 1] = 0
+        inv_m *= -1
+        val_idx = np.random.randint(len(self.dataset_model.sample_able.vals))
+        m_value = self.dataset_model.sample_able.vals[val_idx]
+        val = self.dataset_model.delta(states) * inv_m + m_value * mask# TODO: does not handle multiple states
+        print(val, m_value, val_idx, self.dataset_model.delta(states), mask)
+        return val, mask
+
+
 class RandomSubsetSampling(Sampler):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -304,4 +321,6 @@ class GaussianOffCenteredSampling(Sampler):
 # class ReachedSampling
 
 mask_samplers = {"rans": RandomSubsetSampling, "pris": PrioritizedSubsetSampling} # must be 4 characters
-samplers = {"uni": LinearUniformSampling, "cuni": LinearUniformCenteredSampling, "gau": GaussianCenteredSampling, "hst": HistorySampling, 'inst': InstanceSampling}
+samplers = {"uni": LinearUniformSampling, "cuni": LinearUniformCenteredSampling, 
+            "gau": GaussianCenteredSampling, "hst": HistorySampling, 'inst': InstanceSampling,
+            "hstinst": HistoryInstanceSampling}
