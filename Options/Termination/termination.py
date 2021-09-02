@@ -149,7 +149,7 @@ class CombinedTrueTermination(Termination):
 		self.epsilon_close = self.comb_terminator.epsilon_close
 
 	def check_interaction(self, inter):
-		self.comb_terminator.check_interaction(inter)
+		return self.comb_terminator.check_interaction(inter)
 
 	def check(self, input_state, state, param, mask, true_done=False):
 		self.comb_terminator.epsilon_close = self.epsilon_close

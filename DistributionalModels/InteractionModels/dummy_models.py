@@ -1,7 +1,33 @@
 import numpy as np
+import torch
 from EnvironmentModels.environment_model import FeatureSelector, ControllableFeature
-from DistributionalModels.InteractionModels.interaction_model import StateSet
+from DistributionalModels.InteractionModels.state_management import StateSet
 from Networks.network import pytorch_model
+
+class DummyModel():
+    def __init__(self,**kwargs):
+        self.environment_model = kwargs['environment_model']
+        self.gamma = self.environment_model.get_raw_state
+        self.delta = self.environment_model.get_object
+        self.controllable = list()
+        self.name = "State->Reward"
+        self.selection_binary = torch.ones([1])
+        self.interaction_model = None
+        self.interaction_prediction = None
+        self.predict_dynamics = False
+        self.iscuda = False
+
+    def cuda(self):
+        self.iscuda = True
+
+    def cpu(self):
+        self.iscuda = False
+
+    def sample(self, states):
+        return self.environment_model.get_param(states), self.selection_binary
+
+    def get_active_mask(self):
+        return self.selection_binary.clone()
 
 
 class DummyBlockDatasetModel():
@@ -27,31 +53,7 @@ class DummyBlockDatasetModel():
         self.iscuda = False
 
     def hypothesize(self, state): # gives an "interaction" at some random locations
-        if abs(state['factored_state']['Ball'][0] - state['factored_state']['Block'][0]) < 15 and abs(state['factored_state']['Ball'][1] - state['factored_state']['Block'][1] < 10): 
+        if abs(state[0] - state[5]) < 9 and abs(state[1] - state[6] < 6): 
             return np.array(1), np.array(0), np.array(0)
         return np.array(0), np.array(0), np.array(0)
 
-class DummyModel():
-    def __init__(self,**kwargs):
-        self.environment_model = kwargs['environment_model']
-        self.gamma = self.environment_model.get_raw_state
-        self.delta = self.environment_model.get_object
-        self.controllable = list()
-        self.name = "RawModel"
-        self.selection_binary = torch.ones([1])
-        self.interaction_model = None
-        self.interaction_prediction = None
-        self.predict_dynamics = False
-        self.iscuda = False
-
-    def cuda(self):
-        self.iscuda = True
-
-    def cpu(self):
-        self.iscuda = False
-
-    def sample(self, states):
-        return self.environment_model.get_param(states), self.selection_binary
-
-    def get_active_mask(self):
-        return self.selection_binary.clone()

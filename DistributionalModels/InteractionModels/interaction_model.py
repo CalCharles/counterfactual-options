@@ -10,6 +10,7 @@ from EnvironmentModels.environment_normalization import hardcode_norm
 from Counterfactual.counterfactual_dataset import counterfactual_mask
 from DistributionalModels.distributional_model import DistributionalModel
 from DistributionalModels.InteractionModels.dummy_models import DummyModel
+from DistributionalModels.InteractionModels.state_management import StateSet
 from file_management import save_to_pickle, load_from_pickle
 from Networks.distributions import Bernoulli, Categorical, DiagGaussian
 from Networks.DistributionalNetworks.forward_network import forward_nets
@@ -770,7 +771,7 @@ class NeuralInteractionForwardModel(nn.Module):
         else: interaction_schedule = lambda i: np.power(0.5, (i/train_args.epsilon_schedule))
 
         # sampling weights, either wit hthe passive error or if we can upweight the true interactions
-        if train_args.passive_weighting:
+        if train_args.passive_weighting > 0:
             passive_error_all = self.get_prediction_error(rollouts)
             print(passive_error_all[:100])
             print(passive_error_all[100:200])
@@ -789,7 +790,7 @@ class NeuralInteractionForwardModel(nn.Module):
             weights, use_weights, total_live, total_dead, ratio_lambda = self._get_weights(ratio_lambda=train_args.interaction_weight, weights=trw, local=train_args.interaction_local)
             use_weights =  copy.deepcopy(use_weights)
             print(use_weights.shape)
-        elif train_args.change_weighting:
+        elif train_args.change_weighting > 0:
             target_mag = self._get_target_mag(rollouts)
             weights, use_weights, total_live, total_dead, ratio_lambda = self._get_weights(target_mag, ratio_lambda = train_args.change_weighting, passive_error_cutoff=train_args.passive_error_cutoff)
 
@@ -1129,41 +1130,5 @@ class NeuralInteractionForwardModel(nn.Module):
             value = np.random.choice(self.sample_able.vals)
             return value.clone(), self.selection_binary.clone()
 
-
-class StateSet():
-    def __init__(self, init_vals=None, epsilon_close = .1):
-        self.vals = list()
-        self.close = epsilon_close
-        if init_vals is not None:
-            for v in init_vals: 
-                self.vals.append(v)
-        self.iscuda = False
-
-    # def cuda(self):
-    #     self.iscuda = True
-    #     for i in range(len(self.vals)):
-    #         self.vals[i] = self.vals[i].cuda()
-
-    def __getitem__(self, val):
-        for iv in self.vals:
-            if np.linalg.norm(iv - val, ord=1) < self.close:
-                return iv.copy()
-        raise AttributeError("No such attribute: " + name)
-
-    def add(self, val):
-        val = pytorch_model.unwrap(val)
-        i = self.inside(val)
-        if i == -1:
-            self.vals.append(val)
-        return i
-
-    def inside(self, val):
-        for i, iv in enumerate(self.vals):
-            if np.linalg.norm(iv - val, ord=1) < self.close:
-                return i
-        return -1
-
-    def pop(self, idx):
-        self.vals.pop(idx)
 
 interaction_models = {'neural': NeuralInteractionForwardModel, 'dummy': DummyModel}

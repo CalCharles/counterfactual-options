@@ -50,14 +50,15 @@ class TemporalAggregator():
         skipped = False
         if self.keep_next: 
             self.current_data = copy.deepcopy(data)
+            self.current_data.rew = [self.current_data.rew.squeeze()] # TODO: hack to make sure that reward is a regular shape
             self.keep_next = self.temporal_skip
         else: # the reward is already recorded if we copy the input data
             if self.sum_reward:
-                self.current_data.rew += data.rew
-                self.current_data.true_reward += data.true_reward
+                self.current_data.rew += data.rew.squeeze()
+                self.current_data.true_reward += data.true_reward.squeeze()
             else:
-                self.current_data.rew = data.rew
-                self.current_data.true_reward = data.true_reward
+                self.current_data.rew = [data.rew.squeeze()]
+                self.current_data.true_reward = [data.true_reward.squeeze()]
 
         self.current_data.update(next_full_state = data.next_full_state, next_target=data.next_target, obs_next=data.obs_next, inter_state=data.inter_state)
         self.current_data.done = [np.any(self.current_data.done) + np.any(data.done)] # basically an OR
@@ -289,8 +290,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             cutoff = (np.array([time_cutoff]) or (true_done and not term))  # treat true dones like time limits (TODO: this is not valid when learning to control true dones)
             if type(cutoff) != bool: cutoff = cutoff.squeeze()
             info[0]["TimeLimit.truncated"] = bool(cutoff + info[0]["TimeLimit.truncated"]) # environment might send truncated itself
-            if term:
-                print("term", term, true_done, done, inter, not time_cutoff, rew, param, next_target, inter_state)
+            if term: print("term", term, true_done, done, inter, not time_cutoff, rew, param, next_target, inter_state)
             self.option.update(self.buffer, done, self.data.full_state[0], act, action_chain, terminations, param, masks, not self.test)
 
             # update hit-miss values
@@ -324,8 +324,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 self.data, buffer_ids=ready_env_ids)
 
             next_data, skipped, added, self.at = self._aggregate(self.data, self.buffer, full_ptr, ready_env_ids)
-            if not self.test: self.policy_collect(next_data, self.data, skipped, added)
-
+            if not self.test and self.policy_collect is not None: self.policy_collect(next_data, self.data, skipped, added)
             # debugging and visualization
             if self.test: print(self.data.obs.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=True).squeeze()))
             if len(visualize_param) != 0:
@@ -334,7 +333,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 if visualize_param != "nosave":
                     saveframe(new_frame, pth=visualize_param, count=self.counter, name="param_frame")
                     self.counter += 1
-                printframe(new_frame, waittime=1)
+                printframe(new_frame, waittime=100)
 
             # collect statistics
             step_count += len(ready_env_ids)

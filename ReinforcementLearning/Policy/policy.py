@@ -38,21 +38,27 @@ class TSPolicy(nn.Module):
         self.algo_name = kwargs["learning_type"] # the algorithm being used
         self.is_her = self.algo_name[:3] == "her" # her is always a prefix
         self.collect = None
-        self.lookahead = args.lookahead
+        self.lookahead = args.lookahead # lookahead for RL, computes \sum^lookahead R + Q(s^lookahead+1)
         # self.option = args.option
-        self.input_var = np.ones(input_shape)
+        self.use_input_norm = args.input_norm
+        self.input_var = np.ones(input_shape) # only if input variance and mean are used
         self.input_mean = np.zeros(input_shape)
+        self.sample_merged = False # self.is_her # always sample merged if using HER right now
         if self.is_her: 
             self.algo_name = self.algo_name[3:]
             self.learning_algorithm = HER(ObjDict(kwargs), kwargs['option'])
-            self.collect = self.learning_algorithm.record_state # TODO: not sure what to initialize with
-            self.sample_buffer = self.learning_algorithm.sample_buffer
-        self.action_space = action_space
-        self.use_input_norm = args.input_norm
-        print(paction_space)
+            self.collect = self.learning_algorithm.record_state # a function to record a new state to HER buffer
+            self.sample_buffer = self.learning_algorithm.sample_buffer # a function to choose between buffers
+        self.action_space = action_space # policy action space
+        self.epsilon_schedule = args.epsilon_schedule # if > 0, adjusts epsilon from 1->args.epsilon by exp(-steps/epsilon schedule)
+        self.epsilon_timer = 0 # timer to record steps
+        self.epsilon = 1 if self.epsilon_schedule > 0 else args.epsilon
+        self.epsilon_base = args.epsilon
+        self.pretrain_iters = args.pretrain_iters # don't count the pretrain iterations (random actions)
+
         args.object_dim, args.first_obj_dim = kwargs["object_dim"], kwargs['first_obj_dim']
         kwargs["actor"], kwargs["actor_optim"], kwargs['critic'], kwargs['critic_optim'], kwargs['critic2'], kwargs['critic2_optim'] = self.init_networks(args, input_shape, paction_space.shape or paction_space.n, discrete_actions, max_action=max_action)
-        kwargs["exploration_noise"] = GaussianNoise(sigma=args.epsilon)
+        kwargs["exploration_noise"] = GaussianNoise(sigma=1 if self.epsilon_schedule > 0 else args.epsilon)
         kwargs["action_space"] = action_space
         kwargs["discrete_actions"] = discrete_actions
         self.discrete_actions = discrete_actions
@@ -63,7 +69,6 @@ class TSPolicy(nn.Module):
         self.exploration_noise = self.algo_policy.exploration_noise
         self.grad_epoch = kwargs['grad_epoch']
         self.input_norm_timer = 0
-        self.sample_merged = True
 
     def cpu(self):
         super().cpu()
@@ -173,6 +178,9 @@ class TSPolicy(nn.Module):
     def set_eps(self, epsilon): # not all algo policies have set eps
         if hasattr(self.algo_policy, "set_eps"):
             self.algo_policy.set_eps(epsilon)
+        if hasattr(self.algo_policy, "set_exp_noise"):
+            self.algo_policy.set_exp_noise(GaussianNoise(sigma=epsilon))
+
 
     def init_algorithm(self, **kwargs):
         args = ObjDict(kwargs)
@@ -197,7 +205,7 @@ class TSPolicy(nn.Module):
         elif self.algo_name == "ddpg": 
             policy = ts.policy.DDPGPolicy(args.actor, args.actor_optim, args.critic, args.critic_optim,
                                                                             tau=args.tau, gamma=args.gamma,
-                                                                            exploration_noise=GaussianNoise(sigma=args.epsilon),
+                                                                            exploration_noise=args.exploration_noise,
                                                                             estimation_step=args.lookahead, action_space=args.action_space,
                                                                             action_bound_method='clip')
         elif self.algo_name == "sac":
@@ -210,7 +218,7 @@ class TSPolicy(nn.Module):
             else:
                 policy = ts.policy.SACPolicy(args.actor, args.actor_optim, args.critic, args.critic_optim, args.critic2, args.critic2_optim,
                                                                             tau=args.tau, gamma=args.gamma, alpha=args.sac_alpha,
-                                                                            exploration_noise=GaussianNoise(sigma=args.epsilon),
+                                                                            exploration_noise=args.exploration_noise,
                                                                             estimation_step=args.lookahead, action_space=args.action_space,
                                                                             action_bound_method='clip', deterministic_eval=args.deterministic_eval)
         # support as many algos as possible, at least ddpg, dqn SAC
@@ -356,6 +364,12 @@ class TSPolicy(nn.Module):
         if self.use_input_norm:
             batch.update(obs=(batch.obs - self.input_mean) / self.input_var)
 
+    def update_time(self):
+        self.epsilon_timer += 1
+        if self.epsilon_schedule > 0 and self.epsilon_timer % self.epsilon_schedule == 0: # only updates every epsilon_schedule time steps
+            self.epsilon = self.epsilon_base + (1-self.epsilon_base) * np.exp(-max(0, self.epsilon_timer - self.pretrain_iters)/self.epsilon_schedule) 
+            self.set_eps(self.epsilon)
+
     def update_norm(self, buffer):
         if self.use_input_norm:
             if self.input_norm_timer == 1000:
@@ -376,7 +390,7 @@ class TSPolicy(nn.Module):
         '''
         for i in range(self.grad_epoch):
             use_buffer = buffer
-            if self.sample_merged:
+            if self.sample_merged and len(self.learning_algorithm.replay_buffer) > 1000:
                 her_buffer = self.learning_algorithm.replay_buffer
                 if buffer is None or her_buffer is None:
                     return {}
@@ -391,6 +405,7 @@ class TSPolicy(nn.Module):
                 batch = self.algo_policy.process_fn(her_batch, her_buffer, her_indice)
                 
                 num_her = int(sample_size * self.learning_algorithm.select_positive) # always samples the same ratio from HER and main
+                # print([(k, batch[k].shape, main_batch[k].shape) for k in batch.keys()])
                 batch[:num_her].cat_([main_batch[:sample_size-num_her]])
             else:
                 if self.is_her:

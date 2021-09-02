@@ -21,6 +21,8 @@ def get_args():
                         help='name of the object filtering for')
     parser.add_argument('--temporal-extend', type=int, default=-1,
                         help='take temporally extended actions, max number of steps to extend before resampling (default: -1 (no extension))')
+    parser.add_argument('--env-timelimit', type=int, default=-1,
+                        help='amount of time for the environment to expire (default: -1 (no extension))')
     parser.add_argument('--env-reset', action='store_true', default=False,
                     help='collector will call reset whenever a "done" occurs unless this is true')
     parser.add_argument('--target-mode', action='store_true', default=False,
@@ -187,8 +189,8 @@ def get_args():
                         help='stop adding too many terminal states to HER (default: -1)')
     parser.add_argument('--max-hindsight', type=int, default=500,
                         help='most timesteps to look behind for credit assignment (default: 500)')
-    parser.add_argument('--her-only-interact', action='store_true', default=False,
-                        help='only resample if an interaction occurs at some point')
+    parser.add_argument('--her-only-interact', type=int, default=0,
+                        help='only resample if an interaction (1) or change(2) occurs at some point')
     parser.add_argument('--use-interact', action='store_true', default=False,
                         help='only resamples HER when an interaction occurs')
 
@@ -223,6 +225,8 @@ def get_args():
                         help='the cutoff for error to weight the value (default: 2)')
     parser.add_argument('--passive-weighting', type=float, default=0,
                         help='weight with the passive error, if 0, then passive weighting is not used')
+    parser.add_argument('--change-weighting', type=float, default=0,
+                        help='weight with the change in state')
 
     # reward settings
     parser.add_argument('--parameterized-lambda', type=float, default=.5,

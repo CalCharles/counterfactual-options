@@ -195,7 +195,8 @@ class EnvironmentModel():
             factored_state['Action'] = copy.copy(next_factored_state['Action'])
         state = torch.tensor(self.flatten_factored_state(factored_state, instanced=instanced)).float()
         next_state = torch.tensor(self.flatten_factored_state(next_factored_state, instanced=instanced)).float()
-        skip = self.get_done({"factored_state": factored_state})
+        skip = self.get_done({"factored_state": next_factored_state})
+        # print(skip, factored_state["Paddle"], next_factored_state["Paddle"])
         insert_dict = {'state': state, 'next_state': next_state, 'state_diff': next_state-state, 'done': self.get_done({"factored_state": next_factored_state}), 'action': self.get_action({"factored_state": factored_state})}
         return insert_dict, state, skip
 

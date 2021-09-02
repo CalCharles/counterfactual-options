@@ -9,6 +9,7 @@ def array_state(factored_state):
 breakout_action_norm = (np.array([0,0,0,0,1.5]), np.array([1,1,1,1,1.5]))
 breakout_paddle_norm = (np.array([72, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
 breakout_state_norm = (np.array([84 // 2, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
+breakout_block_norm = (np.array([32, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
 breakout_relative_norm = (np.array([0,0,0,0,0]), np.array([84 // 2, 84 // 2,2,1,1]))
 breakout_paddle_ball_norm = (np.array([20,0,1.5,0,0]), np.array([84 // 2, 84 // 2,2,1,1]))
 breakout_ball_block_norm = (np.array([20,0,-1.5,0,0]), np.array([84 // 2, 84 // 2,2,1,1]))
@@ -59,8 +60,6 @@ def hardcode_norm_target(hardcoded_normalization, anorm, v1norm, v2norm):
         var = v2norm[1]
     return mean, var
 
-
-
 def hardcode_norm_param(get_mask_param, hardcoded_normalization, mask, v1norm, v2norm):
     if hardcoded_normalization[1] == '1':
         mean = get_mask_param(v1norm[0], mask)
@@ -90,7 +89,6 @@ class StateExtractor():
         hyperparameters for deciding the getter functions actual getting process
         '''
         self.use_pair_gamma = args.use_pair_gamma
-
         self._pair_featurizer = args.environment_model.create_entity_selector(args.name_pair)
         self._gamma_featurizer = args.dataset_model.gamma
         self._option_featurizer = option_selector # selects the TAIL
@@ -186,7 +184,6 @@ class StateExtractor():
         if len(state_comb) == 0:
             return np.zeros((0,))
         else:
-            print(factored_state, state_comb)
             return np.concatenate(state_comb, axis=len(shape))
         return state_comb[0]
 
@@ -227,7 +224,6 @@ class StateExtractor():
         if normalize and len(self.hardcoded_normalization) > 0:
             if self.hardcoded_normalization[0] == 'breakout':
                 mean, var = hardcode_norm_inter(breakout_action_norm, breakout_paddle_norm, breakout_state_norm, self.hardcoded_normalization)
-                print(inter_state, mean)
                 return (inter_state - mean) / var * self.scale
             elif self.hardcoded_normalization[0] == 'robopush':
                 mean, var = hardcode_norm_inter(robopush_action_norm, robopush_gripper_norm, robopush_state_norm, self.hardcoded_normalization)  
@@ -239,13 +235,12 @@ class StateExtractor():
         return self._delta_featurizer(factored_state) - self.last_state
 
     def _broadcast_param(self, shape, param, mask, normalize=False):
-        print(param, mask)
         if normalize and len(self.hardcoded_normalization) > 0:
             if self.hardcoded_normalization[0] == 'breakout':
-                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, breakout_relative_norm, breakout_relative_norm)
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, breakout_paddle_norm, breakout_state_norm)
                 param = (param - mean) / var * self.scale
             if self.hardcoded_normalization[0] == 'robopush':
-                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_relative_norm, robopush_relative_norm)
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_gripper_norm, robopush_state_norm)
                 param = (param - mean) / var * self.scale
 
         if len(shape) == 0:

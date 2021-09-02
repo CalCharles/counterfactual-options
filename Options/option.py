@@ -22,6 +22,7 @@ class Option():
         self.sampler = models.sampler # samples params
         self.policy = policy # policy to run during opion
         self.next_option = next_option # the option which controls the actions
+        if type(self.next_option) != PrimitiveOption: self.next_option.zero_epsilon()
         self.assign_models(models)
 
         # cuda handling
@@ -71,8 +72,14 @@ class Option():
         if self.next_option is not None:
             self.next_option.cpu()
 
+    def zero_epsilon(self):
+        if self.policy is not None:
+            self.policy.set_eps(0.0)
+        if type(self.next_option) != PrimitiveOption:
+            self.next_option.zero_epsilon()
+
     def print_epsilons(self):
-        print("epsilons", self.terminate_reward.epsilon_close, self.terminate_reward.interaction_probability) #self.action_map.epsilon_policy)
+        print("epsilons", self.terminate_reward.epsilon_close, self.terminate_reward.interaction_probability, self.policy.epsilon, self.sampler.current_distance) #self.action_map.epsilon_policy)
 
     def _set_next_option(self, batch, mapped_act):
         param = batch['param']
@@ -124,7 +131,7 @@ class Option():
             if use_model: 
                 act, mapped_act = self.search(batch, state_chain, act, mapped_act) # only this line differs from the main
         chain = [mapped_act]
-        
+
         # recursively propagate action up the chain
         if self.next_option is not None:
             param, obs, mask = self._set_next_option(batch, mapped_act)
@@ -151,6 +158,7 @@ class Option():
         self.done_model.update(done)
         self.sampler.update(param, masks[-1]) # TODO: sampler also handles its own param, mask
         if update_policy:
+            self.policy.update_time()
             self.policy.update_norm(buffer)
             self.policy.update_la()
 

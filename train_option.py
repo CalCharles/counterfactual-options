@@ -97,6 +97,7 @@ if __name__ == '__main__':
 
     # initialize state extractor
     option_name = dataset_model.name.split("->")[0] # TODO: assumes only one option in the tail for now
+    args.object = "Reward" if len(args.object) == 0 else args.object
     args.name_pair = [option_name, args.object]
     next_option = None if args.true_environment else graph.nodes[option_name].option
     if args.primitive_actions:
@@ -107,8 +108,10 @@ if __name__ == '__main__':
     full_state = environment.reset()
     args.dataset_model = dataset_model
     args.environment_model = environment_model
-    args.action_feature_selector = next_option.dataset_model.feature_selector if next_option.name != "Action" else environment_model.construct_action_selector()
-    state_extractor = StateExtractor(args, option_selector, full_state, sampler.param, sampler.mask)
+    args.action_feature_selector = next_option.dataset_model.feature_selector if next_option is not None and next_option.name != "Action" else environment_model.construct_action_selector()
+    if sampler is None: param, mask = None, None
+    else: param, mask = sampler.param, sampler.mask
+    state_extractor = StateExtractor(args, option_selector, full_state, param, mask)
 
 
     # initialize termination function, reward function, done model

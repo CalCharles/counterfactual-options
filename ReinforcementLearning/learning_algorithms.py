@@ -74,7 +74,7 @@ class HER(LearningOptimizer):
             return
         self.replay_queue.append(copy.deepcopy(full_batch))
         term_resample = np.any(full_batch.done) or np.any(full_batch.terminate)
-        timer_resample = (self.sample_timer >= self.resample_timer) and not term_resample
+        timer_resample = self.resample_timer > 0 and (self.sample_timer >= self.resample_timer) and not term_resample
         inter_resample = self._check_interaction(full_batch.inter.squeeze()) and self.use_interact # TODO: uses the historical computation
 
         if (term_resample
@@ -103,18 +103,19 @@ class HER(LearningOptimizer):
                 true_done = batch.true_done
                 true_reward = batch.true_reward
                 term, rew, inter, time_cutoff = self.option.terminate_reward.check(batch.full_state[0], batch.next_full_state[0], param, mask, inter_state=inter_state, use_timer=False, true_inter=batch.inter.squeeze())
-
                 total_interaction += float(self._check_interaction(inter.squeeze()))
                 timer, self.done_model.timer = self.done_model.timer, 0
                 done = self.done_model.check(term, true_done)
 
                 her_batch.info["TimeLimit.truncated"] = [her_batch.info["TimeLimit.truncated"].squeeze() and not done] if "TimeLimit.truncated" in her_batch.info else [False] # ensure that truncated is NOT true when it conincides with termination
                 self.done_model.timer = timer
+                if type(term) == np.ndarray: term = term.squeeze()
+                if type(rew) == np.ndarray: rew = rew.squeeze()
                 her_batch.update(done=[done], terminate=[term], rew=[rew])
                 rv_search.append(her_batch)
 
             early_stopping_counter = self.early_stopping
-            if (self.only_interaction and total_change > 0.001) or not self.only_interaction: # only keep cases where an interaction occurred in the trajectory TODO: interaction model unreliable, use differences in state instead
+            if (self.only_interaction == 1 and total_interaction > 0.5) or (self.only_interaction == 2 and total_change > 0.001) or (self.only_interaction == 0): # only keep cases where an interaction occurred in the trajectory TODO: interaction model unreliable, use differences in state instead
                 print("adding change", term_resample, timer_resample, self.sample_timer, total_change, param, self._get_mask_param(her_batch.next_target[0], mask))
                 for i in range(1, len(rv_search)+1):
                     her_batch = rv_search[-i]
@@ -123,7 +124,6 @@ class HER(LearningOptimizer):
                         early_stopping_counter -= 1
                         if early_stopping_counter == 0:
                             her_batch.update(done=[i < len(rv_search)]) # force it to be done to prevent fringing effects
-                    # print("adding at ", single_batch.full_state["factored_state"]["Ball"], her_batch)
                     
                     self.at, ep_rew, ep_len, ep_idx = self.replay_buffer.add(her_batch, buffer_ids=[0])
                     if early_stopping_counter == 0 and self.early_stopping > 0:

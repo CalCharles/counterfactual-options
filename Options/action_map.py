@@ -79,6 +79,8 @@ class ActionMap():
         maps a policy space to the action space used by a parameter
         '''
         act = to_numpy(act)
+        if len(act.shape) == 2:
+            act = act[0]
         if len(act.shape) == 0: # exploration noise requires "len"  
             act = np.array([act])
             act = self._exploration_noise(act, batch)

@@ -72,6 +72,9 @@ if __name__ == '__main__':
 
     # TODO: remove line below, hacked for changes
     graph.nodes["Action"].option.action_map.action_featurizer = graph.nodes["Paddle"].option.dataset_model.controllable[0]
+    if "Paddle" in graph.nodes: graph.nodes["Paddle"].option.state_extractor.use_pair_gamma = False
+    if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.use_pair_gamma = False
+    if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.hardcoded_normalization = ["breakout", 3, 1]
     print(graph.nodes["Action"].option)
 
     option_name = dataset_model.name.split("->")[0]

@@ -49,7 +49,7 @@ class Screen(RawEnvironment):
         self.blocks = []
         self.blocks2D = list()
         if self.target_mode:
-            self.blocks = [Block(np.array([22,15 + np.random.randint(4) * 15]), 1, -1, (0,0), size = 10)]
+            self.blocks = [Block(np.array([22,15 + np.random.randint(4) * 15]), 1, -1, (0,0), size = 6)]
             self.blocks2D = [self.blocks]
         else:
             for i in range(5):
@@ -139,7 +139,7 @@ class Screen(RawEnvironment):
                             self.reward += 1
                             self.total_score += 1
                             hit = True
-                            if obj2.name.find("Block") != -1:
+                            if obj2.name.find("Block") != -1 and not self.target_mode:
                                 if obj2.index2D in self.exposed_blocks:
                                     self.exposed_blocks.pop(obj2.index2D)
                                 for i,j in adjacent(*obj2.index2D):
@@ -154,7 +154,6 @@ class Screen(RawEnvironment):
             if pre_stop and self.drop_stopping:
                 self.reward += -1 # negative reward for dropping the ball since done is not triggered
                 self.done = True
-                print("dropped", self.ball.losses)
             if self.ball.losses == 4 and pre_stop:
                 self.average_points_per_life = self.total_score / 5.0
                 self.done = True

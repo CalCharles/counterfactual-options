@@ -134,7 +134,7 @@ def find_inst_feature(state_values, sample_able, nosample, sample_exposed, envir
                 sample_able_all.append((s,h))
     # s, h = sample_able_inst[np.random.randint(len(sample_able_inst))]
     if len(sample_able_inst) == 0:
-        print(sample_able_all, sample_able_inst, [exp.getMidpoint() for exp in environment_model.environment.exposed_blocks.values()])
+        # print(sample_able_all, sample_able_inst, [exp.getMidpoint() for exp in environment_model.environment.exposed_blocks.values()])
         return sample_able_all[np.random.randint(len(sample_able_all))]
     return sample_able_inst[np.random.randint(len(sample_able_inst))]
 
@@ -191,7 +191,7 @@ class HistoryInstanceSampling(Sampler):
         val_idx = np.random.randint(len(self.dataset_model.sample_able.vals))
         m_value = self.dataset_model.sample_able.vals[val_idx]
         val = self.dataset_model.delta(states) * inv_m + m_value * mask# TODO: does not handle multiple states
-        print(val, m_value, val_idx, self.dataset_model.delta(states), mask)
+        # print(val, m_value, val_idx, self.dataset_model.delta(states), mask)
         return val, mask
 
 
@@ -267,7 +267,7 @@ class GaussianCenteredSampling(Sampler):
     def get_targets(self, states):
         distance = .4
         if self.schedule > 0: # the distance changes, otherwise it is a set constant .15 of the maximum TODO: add hyperparam
-            distance = self.distance + (.4 - self.distance) * np.exp(-self.schedule/self.schedule_counter)
+            distance = self.distance + (.4 - self.distance) * np.exp(-self.schedule/(self.schedule_counter + 1))
         if self.dataset_model.sample_continuous:
             cfselectors = self.dataset_model.cfselectors
             weights = np.random.normal(loc=0, scale=self.distance, size=(len(cfselectors,))) # random weight vector
@@ -277,9 +277,10 @@ class GaussianCenteredSampling(Sampler):
 
 class LinearUniformCenteredSampling(Sampler):
     def __init__(self, **kwargs):
-        self.distance = .03 # normalized
+        self.distance = .5 # normalized
         self.schedule_counter = 0
         self.schedule = kwargs["sample_schedule"]
+        self.current_distance = .05
         super().__init__(**kwargs)
 
     def update(self, param, mask, buffer=None):
@@ -287,11 +288,11 @@ class LinearUniformCenteredSampling(Sampler):
         self.schedule_counter += 1
 
     def get_targets(self, states):
-        distance = .2
+        distance = .05
         if self.schedule > 0: # the distance changes, otherwise it is a set constant .15 of the maximum TODO: add hyperparam
-            distance = self.distance + (distance - self.distance) * np.exp(-self.schedule/self.schedule_counter)
+            self.current_distance = self.distance - (self.distance - distance) * np.exp(-(self.schedule_counter + 1)/self.schedule)
         cfselectors = self.dataset_model.cfselectors
-        weights = (np.random.random((len(cfselectors,))) - .5) * 2 * distance # random weight vector bounded between -distance, distance
+        weights = (np.random.random((len(cfselectors,))) - .5) * 2 * self.current_distance # random weight vector bounded between -distance, distance
         return self.weighted_samples(states, weights, centered=True)
 
 
