@@ -43,7 +43,7 @@ class TSPolicy(nn.Module):
         self.use_input_norm = args.input_norm
         self.input_var = np.ones(input_shape) # only if input variance and mean are used
         self.input_mean = np.zeros(input_shape)
-        self.sample_merged = False # self.is_her # always sample merged if using HER right now
+        self.sample_merged = False #self.is_her # always sample merged if using HER right now
         if self.is_her: 
             self.algo_name = self.algo_name[3:]
             self.learning_algorithm = HER(ObjDict(kwargs), kwargs['option'])

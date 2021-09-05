@@ -221,6 +221,8 @@ def get_args():
                         help='the minimum distance for a single dimension in the active set default .5 ')
     parser.add_argument('--sample-schedule', type=int, default=-1,
                     help='changes sampling after a certain number of calls')
+    parser.add_argument('--sample-distance', type=float, default=.05,
+                        help='the distance to sample local values (default: .05)')
     parser.add_argument('--passive-error-cutoff', type=float, default=2,
                         help='the cutoff for error to weight the value (default: 2)')
     parser.add_argument('--passive-weighting', type=float, default=0,
@@ -237,6 +239,8 @@ def get_args():
                         help='the value given to true reward negative component (default: 0)')
     parser.add_argument('--reward-constant', type=float, default=-1,
                         help='constant value to add to the reward (default: -1)')
+    parser.add_argument('--sum-rewards', action = 'store_true', default=False,
+                    help='takes the sum of rewards for temporal extension, rather than a single value')
     # Option Chain Parameters
     parser.add_argument('--base-node', default="Action",
                         help='The name of the lowest node in the option chain (generally should be Action)')

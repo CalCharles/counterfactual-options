@@ -326,6 +326,28 @@ class ControllableFeature():
             assign_feature(states, (self.feature_selector.flat_features[0], f), edit=edit, clipped=clip)
         return states # assign feature should mutate states
 
+    def relative_range(self, states, factored=False): 
+    # assignment is a tuple assignment keys (tuples or indexes)
+    # edit means that the assignment is added
+        upper_diff = 0
+        lower_diff = 0
+        assignment = self.feature_selector.flat_features[0]
+        if factored: # factored features, assumes that shapes for assignment[0][1] and assignment[1] match
+            assignment = list(self.feature_selector.factored_features.items())[0]
+            lower_diff = states[assignment[0]][assignment[1]] - self.feature_range[0]
+            upper_diff = self.feature_range[1] - states[assignment[0]][assignment[1]]
+        elif len(states.shape) == 1: # a single flattened state
+            lower_diff = states[assignment] - self.feature_range[0]
+            upper_diff = self.feature_range[0] - states[assignment] 
+        elif len(states.shape) == 2: # a batch of flattened state
+            lower_diff = states[:, assignment] - self.feature_range[0]
+            upper_diff = self.feature_range[1] - states[:, assignment] 
+        elif len(states.shape) == 3: # a batch of stacks of flattened state
+            lower_diff = states[:,:, assignment] - self.feature_range[0]
+            upper_diff = self.feature_range[1] - states[:,:, assignment]
+        return lower_diff, upper_diff 
+
+
 class FeatureSelector():
     def __init__(self, flat_features, factored_features, feature_match, names):
         '''
@@ -468,7 +490,7 @@ def cpu_state(factored_state):
 def assign_feature(states, assignment, edit=False, clipped=None): 
 # assignment is a tuple assignment keys (tuples or indexes), and assignment values
 # edit means that the assignment is added 
-    if type(states) is dict: # factored features, assumes that shapes for assignment[0][1] and assignment[1] match
+    if type(states) is dict or type(states) == OrderedDict or type(states) == Batch: # factored features, assumes that shapes for assignment[0][1] and assignment[1] match
         states[assignment[0][0]][assignment[0][1]] = assignment[1] if not edit else states[assignment[0][0]][assignment[0][1]] + assignment[1]
         if clipped is not None:
             states[assignment[0][0]][assignment[0][1]] = states[assignment[0][0]][assignment[0][1]].clip(clipped[0], clipped[1])
@@ -486,6 +508,8 @@ def assign_feature(states, assignment, edit=False, clipped=None):
         if clipped is not None:
             cstates = states[:, :, assignment[0]].clip(clipped[0], clipped[1])
             states[:, :, assignment[0]] = cstates
+
+
 
 def discretize_space(action_shape): # converts a continuous action space into a discrete one
     # takes action +- 1, 0 at each dimension, for every combination

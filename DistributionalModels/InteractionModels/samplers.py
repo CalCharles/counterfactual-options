@@ -1,8 +1,13 @@
 import numpy as np
 import torch
 import copy
+import collections
 from Networks.network import pytorch_model
 from Options.state_extractor import array_state
+from tianshou.data import Batch
+
+def check_dict(states):
+    return type(states) == dict or type(states) == Batch or type(states) == collections.OrderedDict
 
 class Sampler():
     def __init__(self, **kwargs):
@@ -11,6 +16,7 @@ class Sampler():
         self.sample_continuous = True # kwargs["sample_continuous"] # hardcoded for now
         self.combine_param_mask = not kwargs["no_combine_param_mask"] # whether to multiply the returned param with the mask
         self.rate = 0
+        self.current_distance = 0
 
         # specifit to CFselectors
         self.cfselectors = self.dataset_model.cfselectors
@@ -57,10 +63,10 @@ class Sampler():
         new_states = states.copy()
         if centered:
             for f, w, cfs in zip(edited_features, self.len_cfs * weights, self.cfselectors):
-                cfs.assign_feature(new_states, w, factored=type(new_states) == dict, edit=True, clipped=True) # TODO: factored might be possible to be batch
+                cfs.assign_feature(new_states, w, factored=check_dict(states), edit=True, clipped=True) # TODO: factored might be possible to be batch
         else:
             for f, cfs in zip(edited_features, self.cfselectors):
-                cfs.assign_feature(new_states, f, factored=type(new_states) == dict)
+                cfs.assign_feature(new_states, f, factored=check_dict(states))
         return self.delta(new_states)
 
     def sample(self, states):
@@ -280,7 +286,7 @@ class LinearUniformCenteredSampling(Sampler):
         self.distance = .5 # normalized
         self.schedule_counter = 0
         self.schedule = kwargs["sample_schedule"]
-        self.current_distance = .05
+        self.current_distance = kwargs["sample_distance"]
         super().__init__(**kwargs)
 
     def update(self, param, mask, buffer=None):
@@ -288,14 +294,39 @@ class LinearUniformCenteredSampling(Sampler):
         self.schedule_counter += 1
 
     def get_targets(self, states):
-        distance = .05
+        distance = self.current_distance
         if self.schedule > 0: # the distance changes, otherwise it is a set constant .15 of the maximum TODO: add hyperparam
             self.current_distance = self.distance - (self.distance - distance) * np.exp(-(self.schedule_counter + 1)/self.schedule)
         cfselectors = self.dataset_model.cfselectors
+
         weights = (np.random.random((len(cfselectors,))) - .5) * 2 * self.current_distance # random weight vector bounded between -distance, distance
         return self.weighted_samples(states, weights, centered=True)
 
+class LinearUniformCenteredUnclipSampling(Sampler):
+    def __init__(self, **kwargs):
+        self.distance = .8 # normalized
+        self.schedule_counter = 0
+        self.schedule = kwargs["sample_schedule"]
+        super().__init__(**kwargs)
+        self.current_distance = kwargs["sample_distance"]
 
+    def update(self, param, mask, buffer=None):
+        super().update(param, mask, buffer=None)
+        self.schedule_counter += 1
+
+    def get_targets(self, states):
+        distance = self.current_distance
+        if self.schedule > 0: # the distance changes, otherwise it is a set constant .15 of the maximum TODO: add hyperparam
+            self.current_distance = self.distance - (self.distance - distance) * np.exp(-(self.schedule_counter + 1)/self.schedule)
+        cfselectors = self.dataset_model.cfselectors
+
+        weights = [] 
+        for cfslen, cfs in zip(self.len_cfs, cfselectors):
+            lower, upper = cfs.relative_range(states, factored=check_dict(states))
+            lw, uw = lower / cfslen, upper / cfslen
+            weights.append(-lw + np.random.random() * (uw+lw))
+        weights = np.array(weights) * self.current_distance
+        return self.weighted_samples(states, weights, centered=True)
 
 class GaussianOffCenteredSampling(Sampler):
     def __init__(self, **kwargs):
@@ -322,6 +353,6 @@ class GaussianOffCenteredSampling(Sampler):
 # class ReachedSampling
 
 mask_samplers = {"rans": RandomSubsetSampling, "pris": PrioritizedSubsetSampling} # must be 4 characters
-samplers = {"uni": LinearUniformSampling, "cuni": LinearUniformCenteredSampling, 
+samplers = {"uni": LinearUniformSampling, "cuni": LinearUniformCenteredSampling, 'cuuni': LinearUniformCenteredUnclipSampling,
             "gau": GaussianCenteredSampling, "hst": HistorySampling, 'inst': InstanceSampling,
             "hstinst": HistoryInstanceSampling}

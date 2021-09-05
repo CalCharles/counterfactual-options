@@ -93,7 +93,9 @@ if __name__ == '__main__':
     if "Gripper" in graph.nodes: graph.nodes["Gripper"].option.state_extractor.use_pair_gamma = False
 
     # initialize sampler
-    sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule, environment_model=environment_model, init_state=init_state, no_combine_param_mask=args.no_combine_param_mask)
+    sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, 
+        sample_schedule=args.sample_schedule, environment_model=environment_model, init_state=init_state, 
+        no_combine_param_mask=args.no_combine_param_mask, sample_distance=args.sample_distance)
 
     # initialize state extractor
     option_name = dataset_model.name.split("->")[0] # TODO: assumes only one option in the tail for now

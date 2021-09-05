@@ -122,7 +122,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.state_extractor = self.option.state_extractor
         self.get_param = self.option.sampler.get_param # sampler manages either recalling the param, or getting a new one
         self.exploration_noise = self.option.policy.exploration_noise
-        self.temporal_aggregator = TemporalAggregator()
+        self.temporal_aggregator = TemporalAggregator(sum_reward=args.sum_rewards)
         self.ext_reset = self.option.temporal_extension_manager.reset
         self._aggregate = self.temporal_aggregator.aggregate
         self.policy_collect = self.option.policy.collect
@@ -323,10 +323,12 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             full_ptr, ep_rew, ep_len, ep_idx = self.full_buffer.add(
                 self.data, buffer_ids=ready_env_ids)
 
+            # print(act, action_chain, next_full_state['factored_state']["Gripper"])
             next_data, skipped, added, self.at = self._aggregate(self.data, self.buffer, full_ptr, ready_env_ids)
             if not self.test and self.policy_collect is not None: self.policy_collect(next_data, self.data, skipped, added)
             # debugging and visualization
-            if self.test: print(self.data.obs.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=True).squeeze()))
+            if self.test: print(self.data.inter_state.squeeze(), self.data.param.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=True).squeeze()))
+            # if self.test: print(self.data.obs.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=True).squeeze()))
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()
                 new_frame = visualize(frame, self.data.target[0], param, mask)

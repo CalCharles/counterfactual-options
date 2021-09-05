@@ -11,7 +11,7 @@ breakout_paddle_norm = (np.array([72, 84 // 2, 0,0,1]), np.array([84 // 2, 84 //
 breakout_state_norm = (np.array([84 // 2, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
 breakout_block_norm = (np.array([32, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
 breakout_relative_norm = (np.array([0,0,0,0,0]), np.array([84 // 2, 84 // 2,2,1,1]))
-breakout_paddle_ball_norm = (np.array([20,0,1.5,0,0]), np.array([84 // 2, 84 // 2,2,1,1]))
+breakout_paddle_ball_norm = (np.array([0,0,0,0,0]), np.array([84 // 2, 84 // 2,4,2,1]))
 breakout_ball_block_norm = (np.array([20,0,-1.5,0,0]), np.array([84 // 2, 84 // 2,2,1,1]))
 
 # .10, -.31
@@ -252,15 +252,16 @@ class StateExtractor():
 
     def _relative_param(self, shape, factored_state, param, mask, normalize=False):
         target = self._delta_featurizer(factored_state)
-        param = self._broadcast_param(shape, param, mask, normalize=normalize)
+        param = self._broadcast_param(shape, param, mask, normalize=False)
         if normalize and len(self.hardcoded_normalization) > 0:
             if self.hardcoded_normalization[0] == 'breakout':
                 mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, breakout_relative_norm, breakout_relative_norm)
-                target = (target - mean) / var * self.scale
+                return (self.get_mask_param(target, mask) - param - mean) / var * self.scale
             if self.hardcoded_normalization[0] == 'robopush':
                 mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_relative_norm, robopush_relative_norm)
-                target = (target - mean) / var * self.scale
-        return param - self.get_mask_param(target, mask)
+                return (self.get_mask_param(target, mask) - param - mean) / var * self.scale
+        else:
+            return self.get_mask_param(target, mask) - param
 
     def _get_relative(self, factored_state, normalize = False, use_pair=False):
         if use_pair:
