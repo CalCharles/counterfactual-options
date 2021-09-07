@@ -63,7 +63,7 @@ if __name__ == '__main__':
 
     # dataset_model = load_factored_model(args.dataset_dir)
     sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule, environment_model=environment_model, init_state=init_state, no_combine_param_mask=args.no_combine_param_mask)
-
+    if sampler is not None: sampler.dataset_model = dataset_model
 
     if args.cuda:
         dataset_model.cuda()
@@ -123,6 +123,10 @@ if __name__ == '__main__':
 
 
     policy = option.policy
+    policy.option = option
+    option.zero_epsilon()
+    option.sampler = sampler
+
     if args.cuda:
         option.cuda()
         option.set_device(args.gpu)

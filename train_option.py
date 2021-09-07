@@ -183,6 +183,7 @@ if __name__ == '__main__':
     action_map.assign_policy_map(policy.map_action, policy.reverse_map_action, policy.exploration_noise)
     if not load_option:
         option.policy = policy
+        policy.option = option
         graph.nodes[args.object] = OptionNode(args.object, option, action_shape = action_map.mapped_action_shape)
     else:
         graph.load_environment_model(environment_model)

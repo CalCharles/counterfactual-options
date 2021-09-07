@@ -93,7 +93,7 @@ macros.SIMULATION_TIMESTEP = 0.02
 #         return self.curr_obs["frontview_image"][::-1]
 
 class RoboPushingEnvironment(RawEnvironment):
-    def __init__(self, control_freq=2, horizon=30, renderable=False):
+    def __init__(self, control_freq=2, horizon=30, renderable=False, num_obstacles=0):
         super().__init__()
         self.env = robosuite.make(
                 "Push",

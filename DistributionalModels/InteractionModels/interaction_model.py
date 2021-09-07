@@ -750,11 +750,13 @@ class NeuralInteractionForwardModel(nn.Module):
             if train_args.env != "RoboPushing":
                 trace = self.generate_interaction_trace(rollouts, [control_name], [target_name])
                 trace_targets = self._adjust_interaction_trace(trace)
-                # if train_args.save_intermediate:
-                #     save_to_pickle("data/temp/trace.pkl", trace)
+                if train_args.save_intermediate:
+                    save_to_pickle("data/temp/trace.pkl", trace)
+                    torch.save(self.interaction_model, "data/temp/interaction_model.pt")
 
         if train_args.load_intermediate:
-        #     trace = load_from_pickle("data/trace.pkl").cpu().cuda()
+            if train_args.interaction_iters > 0:
+                trace = load_from_pickle("data/trace.pkl").cpu().cuda()
             self.passive_model = torch.load("data/temp/passive_model.pt")
         #     self.forward_model = torch.load("data/temp/active_model.pt")
         #     self.passive_model.cpu()

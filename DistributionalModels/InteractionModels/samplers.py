@@ -283,10 +283,10 @@ class GaussianCenteredSampling(Sampler):
 
 class LinearUniformCenteredSampling(Sampler):
     def __init__(self, **kwargs):
-        self.distance = .5 # normalized
+        self.distance = kwargs["sample_distance"] # normalized
         self.schedule_counter = 0
         self.schedule = kwargs["sample_schedule"]
-        self.current_distance = kwargs["sample_distance"]
+        self.current_distance = .05 if self.schedule > 0 else self.distance
         super().__init__(**kwargs)
 
     def update(self, param, mask, buffer=None):
@@ -304,11 +304,11 @@ class LinearUniformCenteredSampling(Sampler):
 
 class LinearUniformCenteredUnclipSampling(Sampler):
     def __init__(self, **kwargs):
-        self.distance = .8 # normalized
+        self.distance = kwargs["sample_distance"] # normalized
         self.schedule_counter = 0
         self.schedule = kwargs["sample_schedule"]
         super().__init__(**kwargs)
-        self.current_distance = kwargs["sample_distance"]
+        self.current_distance = .05 if self.schedule > 0 else kwargs["sample_distance"]
 
     def update(self, param, mask, buffer=None):
         super().update(param, mask, buffer=None)

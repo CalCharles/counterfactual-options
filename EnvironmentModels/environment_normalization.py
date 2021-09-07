@@ -25,7 +25,7 @@ robo_norms = {"Action": robopush_action_norm, "Gripper": robopush_gripper_norm, 
 breakout_norms = {"Action": breakout_action_norm, "Paddle": breakout_paddle_norm, "Ball": breakout_state_norm, "Block": breakout_block_norm, "RelativeBall": breakout_relative_norm, "RelativePaddle": breakout_relative_norm, "RelativeBlock": breakout_relative_norm}
 
 def hardcode_norm(env_name, obj_names):
-	if env_name == "Breakout":
+	if env_name == "SelfBreakout":
 		norm_dict = breakout_norms
 	elif env_name == "RoboPushing":
 		norm_dict = robo_norms

@@ -176,6 +176,7 @@ class TSPolicy(nn.Module):
         return actor, actor_optim, critic, critic_optim, critic2, critic2_optim
 
     def set_eps(self, epsilon): # not all algo policies have set eps
+        self.epsilon = epsilon
         if hasattr(self.algo_policy, "set_eps"):
             self.algo_policy.set_eps(epsilon)
         if hasattr(self.algo_policy, "set_exp_noise"):

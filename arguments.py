@@ -15,6 +15,8 @@ def get_args():
                         help='take primitive actions instead of next level options')
     parser.add_argument('--frameskip', type=int, default=1,
                         help='number of frames to skip (default: 1 (no skipping))')
+    parser.add_argument('--num-obstacles', type=int, default=0,
+                        help='number of obstacles for pushing domain (default: 0)')
     parser.add_argument('--object', default='',
                         help='name of the object whose options are being investigated')
     parser.add_argument('--target', default='',
@@ -221,8 +223,8 @@ def get_args():
                         help='the minimum distance for a single dimension in the active set default .5 ')
     parser.add_argument('--sample-schedule', type=int, default=-1,
                     help='changes sampling after a certain number of calls')
-    parser.add_argument('--sample-distance', type=float, default=.05,
-                        help='the distance to sample local values (default: .05)')
+    parser.add_argument('--sample-distance', type=float, default=.4,
+                        help='the distance to sample local values (default: .4)')
     parser.add_argument('--passive-error-cutoff', type=float, default=2,
                         help='the cutoff for error to weight the value (default: 2)')
     parser.add_argument('--passive-weighting', type=float, default=0,

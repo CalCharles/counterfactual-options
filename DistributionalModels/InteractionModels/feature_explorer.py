@@ -141,12 +141,15 @@ class FeatureExplorer():
         self.model_args['multi_instanced'] = train_args.multi_instanced
         model = interaction_models[self.model_args['model_type']](**self.model_args)
         print(model)
-        train, test = rollouts.split_train_test(train_args.ratio)
-        train.cpu(), test.cpu()
-        # save_to_pickle("data/temp/train.pkl", train)
-        # save_to_pickle("data/temp/test.pkl", test)
-        # train = load_from_pickle("data/temp/train.pkl")
-        # test = load_from_pickle("data/temp/test.pkl")
+        if not train_args.load_intermediate:
+            train, test = rollouts.split_train_test(train_args.ratio)
+            train.cpu(), test.cpu()
+        else:
+            train = load_from_pickle("data/temp/train.pkl")
+            test = load_from_pickle("data/temp/test.pkl")
+        if train_args.save_intermediate:
+            save_to_pickle("data/temp/train.pkl", train)
+            save_to_pickle("data/temp/test.pkl", test)
         print(train.filled, rollouts.filled)
         train.cuda(), test.cuda()
         model.train(train, test, train_args, control=cfs, controllers=cfss, target_name=name)

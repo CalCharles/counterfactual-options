@@ -48,20 +48,20 @@ if __name__ == '__main__':
     # commented section BELOW
     data = read_obj_dumps(args.record_rollouts, i=-1, rng = args.num_frames, filename='object_dumps.txt')
     rollouts = ModelRollouts(len(data), environment_model.shapes_dict)
-    i=0
-    for data_dict, next_data_dict in zip(data, data[1:]):
-        insert_dict, last_state, skip = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
-        if not skip:
-            rollouts.append(**insert_dict)
-        i += 1
-    # UNCOMMENT above
-    # REMOVE LATER: saves rollouts so you don't have to run each time
-    # save_to_pickle("data/rollouts.pkl", rollouts)
-    # rollouts = load_from_pickle("data/rollouts.pkl")
-    # if args.cuda:
-    #     rollouts.cuda()
-    # print(len(data), rollouts.filled)
-    # REMOVE ABOVE
+    if not args.load_intermediate:
+        i=0
+        for data_dict, next_data_dict in zip(data, data[1:]):
+            insert_dict, last_state, skip = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
+            if not skip:
+                rollouts.append(**insert_dict)
+            i += 1
+        if args.save_intermediate:
+            save_to_pickle("data/temp/rollouts.pkl", rollouts)
+
+    else:
+        rollouts = load_from_pickle("data/temp/rollouts.pkl")
+        if args.cuda:
+            rollouts.cuda()
 
     # Just run selection binary
 

@@ -50,7 +50,7 @@ def initialize_environment(args, set_save=True):
         from Environments.RobosuitePushing.robosuite_pushing import RoboPushingEnvironment
 
         args.continuous = True
-        environment = RoboPushingEnvironment(control_freq=2, horizon=args.time_cutoff, renderable=False)
+        environment = RoboPushingEnvironment(control_freq=2, horizon=args.time_cutoff, renderable=False, num_obstacles=args.num_obstacles)
         environment.seed(args.seed)
         environment_model = RobosuitePushingEnvironmentModel(environment)
     if set_save: environment.set_save(0, args.record_rollouts, args.save_recycle, save_raw=args.save_raw)

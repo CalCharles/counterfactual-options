@@ -75,6 +75,7 @@ class Option():
     def zero_epsilon(self):
         if self.policy is not None:
             self.policy.set_eps(0.0)
+            self.action_map.assign_policy_map(self.policy.map_action, self.policy.reverse_map_action, self.policy.exploration_noise)
         if type(self.next_option) != PrimitiveOption:
             self.next_option.zero_epsilon()
 
