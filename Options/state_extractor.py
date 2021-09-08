@@ -181,6 +181,8 @@ class StateExtractor():
         if action: state_comb.append(self._select_action_feature(factored_state))
         if diff: state_comb.append(self._get_diff(factored_state))
 
+        print(option, inter, target, flat, use_param, param_relative, relative, action, diff)
+        print('SC', state_comb)
         if len(state_comb) == 0:
             return np.zeros((0,))
         else:
@@ -243,6 +245,7 @@ class StateExtractor():
                 mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_gripper_norm, robopush_state_norm)
                 param = (param - mean) / var * self.scale
 
+        print('tst', param)
         if len(shape) == 0:
             return param
         if len(shape) == 1:
@@ -277,8 +280,10 @@ class StateExtractor():
         return rel_state
 
     def update(self, state):
-        factored_state = array_state(state['factored_state'])
-        self.last_state = self._delta_featurizer(factored_state)
+        print('ST', state)
+        # factored_state = array_state(state['factored_state'])
+        # self.last_state = self._delta_featurizer(factored_state)
+        self.last_state = state
 
     def get_mask_param(self, param, mask):
         if self.combine_param_mask:
