@@ -17,6 +17,20 @@ class PrimitiveActionMap():
     def sample(self):
         self.action_space.sample()
 
+    def map_action(self, act, batch):
+        ''' 
+        maps a policy space to the action space used by a parameter
+        '''
+        act = to_numpy(act)
+        act = self._exploration_noise(act, batch)
+        mapped_act = self._policy_map_action(act) # usually converts from policy space to environment space (even for options)
+        return act, mapped_act
+
+    def assign_policy_map(self, policy_map_action, policy_reverse_map_action, policy_exploration_noise):
+        self._policy_map_action = policy_map_action # a function from option.policy
+        self._policy_reverse_map_action = policy_reverse_map_action # a function from option.policy
+        self._exploration_noise = policy_exploration_noise
+
 class ActionMap():
     def __init__(self, args, next_act_map):
         # input variables

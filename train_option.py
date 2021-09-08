@@ -83,7 +83,7 @@ if __name__ == '__main__':
             actions = PrimitiveOption(args, None)
             nodes = {'Action': OptionNode('Action', actions, action_shape = environment.action_shape)}
             graph = OptionGraph(nodes, dict(), dataset_model.controllable)
-    
+
     # TODO: REMOVE LINE BELOW
     # graph.nodes["Paddle"].option.terminate_reward.true_interaction = False
     graph.nodes["Action"].option.device = None
@@ -109,8 +109,10 @@ if __name__ == '__main__':
     args.dataset_model = dataset_model
     args.environment_model = environment_model
     args.action_feature_selector = next_option.dataset_model.feature_selector if next_option is not None and next_option.name != "Action" else environment_model.construct_action_selector()
-    if sampler is None: param, mask = None, None
-    else: param, mask = sampler.param, sampler.mask
+    if sampler is None:
+        param, mask = None, None
+    else:
+        param, mask = sampler.param, sampler.mask
     state_extractor = StateExtractor(args, option_selector, full_state, param, mask)
 
 
@@ -127,13 +129,17 @@ if __name__ == '__main__':
     args.state_extractor = state_extractor
     terminate_reward = TerminateReward(args)
 
-    # initialize action_map
-    args.discrete_actions = next_option.action_map.discrete_control is not None # 0 if continuous, also 0 if discretize_acts is used
-    args.discretize_acts = discretize_actions if args.discretize_actions else None # none if not used
-    args.num_actions = len(next_option.action_map.discrete_control) if next_option.action_map.discrete_control is not None else 0
-    args.discrete_params = args.dataset_model.sample_able if args.sampler_type == "hst" else None# historical the only discrete sampler at the moment
-    args.control_min, args.control_max = dataset_model.control_min, dataset_model.control_max# from dataset model
-    action_map = ActionMap(args, next_option.action_map)
+    if args.true_environment:
+        args.discrete_actions = environment.discrete_actions
+        action_map = PrimitiveActionMap(args)
+    else:
+        # initialize action_map
+        args.discrete_actions = next_option.action_map.discrete_control is not None # 0 if continuous, also 0 if discretize_acts is used
+        args.discretize_acts = discretize_actions if args.discretize_actions else None # none if not used
+        args.num_actions = len(next_option.action_map.discrete_control) if next_option.action_map.discrete_control is not None else 0
+        args.discrete_params = args.dataset_model.sample_able if args.sampler_type == "hst" else None# historical the only discrete sampler at the moment
+        args.control_min, args.control_max = dataset_model.control_min, dataset_model.control_max# from dataset model
+        action_map = ActionMap(args, next_option.action_map)
 
     # initialize temporal extension manager
     temporal_extension_manager = TemporalExtensionManager(args)
@@ -152,7 +158,7 @@ if __name__ == '__main__':
     names = [args.object, option_name]
     load_option = not args.train and args.object in graph.nodes
     if not load_option or args.change_option:
-        option = option_forms[args.option_type](args, models, None, next_option) # TODO: make exploration noise more alterable 
+        option = option_forms[args.option_type](args, models, None, next_option) # TODO: make exploration noise more alterable
     else: # load the pre-constructed model
         option = graph.nodes[args.object].option
         self.assign_models(models)
@@ -166,7 +172,11 @@ if __name__ == '__main__':
     else:
         action_space = environment.action_space
         paction_space = environment.action_space
-        num_inputs = environment.observation_space.shape
+        if args.policy_type in ['basic', 'point']:
+            num_inputs = int(np.prod(environment.observation_space.shape))
+        else:
+            num_inputs = environment.observation_space.shape
+
         max_action = environment.action_space.n if environment.discrete_actions else environment.action_space.high[0]
     option.time_cutoff = args.time_cutoff
     args.option = option
@@ -178,10 +188,12 @@ if __name__ == '__main__':
         set_option = graph.nodes[args.object].option
         policy = set_option.policy
         policy.option = option
+
     action_map.assign_policy_map(policy.map_action, policy.reverse_map_action, policy.exploration_noise)
+
     if not load_option:
         option.policy = policy
-        graph.nodes[args.object] = OptionNode(args.object, option, action_shape = action_map.mapped_action_shape)
+        graph.nodes[args.object] = OptionNode(args.object, option, action_shape = action_map.mapped_action_shape if not args.true_environment else environment.action_shape)
     else:
         graph.load_environment_model(environment_model)
 

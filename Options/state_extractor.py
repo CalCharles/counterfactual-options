@@ -88,6 +88,7 @@ class StateExtractor():
         '''
         hyperparameters for deciding the getter functions actual getting process
         '''
+        self.use_parametrized = not args.true_environment
         self.use_pair_gamma = args.use_pair_gamma
         self._pair_featurizer = args.environment_model.create_entity_selector(args.name_pair)
         self._gamma_featurizer = args.dataset_model.gamma
@@ -103,18 +104,18 @@ class StateExtractor():
         self.update(full_state)
 
         # get the amount each component contributes to the input observation
-        inter, target, flat, use_param, param_relative, relative, action, option, diff = self.obs_setting
-        self.inter_shape = self.get_state(full_state, (inter,0,0,0,0,0,0,0,0)).shape
-        self.target_shape = self.get_state(full_state, (0,target,0,0,0,0,0,0,0)).shape
-        self.flat_shape = self.get_state(full_state, (0,0,flat,0,0,0,0,0,0)).shape
-        obs_inter_shape = self.get_state(full_state, (inter,0,0,0,0,0,0,0,0), use_pair=self.use_pair_gamma).shape
+        inter, target, flat, use_param, param_relative, relative, action, option, diff, raw = self.obs_setting
+        self.inter_shape = self.get_state(full_state, (inter,0,0,0,0,0,0,0,0,0)).shape
+        self.target_shape = self.get_state(full_state, (0,target,0,0,0,0,0,0,0,0)).shape
+        self.flat_shape = self.get_state(full_state, (0,0,flat,0,0,0,0,0,0,0)).shape
+        obs_inter_shape = self.get_state(full_state, (inter,0,0,0,0,0,0,0,0,0), use_pair=self.use_pair_gamma).shape
         self.pre_param = obs_inter_shape[0] + self.target_shape[0] + self.flat_shape[0]
-        self.param_shape = self.get_state(full_state, (0,0,0,use_param,0,0,0,0,0), param=param, mask=mask).shape
-        self.param_rel_shape = self.get_state(full_state, (0,0,0,0,param_relative,0,0,0,0), param=param, mask=mask).shape
-        self.relative_shape = self.get_state(full_state, (0,0,0,0,0,relative,0,0,0)).shape
-        self.action_shape = self.get_state(full_state, (0,0,0,0,0,0,action,0,0)).shape
-        self.option_shape = self.get_state(full_state, (0,0,0,0,0,0,0,option,0)).shape
-        self.diff_shape = self.get_state(full_state, (0,0,0,0,0,0,0,0,diff)).shape
+        self.param_shape = self.get_state(full_state, (0,0,0,use_param,0,0,0,0,0,0), param=param, mask=mask).shape
+        self.param_rel_shape = self.get_state(full_state, (0,0,0,0,param_relative,0,0,0,0,0), param=param, mask=mask).shape
+        self.relative_shape = self.get_state(full_state, (0,0,0,0,0,relative,0,0,0,0)).shape
+        self.action_shape = self.get_state(full_state, (0,0,0,0,0,0,action,0,0,0)).shape
+        self.option_shape = self.get_state(full_state, (0,0,0,0,0,0,0,option,0,0)).shape
+        self.diff_shape = self.get_state(full_state, (0,0,0,0,0,0,0,0,diff,0)).shape
         self.obs_shape = self.get_obs(full_state, param=param, mask=mask).shape
 
         self.first_obj_shape = self.option_shape
@@ -128,22 +129,22 @@ class StateExtractor():
         return self.get_state(full_state, self.obs_setting, param, mask, normalize=True, use_pair=self.use_pair_gamma)
 
     def get_target(self, full_state):
-        return self.get_state(full_state, (0,1,0,0,0,0,0,0,0))
+        return self.get_state(full_state, (0,1,0,0,0,0,0,0,0,0))
 
     def get_inter(self, full_state):
-        return self.get_state(full_state, (1,0,0,0,0,0,0,0,0))
+        return self.get_state(full_state, (1,0,0,0,0,0,0,0,0,0))
 
     def get_flat(self, full_state):
-        return self.get_state(full_state, (0,0,1,0,0,0,0,0,0))
+        return self.get_state(full_state, (0,0,1,0,0,0,0,0,0,0))
 
     def get_action(self, full_state):
-        return self.get_state(full_state, (0,0,0,0,0,0,1,0,0))
+        return self.get_state(full_state, (0,0,0,0,0,0,1,0,0,0))
 
     def get_first(self, full_state):
-        return self.get_state(full_state, (0,0,0,0,0,0,0,1,0))
+        return self.get_state(full_state, (0,0,0,0,0,0,0,1,0,0))
 
     def get_diff(self, full_state):
-        return self.get_state(full_state, (0,0,0,0,0,0,0,0,1))
+        return self.get_state(full_state, (0,0,0,0,0,0,0,0,1,0))
 
     def get_true_done(self, full_state):
         factored_state = full_state['factored_state']
@@ -159,14 +160,14 @@ class StateExtractor():
         # full_state is a batch or dict containing raw_state, factored_state
         # raw state may be a batch: [env_num, batch_num, raw state shape]
         # factored_state may also be a batch/dict: {name: [env_num, batch_num, factored_shape]}
-        inter, target, flat, use_param, param_relative, relative, action, option, diff = setting
+        inter, target, flat, use_param, param_relative, relative, action, option, diff, raw = setting
         factored_state = full_state["factored_state"]
-        return self._combine_state(full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=param, mask=mask, normalize=normalize, use_pair=use_pair)
+        return self._combine_state(full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, raw, param=param, mask=mask, normalize=normalize, use_pair=use_pair)
 
-    def _combine_state(self, full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=None, mask=None, normalize=False, use_pair=False):
+    def _combine_state(self, full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, raw, param=None, mask=None, normalize=False, use_pair=False):
         # combines the possible components of state:
         # param relative
-        factored_state = array_state(full_state['factored_state'])
+        factored_state = array_state(full_state['factored_state']) if self.use_parametrized else full_state
         k = list(factored_state.keys())[0]
         shape = factored_state[k].shape[:-1]
 
@@ -180,9 +181,8 @@ class StateExtractor():
         if relative: state_comb.append(self._get_relative(factored_state, normalize=normalize, use_pair=use_pair))
         if action: state_comb.append(self._select_action_feature(factored_state))
         if diff: state_comb.append(self._get_diff(factored_state))
+        if raw: state_comb.append(self.get_raw(full_state))
 
-        print(option, inter, target, flat, use_param, param_relative, relative, action, diff)
-        print('SC', state_comb)
         if len(state_comb) == 0:
             return np.zeros((0,))
         else:
@@ -280,10 +280,11 @@ class StateExtractor():
         return rel_state
 
     def update(self, state):
-        print('ST', state)
-        # factored_state = array_state(state['factored_state'])
-        # self.last_state = self._delta_featurizer(factored_state)
-        self.last_state = state
+        if self.use_parametrized:
+            factored_state = array_state(state['factored_state'])
+            self.last_state = self._delta_featurizer(factored_state)
+        else:
+            self.last_state = state
 
     def get_mask_param(self, param, mask):
         if self.combine_param_mask:

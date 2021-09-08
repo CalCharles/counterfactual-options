@@ -115,12 +115,12 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.full_buffer = copy.deepcopy(buffer) # TODO: make this conditional on usage?
         self.hit_miss_queue = deque(maxlen=2000) # not sure if this is the best way to record hits, but this records when a target position is reached
         self.true_interaction = args.true_interaction
-        self.source, self.target = self.option.next_option.name, self.option.name
+        self.source, self.target = self.option.next_option.name if not args.true_environment else "raw", self.option.name
         self.environment_model = environment_model
         
         # shortcut calling option attributes through option
         self.state_extractor = self.option.state_extractor
-        self.get_param = self.option.sampler.get_param # sampler manages either recalling the param, or getting a new one
+        self.get_param = self.option.sampler.get_param if not args.true_environment else None # sampler manages either recalling the param, or getting a new one
         self.exploration_noise = self.option.policy.exploration_noise
         self.temporal_aggregator = TemporalAggregator()
         self.ext_reset = self.option.temporal_extension_manager.reset
@@ -154,7 +154,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         # ensure that data has the correct: param, obs, full_state, option_resample
         # will always sample a new param
         self.data.update(full_state=[full_state])
-        param, mask, _ = self.get_param(full_state, True)
+        param, mask, _ = self.get_param(full_state, True) if self.get_param is not None else (np.ones(1), np.ones(1), None)
+
         self.data.update(target=self.state_extractor.get_target(self.data.full_state),
             obs=[self.state_extractor.get_obs(self.data.full_state, param, mask)])
         self.data.update(param=[param], mask = [mask], option_resample=[[True]])

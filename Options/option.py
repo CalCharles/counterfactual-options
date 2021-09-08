@@ -22,7 +22,8 @@ class Option():
         self.sampler = models.sampler # samples params
         self.policy = policy # policy to run during opion
         self.next_option = next_option # the option which controls the actions
-        if type(self.next_option) != PrimitiveOption: self.next_option.zero_epsilon()
+        if self.next_option is not None and type(self.next_option) != PrimitiveOption:
+            self.next_option.zero_epsilon()
         self.assign_models(models)
 
         # cuda handling
@@ -302,19 +303,13 @@ class RawOption(Option):
         self.name = "Raw"
 
         # primary models
-        self.sampler = args.environment.sampler
-        self.state_extractor = models.state_extractor # state extractor for action
-        self.policy = args.policy
-        self.terminate_reward = None # handles termination, reward and temporal extension termination
-        self.next_option = None # raw options do not have this
-        self.action_spaces = args.env_action_space
-        self.temporal_extension_manager = None # raw options do not have this
-        self.dataset_model = None # raw options do not have this
-        self.initiation_set = None # raw options do not have this
+        self.sampler = args.environment.sampler if hasattr(args.environment, 'sampler') else None
 
+        self.state_extractor = models.state_extractor # state extractor for action
+        self.terminate_reward = None # handles termination, reward and temporal extension termination
         # cuda handling
         self.iscuda = False
-        self.device = device
+        self.device = args.gpu
 
     def cuda(self):
         super().cuda()
@@ -332,13 +327,22 @@ class RawOption(Option):
         else:
             batch['obs'] = self.state_extractor.get_raw(batch['full_state'])
             policy_batch = self.policy.forward(batch, state_chain[-1] if state_chain is not None else None)
-            act, mapped_act = self.action_map.map(policy_batch.act)
+            act, mapped_act = self.action_map.map_action(policy_batch.act, batch)
         chain = [act]
         return act, chain, policy_batch, state, True, list() # resampled is always true since there is no temporal extension
 
     def terminate_reward(self, state, next_state, param, chain, mask=None, needs_reward=False):
         return state["factored_state"]["Done"], state["factored_state"]["Reward"], state["factored_state"]["Done"], True, False # even if cut off with time, don't return
         # return [int(self.environment_model.environment.done or self.timer == (self.time_cutoff - 1))], [self.environment_model.environment.reward]#, torch.tensor([self.environment_model.environment.reward]), None, 1
+
+    def extended_action_sample(self, batch, state_chain, term_chain, ext_terms, random=False, use_model=False):
+        return (*self.sample_action_chain(batch, state_chain, random, use_model), True)
+
+    def reset(self, full_state):
+        # reset the timers for temporal extension, termination
+        # does NOT reset the environment
+        return [ True ]
+
 
 
 class ModelCounterfactualOption(Option):
