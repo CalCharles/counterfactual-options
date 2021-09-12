@@ -160,8 +160,10 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             obs=[self.state_extractor.get_obs(self.data.full_state, param, mask)])
         self.data.update(param=[param], mask = [mask], option_resample=[[True]])
         term_chain = self.option.reset(full_state)
+
         act, chain, policy_batch, state, masks, resampled = self.option.extended_action_sample(self.data, None, term_chain, term_chain[:-1], random=False)
         self._policy_state_update(policy_batch)
+        print(term_chain)
         self.data.update(terminate=[term_chain[-1]], terminations=term_chain, ext_term=[term_chain[-2]], ext_terms=term_chain[:-1])
         self.data.update(done=[False], true_done=[False])
         self.option.update(self.buffer, True, self.data["full_state"], act, chain, term_chain, param, masks, not self.test)

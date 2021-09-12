@@ -61,7 +61,7 @@ def get_args():
     parser.add_argument('--discretize-actions', action='store_true', default=False,
                         help='converts a continuous action space to a discrete one (TODO: currently requires relative-action)')
 
-    parser.add_argument('--observation-setting', type=int, nargs='+', default=(1,0,0,1,0,0,0,0,0),
+    parser.add_argument('--observation-setting', type=int, nargs='+', default=(1,0,0,1,0,0,0,0,0, 0),
                         help='sets the components of the input state to the policy (default: (1,0,0,1,0,0,0,0,0))' +
                         'components in this order: interaction_state, target state, full flattened state' +
                         'param, target state relative to param, relative interaction state, action state, diff')

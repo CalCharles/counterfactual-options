@@ -22,7 +22,7 @@ python add_option.py --object Raw --option-type raw --true-environment --env Nav
 
 Gym tests:
 # sac
-python train_option.py --gpu 1 --hidden-sizes 128 128 128 --env gymenvPendulum-v0 --learning-type sac --actor-lr 1e-4 --critic-lr 1e-3 --tau .005 --num-steps 10 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 7000 --buffer-len 100000
+python train_option.py --gpu 0 --hidden-sizes 128 128 128 --env gymenvPendulum-v0 --learning-type sac --actor-lr 1e-4 --critic-lr 1e-3 --tau .005 --num-steps 10 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 7000 --buffer-len 100000 --observation-setting 0 0 0 0 0 0 0 0 0 1
 
 # ddpg
 python train_option.py --gpu 1 --hidden-sizes 128 128 128 --env gymenvPendulum-v0 --learning-type ddpg --actor-lr 1e-4 --critic-lr 1e-3 --tau .005 --num-steps 10 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 7000 --buffer-len 100000

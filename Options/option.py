@@ -129,7 +129,7 @@ class Option():
             policy_batch = self.policy.forward(batch, state_chain[-1] if state_chain is not None else None) # uncomment this
             state = policy_batch.state
             act, mapped_act = self.action_map.map_action(policy_batch.act, batch)
-            if use_model: 
+            if use_model:
                 act, mapped_act = self.search(batch, state_chain, act, mapped_act) # only this line differs from the main
         chain = [mapped_act]
 
@@ -327,9 +327,10 @@ class RawOption(Option):
         else:
             batch['obs'] = self.state_extractor.get_raw(batch['full_state'])
             policy_batch = self.policy.forward(batch, state_chain[-1] if state_chain is not None else None)
+            state = policy_batch.state
             act, mapped_act = self.action_map.map_action(policy_batch.act, batch)
         chain = [act]
-        return act, chain, policy_batch, state, True, list() # resampled is always true since there is no temporal extension
+        return act, chain, policy_batch, state, list()
 
     def terminate_reward(self, state, next_state, param, chain, mask=None, needs_reward=False):
         return state["factored_state"]["Done"], state["factored_state"]["Reward"], state["factored_state"]["Done"], True, False # even if cut off with time, don't return
