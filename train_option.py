@@ -20,7 +20,7 @@ from Options.state_extractor import StateExtractor
 from Options.terminate_reward import TerminateReward
 from Options.temporal_extension_manager import TemporalExtensionManager
 from DistributionalModels.distributional_model import load_factored_model
-from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel
+from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel, DummyNegativeRewardDatasetModel
 from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model, interaction_models
 from DistributionalModels.InteractionModels.samplers import samplers
 from Rollouts.collector import OptionCollector
@@ -46,25 +46,34 @@ if __name__ == '__main__':
         args.parameterized = True
 
     # initialize dataset model
-    if args.true_environment:
-        dataset_model = interaction_models["dummy"](environment_model=environment_model)
-    else:
-        dataset_model = load_hypothesis_model(args.dataset_dir)
-        torch.cuda.empty_cache()
-        dataset_model.cpu()
-    if len(args.force_mask):
-        dataset_model.selection_binary = pytorch_model.wrap(args.force_mask, cuda = dataset_model.iscuda)
-    dataset_model.environment_model = environment_model
+    if args.dataset_dir != "dummy":
+        if args.true_environment:
+            dataset_model = interaction_models["dummy"](environment_model=environment_model)
+        else:
+            dataset_model = load_hypothesis_model(args.dataset_dir)
+            torch.cuda.empty_cache()
+            dataset_model.cpu()
+        if len(args.force_mask):
+            dataset_model.selection_binary = pytorch_model.wrap(args.force_mask, cuda = dataset_model.iscuda)
+        dataset_model.environment_model = environment_model
     init_state = environment.reset() # get an initial state to define shapes
 
     # block specific shortcuts
     discretize_actions = args.discretize_actions
+    target_object = "Reward"
+    args.num_instance = 1
     if args.object == "Block" and args.env == "SelfBreakout":
+        args.num_instance = environment.num_blocks
         if args.target_mode:
             dataset_model = DummyBlockDatasetModel(environment_model)
             dataset_model.environment_model = environment_model
         dataset_model.sample_able.vals = np.array([dataset_model.sample_able.vals[0]]) # for some reason, there are some interaction values that are wrong
         discretize_actions = {0: np.array([-1,-1]), 1: np.array([-2,-1]), 2: np.array([-2,1]), 3: np.array([-1,1])}
+    if args.object == "Reward" and args.env == "RoboPushing":
+        dataset_model = DummyNegativeRewardDatasetModel(environment_model)
+        dataset_model.environment_model = environment_model
+        args.target_object = "Target"
+        args.num_instance = args.num_obstacles
 
     if args.cuda: dataset_model.cuda()
     else: dataset_model.cpu()
@@ -91,14 +100,19 @@ if __name__ == '__main__':
     if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.use_pair_gamma = False
     if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.hardcoded_normalization = ["breakout", 3, 1]
     if "Gripper" in graph.nodes: graph.nodes["Gripper"].option.state_extractor.use_pair_gamma = False
+    if "Gripper" in graph.nodes: graph.nodes["Gripper"].option.state_extractor.num_instance = 1
+    if "Paddle" in graph.nodes: graph.nodes["Paddle"].option.state_extractor.num_instance = 1
+    if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.num_instance = 1
+    if "Block" in graph.nodes and args.env == "RoboPushing": graph.nodes["Block"].option.state_extractor.num_instance = 1
 
     # initialize sampler
     sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, 
         sample_schedule=args.sample_schedule, environment_model=environment_model, init_state=init_state, 
-        no_combine_param_mask=args.no_combine_param_mask, sample_distance=args.sample_distance)
+        no_combine_param_mask=args.no_combine_param_mask, sample_distance=args.sample_distance, target_object=args.target_object)
 
     # initialize state extractor
-    option_name = dataset_model.name.split("->")[0] # TODO: assumes only one option in the tail for now
+    option_name = dataset_model.name.split("->")[0].split("+")[0] # TODO: assumes only one option in the tail for now
+    full_tail = dataset_model.name.split("->")[0].split("+")
     args.object = "Reward" if len(args.object) == 0 else args.object
     args.name_pair = [option_name, args.object]
     next_option = None if args.true_environment else graph.nodes[option_name].option
@@ -106,7 +120,7 @@ if __name__ == '__main__':
         args.primitive_action_map = PrimitiveActionMap(args)
         args.action_featurizer = dataset_model.controllable[0] if environment.discrete_actions else [c for c in dataset_model.controllable if c.object() == "Action"]
         next_option = PrimitiveOption(args, None)
-    option_selector = environment_model.create_entity_selector([option_name]) 
+    option_selector = environment_model.create_entity_selector([option_name]) # TODO: should be full_tail probably 
     full_state = environment.reset()
     args.dataset_model = dataset_model
     args.environment_model = environment_model
@@ -172,8 +186,9 @@ if __name__ == '__main__':
         max_action = environment.action_space.n if environment.discrete_actions else environment.action_space.high[0]
     option.time_cutoff = args.time_cutoff
     args.option = option
-    args.first_obj_dim = state_extractor.first_obj_shape
-    args.object_dim = state_extractor.object_shape + state_extractor.first_obj_shape
+    args.first_obj_dim = state_extractor.first_obj_shape[0]
+    args.object_dim = state_extractor.object_shape[0]
+    args.post_dim = state_extractor.post_dim
     if not load_option and not args.change_option:
         policy = TSPolicy(num_inputs, paction_space, action_space, max_action, **vars(args)) # default args?
     else:

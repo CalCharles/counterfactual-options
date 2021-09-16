@@ -7,7 +7,7 @@ from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
 from EnvironmentModels.environment_model import ModelRollouts
 from Rollouts.rollouts import merge_rollouts
 from DistributionalModels.InteractionModels.interaction_model import interaction_models, default_model_args, nf5, nflen
-from Networks.input_norm import InterInputNorm
+from Networks.input_norm import InterInputNorm, PointwiseNorm, PointwiseConcatNorm
 from EnvironmentModels.environment_normalization import hardcode_norm
 
 class FeatureExplorer():
@@ -120,14 +120,24 @@ class FeatureExplorer():
         self.model_args['first_obj_dim'] = self.em.object_sizes[cfs]
         nout = self.em.object_sizes[name] * self.em.object_num[name]
         nin = self.em.object_sizes[cfs] * self.em.object_num[cfs] + nout
-        input_norm_fun = InterInputNorm()
-        delta_norm_fun = InterInputNorm()
+        if train_args.multi_instanced:
+            input_norm_fun = PointwiseConcatNorm(object_dim = self.model_args['object_dim'], first_obj_dim = self.model_args['first_obj_dim'])
+            delta_norm_fun = PointwiseNorm(object_dim = self.model_args['object_dim'])
+        else:            
+            input_norm_fun = InterInputNorm()
+            delta_norm_fun = InterInputNorm()
         if len(train_args.hardcode_norm) > 0:
-            gamma_names = [cfs] + additional_object + [name]
-            gamma_norm = hardcode_norm(train_args.hardcode_norm[0], gamma_names)
-            delta_norm = hardcode_norm(train_args.hardcode_norm[0], [name])
-            input_norm_fun.assign_mean_var(*gamma_norm)
-            delta_norm_fun.assign_mean_var(*delta_norm)
+            if train_args.multi_instanced:
+                first_norm = hardcode_norm(train_args.hardcode_norm[0], [cfs])
+                out_norm = hardcode_norm(train_args.hardcode_norm[0], [name])
+                input_norm_fun.assign_mean_var(*(*first_norm, *out_norm))
+                delta_norm_fun.assign_mean_var(*out_norm)
+            else:
+                gamma_names = [cfs] + additional_object + [name]
+                gamma_norm = hardcode_norm(train_args.hardcode_norm[0], gamma_names)
+                delta_norm = hardcode_norm(train_args.hardcode_norm[0], [name])
+                input_norm_fun.assign_mean_var(*gamma_norm)
+                delta_norm_fun.assign_mean_var(*delta_norm)
         else:
             input_norm_fun.compute_input_norm(entity_selection(rollouts.get_values("state")))
             delta_norm_fun.compute_input_norm(self.model_args['delta'](rollouts.get_values("state")))

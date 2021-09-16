@@ -57,7 +57,6 @@ class TerminateReward():
         target_state = self.state_extractor.get_target(next_full_state)
         true_done = self.state_extractor.get_true_done(next_full_state) if not ignore_true else False
         true_reward = self.state_extractor.get_true_reward(next_full_state) if not ignore_true else 0
-
         # compute the interaction value
         if not self.true_interaction:
             inter, pred, var = self.dataset_model.hypothesize(inter_state)

@@ -442,26 +442,43 @@ class FeatureSelector():
             # ks = self.factored_features.keys()
             # return {name: states[name][idxes] for name, idxes in self.factored_features}
             # TODO: Above lines are old code, if new code breaks revert back, otherwise remove
-            if not hasattr(self, "names"): 
-                pnames = list(self.factored_features.keys())
-                self.names = [n for n in ["Action", "Paddle", "Ball", "Block", 'Done', "Reward"] if n in pnames] # TODO: above lines are hack, remove
-            if type(states[self.names[0]]) == np.ndarray:
+            # if not hasattr(self, "names"): 
+            #     pnames = list(self.factored_features.keys())
+            #     self.names = [n for n in ["Action", "Paddle", "Ball", "Block", 'Done', "Reward"] if n in pnames] # TODO: above lines are hack, remove
+            state_check = states[self.names[0]] if self.names[0] in states else states[self.names[0] + str(0)]
+            # TODO: I think I can use ... slice notation here to make this much simpler
+            if type(state_check) == np.ndarray:
                 cat = lambda x, a: np.concatenate(x, axis=a)
-            elif type(states[self.names[0]]) == torch.Tensor:
+            elif type(state_check) == torch.Tensor:
                 cat = lambda x, a: torch.cat(x, dim=a)
-            if len(states[self.names[0]].shape) == 1: # only support internal dimension up to 2
-                if len(self.names) == 1 and len(self.factored_features[self.names[0]].shape) == 0: # TODO: should initialize self.feactored_features as arrays, mking this code wrong
-                    if type(states[self.names[0]]) == np.ndarray:
-                        cat = np.array
-                    elif type(states[self.names[0]]) == torch.Tensor:
-                        cat = torch.tensor
+            if len(self.names) == 1 and len(self.factored_features[self.names[0]].shape) == 0: # TODO: should initialize self.factored_features as arrays, mking this code wrong
+                if type(states[self.names[0]]) == np.ndarray:
+                    cat = np.array
+                elif type(states[self.names[0]]) == torch.Tensor:
+                    cat = torch.tensor
+                if len(state_check.shape) == 1: # only support internal dimension up to 2
                     return cat([states[name][self.factored_features[name]] for name in self.names])
-                return cat([states[name][self.factored_features[name]] for name in self.names], 0)
-            if len(states[self.names[0]].shape) == 2: # only support internal dimension up to 2
-                # print(self.factored_features)
-                # print(states[self.names[0]], [states[name][:, self.factored_features[name]] for name in self.names], self.names, self.factored_features[self.names[0]])
-                # print(states[self.names[0]], states[self.names[0]][:, self.factored_features[self.names[0]]], self.factored_features[self.names[0]], [states[name][:, self.factored_features[name]] for name in self.names])
-                return cat([states[name][:, self.factored_features[name]] for name in self.names], 1)
+                elif len(state_check.shape) == 2:
+                    return cat([states[name][:, self.factored_features[name]] for name in self.names])
+            state_cat = list()
+            for name in self.names:
+                if name in states:
+                    if len(state_check.shape) == 1:
+                        state_cat.append(states[name][self.factored_features[name]])
+                    elif len(state_check.shape) == 2:
+                        state_cat.append(states[name][:, self.factored_features[name]])
+                else:
+                    i = 0 # TODO: looks for multiple instances by searching through name+index, not sure if this is great
+                    while name + str(i) in states.keys():
+                        if len(state_check.shape) == 1:
+                            state_cat.append(states[name + str(i)][self.factored_features[name]])
+                        elif len(state_check.shape) == 2:
+                            state_cat.append(states[name + str(i)][:, self.factored_features[name]])
+                        i += 1
+            if len(state_check.shape) == 1:
+                return cat(state_cat, 0)
+            elif len(state_check.shape) == 2:
+                return cat(state_cat, 1)
         elif len(states.shape) == 1: # a single flattened state
             return states[self.flat_features]
         elif len(states.shape) == 2: # a batch of flattened state

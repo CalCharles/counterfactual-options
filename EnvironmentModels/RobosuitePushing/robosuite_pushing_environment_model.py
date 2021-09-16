@@ -5,10 +5,16 @@ macros.SIMULATION_TIMESTEP = 0.02
 class RobosuitePushingEnvironmentModel(EnvironmentModel):
     def __init__(self, env):
         super().__init__(env)
-        self.object_names = ["Action", "Gripper", "Block", 'Target', 'Done', "Reward"] # TODO: Reward missing from the objects
-        self.object_sizes = {"Action": 3, "Gripper": 3, "Block": 3, 'Target': 3, 'Done': 1, "Reward": 1}
+        self.enumeration = {"Action": [0,1], "Gripper": [1,2], "Block": [2,3], 'Target': [3 + env.num_obstacles,4 + env.num_obstacles], 
+                        'Done':[4 + env.num_obstacles,5 + env.num_obstacles], "Reward":[5 + env.num_obstacles,6 + env.num_obstacles]}
+        self.object_names = ["Action", "Gripper", "Block", 'Target', 'Done', "Reward"]
+        self.object_sizes = {"Action": 3, "Gripper": 3, "Block": 3, 'Obstacle': 3, 'Target': 3, 'Done': 1, "Reward": 1}
         self.object_num = {"Action": 1, "Gripper": 1, "Block": 1, 'Target': 1, 'Done': 1, "Reward": 1}
-        self.enumeration = {"Action": [0,1], "Gripper": [1,2], "Block": [2,3], 'Target': [3,4], 'Done':[4,5], "Reward":[5,6]}
+        if env.num_obstacles > 0:
+            self.object_names = ["Action", "Gripper", "Block", 'Obstacle', 'Target', 'Done', "Reward"]
+            self.object_sizes["Obstacle"] = 3
+            self.object_num["Obstacle"] = env.num_obstacles
+            self.enumeration['Obstacle'] = [3,3+env.num_obstacles],
         # if not env.pushgripper: # add the stick in the proper location
         #     self.object_names = self.object_names[:2] + ["Stick"] + self.object_names[2:]
         #     self.object_sizes["Stick"] = 3

@@ -43,7 +43,7 @@ class DummyBlockDatasetModel():
         self.sample_able = StateSet([np.array([0,0,0,0,0])])
         self.selection_binary = pytorch_model.wrap(np.array([0,0,0,0,1]))
         self.name = "Ball->Block"
-        self.control_min, self.control_max = 0, 3
+        self.control_min, self.control_max = 0, 1
         self.iscuda = False
 
     def cuda(self):
@@ -52,8 +52,33 @@ class DummyBlockDatasetModel():
     def cpu(self):
         self.iscuda = False
 
-    def hypothesize(self, state): # gives an "interaction" at some random locations
+    def hypothesize(self, state): # gives an "interaction" when the Ball state is within a certain margin of the block
         if abs(state[0] - state[5]) < 9 and abs(state[1] - state[6] < 6): 
             return np.array(1), np.array(0), np.array(0)
         return np.array(0), np.array(0), np.array(0)
 
+class DummyNegativeRewardDatasetModel():
+    def __init__(self, environment_model, multi_instanced = False):
+        self.interaction_prediction = .3
+        self.interaction_minimum = .9
+        self.multi_instanced = multi_instanced
+        self.gamma = environment_model.create_entity_selector(["Block", "Obstacle"])
+        self.delta = environment_model.create_entity_selector(["Block"])
+        fs1 = FeatureSelector([7], {"Block": 0}, {"Block": np.array([0, 7])}, ["Block"])
+        fs2 = FeatureSelector([8], {"Block": 1}, {"Block": np.array([1, 8])}, ["Block"])
+        rng1, rng2 = np.array([-.3,.1]), np.array([-.2, .2])
+        self.cfselectors = [ControllableFeature(fs1, rng1, 1, self), ControllableFeature(fs2, rng2, 1, self)]
+        self.sample_able = StateSet([np.array([1])])
+        self.selection_binary = pytorch_model.wrap(np.array([1]))
+        self.name = "Block+Obstacle->Target" # name needs this form for network initializaiton
+        self.control_min, self.control_max = -100, 1
+        self.iscuda = False
+
+    def cuda(self):
+        self.iscuda = True
+
+    def cpu(self):
+        self.iscuda = False
+
+    def hypothesize(self, state): # gives an "interaction" when the Ball state is within a certain margin of the block
+        return np.array(0), np.array(0), np.array(0)

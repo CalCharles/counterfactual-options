@@ -60,6 +60,11 @@ def get_start(pth, filename, i, rng):
             i = max(total_len - rng, 0)
     return i, total_len
 
+def numpy_factored(factored_state):
+    for n in factored_state.keys():
+        factored_state[n] = np.array(factored_state[n])
+    return factored_state
+
 def action_toString(action):
     if type(action) == list: 
         action = np.array(action)

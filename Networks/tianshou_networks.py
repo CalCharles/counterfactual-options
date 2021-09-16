@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from Networks.network import pytorch_model, BasicMLPNetwork, PointNetwork
+from Networks.network import pytorch_model, BasicMLPNetwork, PointNetwork, PairNetwork
 import torch.nn.functional as F
 
 class TSNet(nn.Module):
@@ -72,7 +72,7 @@ class BasicNetwork(TSNet):
         if self.iscuda:
             self.cuda()
 
-class PointPolicyNetwork(TSNet):
+class PairPolicyNetwork(TSNet):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         state_shape = kwargs["num_inputs"]
@@ -87,7 +87,6 @@ class PointPolicyNetwork(TSNet):
         # )
         if self.iscuda:
             self.cuda()
-
 
 
 class PixelNetwork(TSNet): # no relation to pixelnet, just a network that operates on pixels
@@ -187,4 +186,4 @@ class GridWorldNetwork(TSNet):
         # return super().forward(instate, state=state, info={})
         return x, state
 
-networks = {'basic': BasicNetwork, 'pixel': PixelNetwork, 'grid': GridWorldNetwork, 'point': PointPolicyNetwork}
+networks = {'basic': BasicNetwork, 'pixel': PixelNetwork, 'grid': GridWorldNetwork, 'pair': PairPolicyNetwork}

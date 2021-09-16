@@ -2,6 +2,7 @@ from collections import deque
 import numpy as np
 from file_management import save_to_pickle
 import os
+import copy
 
 def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss, hit_miss_train, random=False, option=None):
     '''
@@ -53,7 +54,9 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
 
     total_steps = 0
     hit_miss_queue_test = deque(maxlen=2000)
-    hit_miss_queue_train = deque(maxlen=20)
+    hit_miss_queue_train = deque(maxlen=args.log_interval)
+    cumul_losses = deque(maxlen=args.log_interval)
+
 
     for i in range(args.num_iters):  # total step
         collect_result = train_collector.collect(n_step=args.num_steps, visualize_param=args.visualize_param) # TODO: make n-episode a usable parameter for collect
@@ -67,10 +70,20 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
             _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss_queue_test, hit_miss_queue_train, option=option)
         # train option.policy with a sampled batch data from buffer
         losses = option.policy.update(args.batch_size, train_collector.buffer)
+        cumul_losses.append(losses)
+
         if args.input_norm:
             option.policy.compute_input_norm(train_collector.buffer)
         if i % args.log_interval == 0:
-            print("losses", losses)
+            # compute the average loss
+            total_losses = copy.deepcopy(cumul_losses[0])
+            for j in range(len(cumul_losses) - 1):
+                l = cumul_losses[j]
+                for k in l.keys():
+                    total_losses[k] += l[k]
+            for k in total_losses.keys():
+                total_losses[k] = total_losses[k] / len(cumul_losses)
+            print("losses", total_losses)
             option.print_epsilons()
             # print("epsilons", epsilon, interaction, epsilon_close)
 

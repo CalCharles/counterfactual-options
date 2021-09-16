@@ -52,6 +52,9 @@ class Termination():
 	def __init__(self, **kwargs):
 		pass
 
+	def check_interaction(self, inter):
+		return True
+
 	def check(self, input_state, state, param, mask, true_done=0):
 		return True
 
@@ -141,6 +144,7 @@ class CombinedTermination(Termination):
 class CombinedTrueTermination(Termination):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
+		self.epsilon_close = kwargs["epsilon_close"]
 		self.comb_terminator = CombinedTermination(**kwargs)
 		self.inter = 0
 		self.inter_pred = 0
@@ -151,13 +155,31 @@ class CombinedTrueTermination(Termination):
 	def check_interaction(self, inter):
 		return self.comb_terminator.check_interaction(inter)
 
-	def check(self, input_state, state, param, mask, true_done=False):
+	def check(self, inter, state, param, mask, true_done=False):
 		self.comb_terminator.epsilon_close = self.epsilon_close
-		comb_term = self.comb_terminator.check(input_state, state, param, mask, true_done=true_done)
+		comb_term = self.comb_terminator.check(inter, state, param, mask, true_done=true_done)
 		self.inter = self.comb_terminator.inter
 		self.inter_pred = self.comb_terminator.inter_pred
 		self.p_hit = self.comb_terminator.p_hit
 		vals = comb_term + true_done
+		if type(vals) == np.ndarray:
+			vals[vals > 1] = 1
+		return vals
+
+class TrueParamTermination(Termination):
+	def __init__(self, **kwargs):
+		super().__init__(**kwargs)
+		self.comb_terminator = ParameterizedStateTermination(**kwargs)
+		self.epsilon_close = self.comb_terminator.epsilon_close
+		self.epsilon = kwargs["dataset_model"].interaction_prediction
+
+	def check_interaction(self, inter):
+		return inter > (1-self.epsilon)
+
+	def check(self, inter, state, param, mask, true_done=False):
+		self.comb_terminator.epsilon_close = self.epsilon_close
+		param_term = self.comb_terminator.check(inter, state, param, mask)
+		vals = param_term + true_done
 		if type(vals) == np.ndarray:
 			vals[vals > 1] = 1
 		return vals
@@ -267,4 +289,6 @@ class EnvFnTermination(Termination):
 	def check(self, input_state, state, param, mask, true_done=0):
 		return self.term_fn(input_state, state, param)
 
-terminal_forms = {'param': ParameterizedStateTermination, 'comb': CombinedTermination, 'tcomb': CombinedTrueTermination, 'inst': InstancedTermination, 'proxist': ProximityInstancedTermination, 'true': TrueTermination, 'env': EnvFnTermination}
+terminal_forms = {'param': ParameterizedStateTermination, 'comb': CombinedTermination, 'tcomb': CombinedTrueTermination,
+ 'inst': InstancedTermination, 'proxist': ProximityInstancedTermination, 'true': TrueTermination,
+ 					'tparam':TrueParamTermination, 'env': EnvFnTermination}

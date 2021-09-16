@@ -9,7 +9,7 @@ class Object():
 
 	def __init__(self, pos, attribute):
 		self.pos = pos
-		self.vel = np.zeros(pos.shape)
+		self.vel = np.zeros(pos.shape).astype(np.int64)
 		self.width = 0
 		self.height = 0
 		self.attribute = attribute
@@ -50,7 +50,7 @@ class animateObject(Object):
 			self.apply_move = True
 			self.pos += self.vel
 		if self.zero_vel:
-			self.vel = np.zeros(self.vel.shape)
+			self.vel = np.zeros(self.vel.shape).astype(np.int64)
 
 def intersection(a, b):
 	midax, miday = (a.next_pos[1] * 2 + a.width)/ 2, (a.next_pos[0] * 2 + a.height)/ 2
@@ -68,6 +68,12 @@ class Ball(animateObject):
 		self.paddlehits = 0
 		self.reset_seed = -1
 		self.top_reset = top_reset
+		self.needs_ball_reset = False
+
+		# indicators for if the ball hit a particular object
+		self.bottom_wall = False
+		self.top_wall = False
+		self.block = False
 
 		# MODE 1 # only odd lengths valid, prefer 7,11,15, etc. 
 		self.paddle_interact = dict()
@@ -91,6 +97,9 @@ class Ball(animateObject):
 			# 7: np.array([-1, 1])}
 		# self.nohit_delay = 0
 
+	def clear_hits(self):
+		self.bottom_wall, self.top_wall, self.block = False, False, False
+
 	def interact(self, other):
 		'''
 		interaction computed before movement
@@ -108,12 +117,13 @@ class Ball(animateObject):
 				self.vel = np.array([self.vel[0], -self.vel[1]])
 				self.apply_move = False
 			elif other.name.find("TopWall") != -1:
+				self.top_wall = True
 				if self.top_reset:
 					if self.reset_seed > 0:
 						np.random.seed(self.reset_seed)
 					print(self.pos, self.vel, "top dropped", intersection(self,other))
-					self.pos = np.array([46, np.random.randint(20, 36)])
-					self.vel = np.array([1, np.random.choice([-1,1])])
+					# self.pos = np.array([46, np.random.randint(20, 36)])
+					# self.vel = np.array([1, np.random.choice([-1,1])])
 					# self.pos = np.array([46, 24])
 					# self.vel = np.array([1, 1])
 					self.apply_move = False
@@ -122,16 +132,19 @@ class Ball(animateObject):
 					self.vel = np.array([-self.vel[0], self.vel[1]])
 					self.apply_move = False
 			elif other.name.find("BottomWall") != -1:
+				self.bottom_wall = True
 				if self.reset_seed > 0:
 					np.random.seed(self.reset_seed)
 				print(self.pos, self.vel, "dropped", intersection(self,other))
-				self.pos = np.array([46, np.random.randint(20, 36)])
-				self.vel = np.array([1, np.random.choice([-1,1])])
+				# self.
+				# self.pos = np.array([46, np.random.randint(20, 36)])
+				# self.vel = np.array([1, np.random.choice([-1,1])])
 				# self.pos = np.array([46, 24])
 				# self.vel = np.array([1, 1])
 				self.apply_move = False
 				self.losses += 1
 			elif other.name.find("Block") != -1 and other.attribute == 1:
+				self.block = True
 				rel_x = self.pos[1] - other.pos[1]
 				rel_y = self.pos[0] - other.pos[0]
 				print(rel_x, rel_y, self.vel, other.name, intersection(self, other))

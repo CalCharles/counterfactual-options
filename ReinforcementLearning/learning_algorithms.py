@@ -51,6 +51,7 @@ class HER(LearningOptimizer):
         self.last_done = 0
         self.last_res = 0
         self.sample_timer = 0
+        self.sum_rewards = args.sum_rewards
         self.resample_timer = args.resample_timer
         self.select_positive = args.select_positive
         self.use_interact = not args.true_environment and args.use_interact
@@ -103,6 +104,8 @@ class HER(LearningOptimizer):
                 true_done = batch.true_done
                 true_reward = batch.true_reward
                 term, rew, inter, time_cutoff = self.option.terminate_reward.check(batch.full_state[0], batch.next_full_state[0], param, mask, inter_state=inter_state, use_timer=False, true_inter=batch.inter.squeeze())
+                if self.sum_rewards and rew < -0.1: # TODO: right now, use the given rewards IF rew < -0.1, a hack to get the summed rewards
+                    rew = batch.rew.squeeze()
                 total_interaction += float(self._check_interaction(inter.squeeze()))
                 timer, self.done_model.timer = self.done_model.timer, 0
                 done = self.done_model.check(term, true_done)

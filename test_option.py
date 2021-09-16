@@ -75,6 +75,8 @@ if __name__ == '__main__':
     if "Paddle" in graph.nodes: graph.nodes["Paddle"].option.state_extractor.use_pair_gamma = False
     if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.use_pair_gamma = False
     if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.hardcoded_normalization = ["breakout", 3, 1]
+    if "Paddle" in graph.nodes: graph.nodes["Paddle"].option.state_extractor.num_instance = 1
+    if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.num_instance = 1
     print(graph.nodes["Action"].option)
 
     option_name = dataset_model.name.split("->")[0]

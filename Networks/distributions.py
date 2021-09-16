@@ -37,7 +37,7 @@ class FixedCategorical(torch.distributions.Categorical):
     def sample(self):
         return super().sample().unsqueeze(-1)
 
-    def log_probs(self, actions):
+    def log_prob(self, actions):
         return (
             super()
             .log_prob(actions.squeeze(-1))
@@ -52,7 +52,7 @@ class FixedCategorical(torch.distributions.Categorical):
 
 # Normal
 class FixedNormal(torch.distributions.Normal):
-    def log_probs(self, actions):
+    def log_prob(self, actions):
         return super().log_prob(actions).sum(-1, keepdim=True)
 
     def entrop(self):
@@ -64,7 +64,7 @@ class FixedNormal(torch.distributions.Normal):
 
 # Bernoulli
 class FixedBernoulli(torch.distributions.Bernoulli):
-    def log_probs(self, actions):
+    def log_prob(self, actions):
         return super.log_prob(actions).view(actions.size(0), -1).sum(-1).unsqueeze(-1)
 
     def entropy(self):

@@ -294,20 +294,34 @@ class PairNetwork(Network):
         self.object_dim = kwargs['object_dim']
         self.hs = kwargs["hidden_sizes"]
         self.first_obj_dim = kwargs["first_obj_dim"]
+        self.post_dim = kwargs['post_dim']
+        self.num_instance = kwargs['num_instance']
+        print(self.object_dim, self.first_obj_dim, self.post_dim)
         if kwargs["first_obj_dim"] > 0: # only supports one to many concatenation, not many to many
             kwargs["object_dim"] += self.first_obj_dim
-        if kwargs["aggregate_final"]: 
+        print(kwargs["post_dim"], kwargs["aggregate_final"])
+        self.conv_dim = self.hs[-1]
+        if kwargs["aggregate_final"] and kwargs['post_dim'] > 0:
+            self.output_dim = self.hs[-1] * 2
+            kwargs["include_last"] = False
+        elif kwargs["aggregate_final"] and kwargs['post_dim'] <= 0: 
             self.output_dim = self.hs[-1]
             kwargs["include_last"] = False
         else:
             kwargs["include_last"] = True
             self.output_dim = kwargs['output_dim']
+        kwargs['output_dim'] = self.output_dim
         self.conv = BasicConvNetwork(**kwargs)
+        if kwargs['post_dim'] > 0:
+            kwargs["num_inputs"] = kwargs['post_dim']
+            kwargs["num_outputs"] = self.hs[-1]
+            self.post_channel = BasicMLPNetwork(**kwargs)
         self.aggregate_final = kwargs["aggregate_final"]
         if kwargs["aggregate_final"]:
             kwargs["include_last"] = True
             kwargs["num_inputs"] = self.output_dim
-            kwargs["hidden_sizes"] = [] # TODO: hardcoded final hidden sizes for now
+            kwargs["num_outputs"] = self.num_outputs
+            kwargs["hidden_sizes"] = [64, 64, 64] # TODO: hardcoded final hidden sizes for now
             self.MLP = BasicMLPNetwork(**kwargs)
             self.model = nn.Sequential(self.conv, self.MLP)
         else:
@@ -317,10 +331,12 @@ class PairNetwork(Network):
         if len(x.shape) == 1: # if there is only one input
             # outputs the target shape, which is all the output objects but not the input object
             batch_size = 1
-            output_shape = x.shape[0] - self.first_obj_dim
+            output_shape = x.shape[0] - self.first_obj_dim - self.post_dim
+            if self.post_dim > 0:
+                px = x[x.shape[0] - self.post_dim:]
             if self.first_obj_dim > 0: # if there is a "first" object like the ball
                 fx = x[:self.first_obj_dim] # TODO: always assumes first object dim is the first dimensions
-                x = x[self.first_obj_dim:]
+                x = x[self.first_obj_dim:x.shape[0] - self.post_dim]
             nobj = x.shape[0] // self.object_dim
             x = x.view(nobj, self.object_dim)
             if self.first_obj_dim > 0:
@@ -330,10 +346,12 @@ class PairNetwork(Network):
             x = x.unsqueeze(0)
         elif len(x.shape) == 2:
             batch_size = x.shape[0]
-            output_shape = x.shape[1] - self.first_obj_dim
+            output_shape = x.shape[1] - self.first_obj_dim  - self.post_dim
+            if self.post_dim > 0:
+                px = x[:, x.shape[1]-self.post_dim:]
             if self.first_obj_dim > 0:
                 fx = x[:, :self.first_obj_dim] # TODO: always assumes first object dim is the first dimensions
-                x = x[:, self.first_obj_dim:]
+                x = x[:, self.first_obj_dim:x.shape[1]-self.post_dim]
             nobj = x.shape[1] // self.object_dim
             x = x.view(-1, nobj, self.object_dim)
             if self.first_obj_dim > 0:
@@ -344,19 +362,20 @@ class PairNetwork(Network):
             # print(x)
             x = x.transpose(2,1)
 
-
         x = self.conv(x)
         if self.aggregate_final:
             # TODO: could use additive instead of max
             x = torch.max(x, 2, keepdim=True)[0]
             # print(x.shape)
-            x = x.view(-1, self.output_dim)
+            x = x.view(-1, self.conv_dim)
+            if self.post_dim > 0:
+                px = self.post_channel(px)
+                x = torch.cat([x,px], dim=-1)
             x = self.MLP(x)
         else:
             x = x.transpose(2,1)
             # print(output_shape, x.shape)
             x = x.reshape(batch_size, -1)
-        # print(x.shape)
         return x
 
 

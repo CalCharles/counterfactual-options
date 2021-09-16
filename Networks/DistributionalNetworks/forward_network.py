@@ -40,7 +40,7 @@ class DiagGaussianForwardPairNetwork(Network):
         self.std = PairNetwork(**kwargs)
         self.normalization = kwargs['normalization_function']
         self.model = [self.mean, self.std]
-        self.base_variance = .01
+        self.base_variance = kwargs['base_variance']
 
         self.train()
         self.reset_parameters()
@@ -57,7 +57,33 @@ class DiagGaussianForwardPairNetwork(Network):
     def forward(self, x):
         x = pytorch_model.wrap(x, cuda=self.iscuda)
         x = self.normalization(x)
-        return torch.tanh(self.mean(x)), torch.sigmoid(self.std(x)) + 1e-2
+        return torch.tanh(self.mean(x)), torch.sigmoid(self.std(x)) + self.base_variance
+
+class BinaryPairNetwork(Network):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        kwargs["aggregate_final"] = False # don't aggregate the last layer, just convert the dim
+        kwargs["output_dim"] = 1 # output the state of the object
+        self.binaries = PairNetwork(**kwargs) # literally only these two lines are different so there should be a way to compress this...
+        self.normalization = kwargs['normalization_function']
+        self.model = [self.binaries]
+        self.base_variance = kwargs['base_variance']
+
+        self.train()
+        self.reset_parameters()
+
+    def cpu(self):
+        super().cpu()
+        self.normalization.cpu()
+    
+    def cuda(self):
+        super().cuda()
+        self.normalization.cuda()
 
 
-forward_nets = {"basic": DiagGaussianForwardNetwork, "pair": DiagGaussianForwardPairNetwork}
+    def forward(self, x):
+        x = pytorch_model.wrap(x, cuda=self.iscuda)
+        x = self.normalization(x)
+        return torch.sigmoid(self.binaries(x))
+
+forward_nets = {"basic": DiagGaussianForwardNetwork, "pair": DiagGaussianForwardPairNetwork, 'bin': BinaryPairNetwork}

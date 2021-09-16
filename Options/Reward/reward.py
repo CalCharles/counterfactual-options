@@ -66,6 +66,17 @@ class InteractionReward(Reward):
 		# print(pytorch_model.unwrap(self.interaction_model(input_state)), pytorch_model.unwrap(input_state))
 		return pytorch_model.unwrap(inter).squeeze()
 
+class TrueConstantReward(Reward):
+	def __init__(self, **kwargs):
+		# only gives the negative component of the true reward
+		super().__init__(**kwargs)
+		self.reward_constant = kwargs["reward_constant"]
+		self.rlambda = kwargs["true_reward_lambda"]
+
+	def get_reward(self, inter, state, param, mask, true_reward=0):
+		# print(self.rlambda * true_reward * float(true_reward < 0))
+		return self.reward_constant + self.rlambda * true_reward
+
 class TrueNegativeCombinedReward(Reward):
 	def __init__(self, **kwargs):
 		# only gives the negative component of the true reward
@@ -214,4 +225,4 @@ class EnvFnReward(Reward):
 
 
 reward_forms = {'bin': BinaryParameterizedReward, 'param': ConstantParameterizedReward, 'int': InteractionReward, 'comb': CombinedReward, 'inst': InstancedReward,
-				'true': TrueReward, 'env': EnvFnReward, 'tcomb': TrueNegativeCombinedReward, 'proxist': ProximityInstancedReward}
+				'true': TrueReward, 'env': EnvFnReward, 'tcomb': TrueNegativeCombinedReward, 'proxist': ProximityInstancedReward, 'tconst': TrueConstantReward}

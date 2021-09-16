@@ -1,6 +1,7 @@
 import numpy as np
 import gym
 import time
+import os
 import torch
 import warnings
 import cv2
@@ -9,7 +10,7 @@ import numpy as np
 from typing import Any, Dict, List, Union, Optional, Callable
 from argparse import Namespace
 from collections import deque
-from file_management import printframe, saveframe
+from file_management import printframe, saveframe, action_toString
 from Networks.network import pytorch_model
 
 from Rollouts.param_buffer import ParamReplayBuffer
@@ -117,6 +118,11 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.true_interaction = args.true_interaction
         self.source, self.target = self.option.next_option.name, self.option.name
         self.environment_model = environment_model
+        self.save_action = args.save_action # saves the option level action at each time step in option_action.txt in environment.save_dir
+        self.save_path = self.environment_model.environment.save_path
+        option_dumps = open(os.path.join(self.save_path, "option_dumps.txt"), 'w')
+        option_dumps.close()
+
         
         # shortcut calling option attributes through option
         self.state_extractor = self.option.state_extractor
@@ -177,6 +183,11 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         if state is not None:
             policy.hidden_state = state  # save state into buffer
             self.data.update(state_chain=state_chain, policy=policy)
+
+    def _save_mapped_action(self, mapped_act):
+        option_dumps = open(os.path.join(self.save_path, "option_dumps.txt"), 'a')
+        option_dumps.write(action_toString(mapped_act) + "\t")
+        option_dumps.close()
 
     def perform_reset(self):
         # artificially create term to sample a new param
@@ -265,6 +276,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random)
             self._policy_state_update(result)
             self.data.update(true_action=[action_chain[0]], act=[act], mapped_act=[action_chain[-1]], option_resample=[resampled])
+            if self.save_action: self._save_mapped_action(action_chain[-1])
 
             # step in env
             action_remap = self.data.true_action
@@ -290,14 +302,16 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             cutoff = (np.array([time_cutoff]) or (true_done and not term))  # treat true dones like time limits (TODO: this is not valid when learning to control true dones)
             if type(cutoff) != bool: cutoff = cutoff.squeeze()
             info[0]["TimeLimit.truncated"] = bool(cutoff + info[0]["TimeLimit.truncated"]) # environment might send truncated itself
+            print(act, action_chain, target, term, terminations, param)
             if term: print("term", term, true_done, done, inter, not time_cutoff, rew, param, next_target, inter_state)
             self.option.update(self.buffer, done, self.data.full_state[0], act, action_chain, terminations, param, masks, not self.test)
 
             # update hit-miss values
             rews += rew
             if term: 
-                miss_count += int(np.linalg.norm((param-next_target) * mask) > self.option.terminate_reward.epsilon_close)
-                hit_count += int(np.linalg.norm((param-next_target) * mask) <= self.option.terminate_reward.epsilon_close)
+                reward_check =  (done and rew >= 0)
+                miss_count += int((np.linalg.norm((param-next_target) * mask) > self.option.terminate_reward.epsilon_close) or not reward_check)
+                hit_count += int(np.linalg.norm((param-next_target) * mask) <= self.option.terminate_reward.epsilon_close or reward_check)
 
             # update the current values
             self.data.update(inter_state=[inter_state], next_full_state=[next_full_state], true_done=true_done, true_reward=true_reward, 

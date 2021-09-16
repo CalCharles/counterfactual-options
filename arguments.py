@@ -195,6 +195,8 @@ def get_args():
                         help='only resample if an interaction (1) or change(2) occurs at some point')
     parser.add_argument('--use-interact', action='store_true', default=False,
                         help='only resamples HER when an interaction occurs')
+    parser.add_argument('--sample-merged', action='store_true', default=False,
+                        help='samples a batch from both the main buffer and the HER buffer and merges the batches')
 
     #interaction parameters
     parser.add_argument('--train-pair', type=str, nargs='+', default=list(),
@@ -271,6 +273,8 @@ def get_args():
                         help='only saves the last n timesteps (-1 if not used)')
     parser.add_argument('--record-rollouts', default="",
                         help='path to where rollouts are recorded (when adding edges, where data was recorded to compute min/max)')
+    parser.add_argument('--save-action', action ='store_true', default=False,
+                        help='saves the highest option level action in record-rollouts')
     parser.add_argument('--graph-dir', default='./data/optgraph/',
                         help='directory to load graph')
     parser.add_argument('--dataset-dir', default='./data/',

@@ -16,7 +16,7 @@ from Networks.distributions import Bernoulli, Categorical, DiagGaussian
 from Networks.DistributionalNetworks.forward_network import forward_nets
 from Networks.DistributionalNetworks.interaction_network import interaction_nets
 from Networks.network import ConstantNorm, pytorch_model
-from Networks.input_norm import InterInputNorm
+from Networks.input_norm import InterInputNorm, PointwiseNorm
 from Rollouts.rollouts import ObjDict
 from tianshou.data import Collector, Batch, ReplayBuffer
 
@@ -270,7 +270,7 @@ class NeuralInteractionForwardModel(nn.Module):
             dstate_part = dstate[i*500:(i+1)*500].cuda() if self.iscuda else dstate[i*500:(i+1)*500]
             dnstate_part = dnstate[i*500:(i+1)*500].cuda() if self.iscuda else dnstate[i*500:(i+1)*500]
             pred_error.append(pytorch_model.unwrap(self.get_error(model(dstate_part)[0], dnstate_part)) * pytorch_model.unwrap(done_flags[i*500:(i+1)*500]))
-            # passive_error.append(self.dist(*self.passive_model(dstate[i*10000:(i+1)*10000])).log_probs(nf(dnstate[i*10000:(i+1)*10000])))
+            # passive_error.append(self.dist(*self.passive_model(dstate[i*10000:(i+1)*10000])).log_prob(nf(dnstate[i*10000:(i+1)*10000])))
         return np.concatenate(pred_error, axis=0)
 
     def _get_target_mag(self, rollouts):
@@ -321,8 +321,10 @@ class NeuralInteractionForwardModel(nn.Module):
             interaction_likelihood = self.interaction_model(self.gamma(inputs))
             passive_prediction_params = self.passive_model(self.delta(inputs))
             target = self.output_normalization_function(self.delta(targets))
-            passive_loss = - self.dist(*passive_prediction_params).log_probs(target)
-            forward_error = - self.dist(*prediction_params).log_probs(target)
+            passive_loss = - self.dist(*passive_prediction_params).log_prob(target)
+            forward_error = - self.dist(*prediction_params).log_prob(target)
+            if self.multi_instanced: passive_loss = self.split_instances(passive_loss).sum(dim=2)
+            if self.multi_instanced: forward_error = self.split_instances(forward_error).sum(dim=2)
             interaction_binaries, potential = self.compute_interaction(forward_error, passive_loss, rv(target))
             # interaction_binaries, potential = self.compute_interaction(prediction_params[0].clone().detach(), passive_prediction_params[0].clone().detach(), rv(target))
             bins.append(pytorch_model.unwrap(interaction_binaries))
@@ -348,12 +350,10 @@ class NeuralInteractionForwardModel(nn.Module):
         # split up a state or batch of states into instances
         if obj_dim < 0:
             obj_dim = self.object_dim
+        nobj = delta_state.shape[-1] // obj_dim
         if len(delta_state.shape) == 1:
-            nobj = delta_state.shape[0] // obj_dim
             delta_state = delta_state.reshape(nobj, obj_dim)
         elif len(delta_state.shape) == 2:
-            batch_size = delta_state.shape[0]
-            nobj = delta_state.shape[1] // obj_dim
             delta_state = delta_state.reshape(-1, nobj, obj_dim)
         return delta_state
 
@@ -395,13 +395,18 @@ class NeuralInteractionForwardModel(nn.Module):
             passive_prediction_params = self.passive_model(self.delta(batchvals.values.state))
             # passive_prediction_params = self.passive_model(self.delta(batchvals.values.state))
             target = self.output_normalization_function(self.delta(self.get_targets(batchvals)))
-            passive_error = - self.dist(*passive_prediction_params).log_probs(target)
+            passive_error = - self.dist(*passive_prediction_params).log_prob(target)
             # break up by instances to multiply with interaction_likelihood
             if self.multi_instanced:
+                # handle passive
+                passive_error = self.split_instances(passive_error).sum(dim=2)
+                # handle active
                 pmu, pvar, ptarget = self.split_instances(prediction_params[0]), self.split_instances(prediction_params[1]), self.split_instances(target)
-                forward_error = - self.dist(pmu, pvar).log_probs(ptarget).squeeze()
+                forward_error = - self.dist(pmu, pvar).log_prob(ptarget).squeeze().sum(dim=2)
             else:
-                forward_error = - self.dist(*prediction_params).log_probs(target)
+                forward_error = - self.dist(*prediction_params).log_prob(target).sum(dim=1).unsqueeze(1)
+                passive_error = - self.dist(*passive_prediction_params).log_prob(target).sum(dim=1).unsqueeze(1)
+
             # this is mislabeled, it is actually forward l1
             forward_l2 = (prediction_params[0] - target).abs().mean(dim=1).unsqueeze(1)
             # print(forward_error.shape, interaction_likelihood.shape)
@@ -429,6 +434,7 @@ class NeuralInteractionForwardModel(nn.Module):
             if train_args.interaction_iters <= 0:
                 # interaction_binaries = self.compute_interaction(prediction_params[0].clone().detach(), passive_prediction_params[0].clone().detach(), self.rv(target))
                 interaction_binaries, potential = self.compute_interaction(forward_error, passive_error, self.rv(target))
+                print(interaction_binaries.shape, forward_error.shape, passive_error.shape)
                 interaction_loss = inter_loss(interaction_likelihood, interaction_binaries.detach())
                 # forward_bin_loss = forward_error * interaction_binaries
                 # forward_max_loss = forward_error * torch.max(torch.cat([interaction_binaries, interaction_likelihood.clone(), potential.clone()], dim=1).detach(), dim = 1)[0]
@@ -450,7 +456,7 @@ class NeuralInteractionForwardModel(nn.Module):
             # pidxes, pbatchvals = rollouts.get_batch(train_args.batch_size, existing=pbatchvals)
             # passive_prediction_params = self.passive_model(self.delta(batchvals.values.state))
             # ptarget = self.network_args.output_normalization_function(self.delta(self.get_targets(pbatchvals)))
-            # passive_error = - self.dist(*passive_prediction_params).log_probs(target)
+            # passive_error = - self.dist(*passive_prediction_params).log_prob(target)
             # PASSIVE IGNORES ACTIVE SUCCESS
             # self.run_optimizer(train_args, self.passive_optimizer, self.passive_model, passive_error)
             # passive_error = passive_error * (1-interaction_binaries)
@@ -473,11 +479,13 @@ class NeuralInteractionForwardModel(nn.Module):
                     self.assess_losses(test_rollout)
                     # self.assess_error(test_rollout, passive_error_cutoff=train_args.passive_error_cutoff)
                 if self.multi_instanced: 
-                    target = self.split_instances(target)
+                    split_target = self.split_instances(target)
                     inp = self.gamma(batchvals.values.state)
                     inp = self.split_instances(inp)
                     active = self.split_instances(self.rv(prediction_params[0])).squeeze()
-                    print(self.rv(target).shape, self.rv(prediction_params[0]).shape)
+                    activeunnorm = self.split_instances(prediction_params[0]).squeeze()
+                    activevar = self.split_instances(prediction_params[1]).squeeze()
+                    print(self.rv(split_target).shape, self.rv(target).shape, self.rv(prediction_params[0]).shape)
                     adiff = self.split_instances(self.rv(target) - self.rv(prediction_params[0]))
                     pdiff = self.split_instances(self.rv(target) - self.rv(passive_prediction_params[0]))
 
@@ -490,7 +498,7 @@ class NeuralInteractionForwardModel(nn.Module):
                         all_indices.append(pytorch_model.unwrap(ti))
                         if ti[1]+1 < interaction_likelihood[ti[0]].shape[0]: all_indices.append(np.array([ti[0], ti[1]+1]))
                         if ti[1]+2 < interaction_likelihood[ti[0]].shape[0]: all_indices.append(np.array([ti[0], ti[1]+2]))
-                        for i in range(3):
+                        for _ in range(3):
                             all_indices.append(np.array([ti[0], np.random.randint(interaction_likelihood[ti[0]].shape[0])]))
                     for _ in range(20):
                         all_indices.append(np.array([np.random.randint(train_args.batch_size), np.random.randint(interaction_likelihood.shape[1])]))
@@ -498,15 +506,20 @@ class NeuralInteractionForwardModel(nn.Module):
                     obj_indices = np.array(all_indices)
                     print("iteration: ", i)
                     # print(trw[idxes], trace[idxes].sum(dim=1), idxes)
+                    print(forward_loss[obj_indices[0][0]], interaction_likelihood[obj_indices[0][0]])
                     for a in obj_indices[:20]:
                         print("idx", a[0], a[1])
                         # print("has", trace[idxes[a[0]].sum())
-                        print("inter: ", pytorch_model.unwrap(trace[idxes[a[0]], a[1]])),
-                        print("inp: ", pytorch_model.unwrap(inp[a[0], a[1]])),
-                        print("target: ", pytorch_model.unwrap(target[a[0], a[1]])),
-                        print("active: ", pytorch_model.unwrap(active[a[0], a[1]])),
-                        print("adiff: ", pytorch_model.unwrap(adiff[a[0], a[1]])),
-                        print("pdiff: ", pytorch_model.unwrap(pdiff[a[0], a[1]])),
+                        print("trace: ", pytorch_model.unwrap(trace[idxes[a[0]], a[1]]),
+                        "inter: ", pytorch_model.unwrap(interaction_likelihood[a[0], a[1]]),
+                        "inp: ", pytorch_model.unwrap(inp[a[0], a[1]]),
+                        "target: ", pytorch_model.unwrap(split_target[a[0], a[1]]),
+                        "active: ", pytorch_model.unwrap(active[a[0], a[1]]),
+                        "aun: ", pytorch_model.unwrap(activeunnorm[a[0], a[1]]),
+                        "avar: ", pytorch_model.unwrap(activevar[a[0], a[1]]),
+                        "adiff: ", pytorch_model.unwrap(adiff[a[0], a[1]]),
+                        "pdiff: ", pytorch_model.unwrap(pdiff[a[0], a[1]]),
+                        "floss: ", pytorch_model.unwrap(forward_loss[a[0], a[1]]))
                 else:
                     likelihood_binaries = (interaction_likelihood > .5).float()
                     if train_args.interaction_iters > 0:
@@ -617,10 +630,11 @@ class NeuralInteractionForwardModel(nn.Module):
                         # print (obj_indices)
                         print(i, ": tl: ", trace_loss)
                         # print(target.shape)
+                        print(target[obj_indices[0][0]], interaction_likelihood[obj_indices[0][0]])
                         for a in obj_indices:
-                            print("state:", pytorch_model.unwrap(inp)[a[0], a[1]])
-                            print("training: ", interaction_likelihood[a[0], a[1]])
-                            print("target: ", target[a[0], a[1]])
+                            print("state:", pytorch_model.unwrap(inp)[a[0], a[1]],
+                            "inter: ", interaction_likelihood[a[0], a[1]],
+                            "target: ", target[a[0], a[1]])
                     else:
                         print(i, ": tl: ", trace_loss)
                         print("\nstate:", pytorch_model.unwrap(inp)[obj_indices],
@@ -648,7 +662,7 @@ class NeuralInteractionForwardModel(nn.Module):
             
             # compute losses
             done_flags = 1-batchvals.values.done
-            passive_loss = - self.dist(*passive_prediction_params).log_probs(target) * done_flags
+            passive_loss = - self.dist(*passive_prediction_params).log_prob(target) * done_flags
 
             # only for unit testing
             if keep_outputs: outputs.append((prediction_params, passive_prediction_params))
@@ -656,12 +670,12 @@ class NeuralInteractionForwardModel(nn.Module):
             # optimize active and passive models
             if not train_args.no_pretrain_active:
                 prediction_params = self.forward_model(self.gamma(batchvals.values.state))
-                active_loss = - self.dist(*prediction_params).log_probs(target) * done_flags
+                active_loss = - self.dist(*prediction_params).log_prob(target) * done_flags
                 self.run_optimizer(train_args, active_optimizer, self.forward_model, active_loss)
             self.run_optimizer(train_args, passive_optimizer, self.passive_model, passive_loss)
             if i % train_args.log_interval == 0:
-                for j in range(train_args.batch_size):
-                    if target[j].abs().sum() > 0:
+                if self.multi_instanced:
+                    for j in range(2):
                         print(
                             # self.network_args.normalization_function.reverse(passive_prediction_params[0][0]),
                             # self.network_args.normalization_function.reverse(passive_prediction_params[1][0]), 
@@ -680,7 +694,29 @@ class NeuralInteractionForwardModel(nn.Module):
                             # "\nal: ", active_loss,
                             # "\npl: ", passive_loss
                             )
-                print(i, ", pl: ", passive_loss.mean().detach().cpu().numpy(),
+
+                else:
+                    for j in range(train_args.batch_size):
+                        if target[j].abs().sum() > 0:
+                            print(
+                                # self.network_args.normalization_function.reverse(passive_prediction_params[0][0]),
+                                # self.network_args.normalization_function.reverse(passive_prediction_params[1][0]), 
+                                "input", pytorch_model.unwrap(self.gamma(batchvals.values.state)[j]),
+                                "\npinput", pytorch_model.unwrap(self.delta(batchvals.values.state[j])),
+                                "ninput", pytorch_model.unwrap(self.inf(self.gamma(batchvals.values.state)[j])),
+                                "\npninput", pytorch_model.unwrap(self.dnf(self.delta(batchvals.values.state[j]))),
+                                # "\naoutput", pytorch_model.unwrap(self.rv(prediction_params[0])[j]),
+                                # "\navariance", self.rv(prediction_params[1]),
+                                "\npoutput", pytorch_model.unwrap(self.rv(passive_prediction_params[0])[j]),
+                                "\npn_output", pytorch_model.unwrap(passive_prediction_params[0][j]),
+                                "\npvariance", pytorch_model.unwrap(passive_prediction_params[1][j]),
+                                # self.delta(batchvals.values.next_state[0]), 
+                                # self.gamma(batchvals.values.state[0]),
+                                "\ntarget: ", pytorch_model.unwrap(self.rv(target)[j]),
+                                # "\nal: ", active_loss,
+                                # "\npl: ", passive_loss
+                                )
+                print("Iters", i, ", pl: ", passive_loss.mean().detach().cpu().numpy(),
                     # ", al: ", active_loss.mean().detach().cpu().numpy()
                     )
         return outputs
@@ -711,14 +747,17 @@ class NeuralInteractionForwardModel(nn.Module):
         self.control_max = np.amax(pytorch_model.unwrap(minmax), axis=1)
 
         # Computes the target normalization value, get normalization values
-        output_norm_fun = InterInputNorm()
+        if train_args.multi_instanced:
+            output_norm_fun = PointwiseNorm(object_dim = self.object_dim)
+        else:
+            output_norm_fun = InterInputNorm()
         if len(train_args.hardcode_norm) > 0:
             if self.predict_dynamics:
                 target_norm = hardcode_norm(train_args.hardcode_norm[0], ["Relative" + target_name])
                 output_norm_fun.assign_mean_var(*target_norm)
             else:
                 target_norm = hardcode_norm(train_args.hardcode_norm[0], [target_name])
-                output_norm_fun.assign_mean_var(*target_norm)                
+                output_norm_fun.assign_mean_var(*target_norm)
         else:
             output_norm_fun.compute_input_norm(self.delta(self.get_targets(rollouts)))
         self.output_normalization_function = output_norm_fun
@@ -748,15 +787,23 @@ class NeuralInteractionForwardModel(nn.Module):
         trace_targets = None
         if train_args.interaction_iters > 0:
             if train_args.env != "RoboPushing":
-                trace = self.generate_interaction_trace(rollouts, [control_name], [target_name])
+                if train_args.load_intermediate: trace = load_from_pickle("data/temp/trace.pkl").cpu().cuda()
+                else: trace = self.generate_interaction_trace(rollouts, [control_name], [target_name])
                 trace_targets = self._adjust_interaction_trace(trace)
                 if train_args.save_intermediate:
                     save_to_pickle("data/temp/trace.pkl", trace)
-                    torch.save(self.interaction_model, "data/temp/interaction_model.pt")
+
+        # train the interaction model with true interaction "trace" values
+        self._train_interaction(rollouts, train_args, batchvals, trace, trace_targets, interaction_optimizer)
+
+        if train_args.save_intermediate:
+            torch.save(self.interaction_model, "data/temp/interaction_model.pt")
 
         if train_args.load_intermediate:
             if train_args.interaction_iters > 0:
-                trace = load_from_pickle("data/trace.pkl").cpu().cuda()
+                trace = load_from_pickle("data/temp/trace.pkl").cpu().cuda()
+                self.interaction_model = torch.load("data/temp/interaction_model.pt")
+                print("loading interaction model")
             self.passive_model = torch.load("data/temp/passive_model.pt")
         #     self.forward_model = torch.load("data/temp/active_model.pt")
         #     self.passive_model.cpu()
@@ -764,12 +811,8 @@ class NeuralInteractionForwardModel(nn.Module):
         #     self.forward_model.cpu()
         #     self.forward_model.cuda()
 
-
-        # train the interaction model with true interaction "trace" values
-        self._train_interaction(rollouts, train_args, batchvals, trace, trace_targets, interaction_optimizer)
-
         # initialize the interaction schedule, which is degree to which the interactions affect the forward loss
-        if train_args.epsilon_schedule == -1: interaction_schedule = lambda i: 1
+        if train_args.epsilon_schedule <= 0: interaction_schedule = lambda i: 1
         else: interaction_schedule = lambda i: np.power(0.5, (i/train_args.epsilon_schedule))
 
         # sampling weights, either wit hthe passive error or if we can upweight the true interactions
@@ -876,8 +919,8 @@ class NeuralInteractionForwardModel(nn.Module):
             prediction_params = self.forward_model(self.gamma(state))
             interaction_likelihood = self.interaction_model(self.gamma(state))
             passive_prediction_params = self.passive_model(self.delta(state))
-            passive_loss.append(pytorch_model.unwrap(- self.dist(*passive_prediction_params).log_probs(self.delta(target)) * interaction_likelihood))
-            forward_loss.append(pytorch_model.unwrap(- self.dist(*prediction_params).log_probs(self.delta(target)) * interaction_likelihood))
+            passive_loss.append(pytorch_model.unwrap(- self.dist(*passive_prediction_params).log_prob(self.delta(target)) * interaction_likelihood))
+            forward_loss.append(pytorch_model.unwrap(- self.dist(*prediction_params).log_prob(self.delta(target)) * interaction_likelihood))
         pl, fl = np.concatenate(passive_loss, axis=0).mean(), np.concatenate(forward_loss, axis=0).mean()
         print("passive, forward losses", pl, fl)
         return pl, fl

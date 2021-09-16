@@ -56,6 +56,7 @@ class ActionMap():
             self.mapped_action_min = np.array(next_act_map.control_min)
             self.action_space = gym.spaces.Box(self.mapped_action_min, self.mapped_action_max)
 
+
     def assign_policy_map(self, policy_map_action, policy_reverse_map_action, policy_exploration_noise):
         self._policy_map_action = policy_map_action # a function from option.policy
         self._policy_reverse_map_action = policy_reverse_map_action # a function from option.policy
@@ -124,6 +125,8 @@ class ActionMap():
     def _get_cont(self, act):
         if self.discrete_dict:
             if type(act) == np.ndarray:
+                if len(act.shape) == 0:
+                    return self.discrete_dict[int(act)].copy()
                 return np.array([self.discrete_dict[a].copy() for a in act])
             return self.discrete_dict[act].copy()
 

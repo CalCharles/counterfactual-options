@@ -98,3 +98,38 @@ class ParamPriorityReplayBuffer(PrioritizedReplayBuffer): # not using double inh
             inter_state = self.inter_state[indice],
             time = self.time[indice]
         )
+
+class SamplerBuffer(ReplayBuffer):
+    # obs, obs_next  is the observation form as used by the highest level option (including param, and relative state, if used)
+    # act is the action of the highest level option
+    # rew is the reward of the highest level option
+    # done is the termination of the highest level option
+    # param is the param used at the time of input
+    # target, next target is the state of the target object, used for reward and termination
+    # true_reward, true_done are the actual dones and rewards
+    # option_terminate is for temporal extension, stating if the last object terminated
+    _reserved_keys = ("obs", "instance_binary", "target", "act", "rew", "done")
+
+    def __getitem__(self, index: Union[slice, int, List[int], np.ndarray]) -> Batch:
+        """Return a data batch: self[index].
+
+        If stack_num is larger than 1, return the stacked obs and obs_next with shape
+        (batch, len, ...).
+        """
+        if isinstance(index, slice):  # change slice to np array
+            # buffer[:] will get all available data
+            indice = self.sample_index(0) if index == slice(None) \
+                else self._indices[:len(self)][index]
+        else:
+            indice = index
+        # raise KeyError first instead of AttributeError,
+        # to support np.array([ReplayBuffer()])
+        obs = self.get(indice, "obs")
+        return Batch(
+            obs=obs,
+            act=self.act[indice],
+            instance_binary=self.instance_binary[indice],
+            target=self.target[indice],
+            rew = self.rew[indice],
+            done=self.done[indice]
+        )
