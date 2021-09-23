@@ -15,7 +15,7 @@ class PrimitiveActionMap():
         self.control_min = args.environment.action_space.low if not args.environment.discrete_actions else 0
 
     def sample(self):
-        self.action_space.sample()
+        return self.action_space.sample()
 
     def map_action(self, act, batch):
         ''' 

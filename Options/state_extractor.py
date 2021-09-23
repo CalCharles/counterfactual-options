@@ -176,7 +176,7 @@ class StateExtractor():
         if inter: state_comb.append(self._get_inter(factored_state, normalize=normalize, use_pair = use_pair))
         if target: state_comb.append(self._delta_featurizer(factored_state))
         if flat: state_comb.append(self._flatten_factored_state(factored_state, instanced=True))
-        if use_param: state_comb.append(self._broadcast_param(shape, param, mask, normalize=normalize)) # only handles param as a concatenation
+        if use_param and self.use_parametrized: state_comb.append(self._broadcast_param(shape, param, mask, normalize=normalize)) # only handles param as a concatenation
         if param_relative: state_comb.append(self._relative_param(shape, factored_state, param, mask, normalize=normalize))
         if relative: state_comb.append(self._get_relative(factored_state, normalize=normalize, use_pair=use_pair))
         if action: state_comb.append(self._select_action_feature(factored_state))
@@ -245,7 +245,6 @@ class StateExtractor():
                 mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_gripper_norm, robopush_state_norm)
                 param = (param - mean) / var * self.scale
 
-        print('tst', param)
         if len(shape) == 0:
             return param
         if len(shape) == 1:

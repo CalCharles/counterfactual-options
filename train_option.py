@@ -74,7 +74,7 @@ if __name__ == '__main__':
         print("loaded graph from ", args.graph_dir)
     except OSError as e:
         args.primitive_action_map = PrimitiveActionMap(args)
-        args.action_featurizer = dataset_model.controllable[0] if environment.discrete_actions else dataset_model.controllable
+        args.action_featurizer = dataset_model.controllable[0] if environment.discrete_actions and not args.true_environment else dataset_model.controllable
         if environment.discrete_actions:
             actions = PrimitiveOption(args, None)
             nodes = {'Action': OptionNode('Action', actions, action_shape = (1,))}

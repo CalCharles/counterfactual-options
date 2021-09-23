@@ -127,7 +127,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self._aggregate = self.temporal_aggregator.aggregate
         self.policy_collect = self.option.policy.collect
         self._done_check = self.option.done_model.done_check
-        
+        self.use_parametrized = not args.true_environment
+
         env = DummyVectorEnv([lambda: env])
         super().__init__(policy, env, buffer, preprocess_fn, exploration_noise)
 
@@ -162,9 +163,13 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         term_chain = self.option.reset(full_state)
 
         act, chain, policy_batch, state, masks, resampled = self.option.extended_action_sample(self.data, None, term_chain, term_chain[:-1], random=False)
+
         self._policy_state_update(policy_batch)
-        print(term_chain)
-        self.data.update(terminate=[term_chain[-1]], terminations=term_chain, ext_term=[term_chain[-2]], ext_terms=term_chain[:-1])
+        if self.use_parametrized:
+            self.data.update(terminate=[term_chain[-1]], terminations=term_chain, ext_term=[term_chain[-2]], ext_terms=term_chain[:-1])
+        else:
+            self.data.update(terminate=[term_chain[-1]], terminations=term_chain, ext_term=True, ext_terms=[True])
+
         self.data.update(done=[False], true_done=[False])
         self.option.update(self.buffer, True, self.data["full_state"], act, chain, term_chain, param, masks, not self.test)
         self.last_resampled_idx = self.full_at
@@ -237,8 +242,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             * ``idxs`` array of episode start index in buffer over collected episodes.
         """
         assert not self.env.is_async, "Please use AsyncCollector if using async venv."
-        if n_step is not None:
-            assert n_step > 0
+        ready_env_ids = np.arange(1)
+        if n_step is not None and n_step > 0:
             ready_env_ids = np.arange(self.env_num)
         if n_episode is not None:
             assert n_episode > 0
@@ -258,7 +263,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         term_end = False # if termination ends collection, should be True
 
         while True:
-            param, mask, new_param = self.adjust_param()
+            param, mask, new_param = self.adjust_param() if self.use_parametrized else None, None, None
             if self.test and new_param: print("new param", param)
             state_chain = self.data.state_chain if hasattr(self.data, "state_chain") else None
             if no_grad:
@@ -266,12 +271,21 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                     act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random)
             else:
                 act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random)
-            self._policy_state_update(result)
-            self.data.update(true_action=[action_chain[0]], act=[act], mapped_act=[action_chain[-1]], option_resample=[resampled])
+
+
+            if result != None:
+                self._policy_state_update(result)
+
+            if not self.use_parametrized and not random:
+                self.data.update(true_action=action_chain[0], act=act, mapped_act=action_chain[-1], option_resample=[resampled])
+            else:
+                self.data.update(true_action=[action_chain[0]], act=[act], mapped_act=[action_chain[-1]], option_resample=[resampled])
+
 
             # step in env
             action_remap = self.data.true_action
             obs_next, rew, done, info = self.env.step(action_remap, id=ready_env_ids)
+
             next_full_state = obs_next[0] # only handling one environment
 
             true_done, true_reward = done, rew
@@ -283,7 +297,10 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             inter_state = self.state_extractor.get_inter(self.data.full_state[0])
 
             # update the target, next target, obs, next_obs pair
-            self.data.update(next_target=[next_target], target=[target], obs_next=[obs_next], obs = [obs])
+            if not self.use_parametrized and not random:
+                self.data.update(next_target=next_target, target=[target], obs_next=[obs_next], obs = [obs])
+            else:
+                self.data.update(next_target=[next_target], target=[target], obs_next=[obs_next], obs = [obs])
 
 
             # get the dones, rewards, terminations and temporal extension terminations
@@ -292,21 +309,31 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
 
             cutoff = (np.array([time_cutoff]) or (true_done and not term))  # treat true dones like time limits (TODO: this is not valid when learning to control true dones)
             if type(cutoff) != bool: cutoff = cutoff.squeeze()
-            info[0]["TimeLimit.truncated"] = bool(cutoff + info[0]["TimeLimit.truncated"]) # environment might send truncated itself
+
+            if "TimeLimit.truncated" in info[0]:
+                info[0]["TimeLimit.truncated"] = bool(cutoff + info[0]["TimeLimit.truncated"]) # environment might send truncated itself
+            else:
+                info[0]["TimeLimit.truncated"] = False
+
+
             if term: print("term", term, true_done, done, inter, not time_cutoff, rew, param, next_target, inter_state)
             self.option.update(self.buffer, done, self.data.full_state[0], act, action_chain, terminations, param, masks, not self.test)
 
             # update hit-miss values
             rews += rew
-            if term: 
+            if term and self.use_parametrized:
                 miss_count += int(np.linalg.norm((param-next_target) * mask) > self.option.terminate_reward.epsilon_close)
                 hit_count += int(np.linalg.norm((param-next_target) * mask) <= self.option.terminate_reward.epsilon_close)
 
             # update the current values
-            self.data.update(inter_state=[inter_state], next_full_state=[next_full_state], true_done=true_done, true_reward=true_reward, 
+            if self.use_parametrized or (not self.use_parametrized and random):
+                self.data.update(inter_state=[inter_state], next_full_state=[next_full_state], true_done=true_done, true_reward=true_reward,
                 param=[param], mask = [mask], info = info, inter = [inter], time=[1],
                 rew=[rew], done=[done], terminate=[term], ext_term = [ext_term], # all prior are stored, after are not 
                 terminations= terminations, rewards=rewards, masks=masks, ext_terms=ext_terms)
+            elif not self.use_parametrized:
+                self.data.update(inter_state=[inter_state], next_full_state=[next_full_state], true_done=true_done, true_reward=true_reward, param=[param], mask = [mask], info = info, inter = [inter], time = [1], rew = [rew], done = [done], terminate = [term], ext_term=[ext_term], terminations = terminations, rewards=rewards, masks=masks, ext_terms=ext_terms)
+
             if self.preprocess_fn:
                 self.data.update(self.preprocess_fn(
                     obs_next=self.data.obs_next,
@@ -329,7 +356,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             next_data, skipped, added, self.at = self._aggregate(self.data, self.buffer, full_ptr, ready_env_ids)
             if not self.test and self.policy_collect is not None: self.policy_collect(next_data, self.data, skipped, added)
             # debugging and visualization
-            if self.test: print(self.data.obs.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=True).squeeze()))
+            # if self.test: print(self.data.obs.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=True).squeeze()))
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()
                 new_frame = visualize(frame, self.data.target[0], param, mask)
@@ -368,7 +395,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             self.data.obs = self.data.obs_next
 
             # controls termination
-            if (n_step and step_count >= n_step):
+            if (n_step and n_step >= 0 and step_count >= n_step):
                 break
             if (n_episode and episode_count >= n_episode):
                 break

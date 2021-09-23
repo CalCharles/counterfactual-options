@@ -17,20 +17,27 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     #     trials = args.test_trials * 10
     for j in range(trials):
         result = test_collector.collect(n_episode=1, n_term=1, n_step=args.max_steps, random=random)
-        test_perf.append(result["rews"].mean())
+
+        if args.true_environment:
+            test_perf.append(result["rews"].sum())
+        else:
+            test_perf.append(result["rews"].mean())
         suc.append(float(result["terminate"]))
         hit_miss.append(result['n/h'])
     if random:
         print("Initial trials: ", trials)
     else:
         print("Iters: ", i, "Steps: ", total_steps)
+
     mean_perf, mean_suc, mean_hit = np.array(test_perf).mean(), np.array(suc).mean(), sum(hit_miss)/ max(1, len(hit_miss))
     hmt = 0.0
     if len(list(hit_miss_train)) > 0:
         hmt = np.sum(np.array(list(hit_miss_train)), axis=0)
         hmt = hmt[0] / (hmt[0] + hmt[1])
     print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}", f"Hit Miss train: {hmt}")
-    return mean_perf, mean_suc, mean_hit 
+
+
+    return mean_perf, mean_suc, mean_hit
 
 def full_save(args, option, graph):
     option.save(args.save_dir)
@@ -71,7 +78,8 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
             option.policy.compute_input_norm(train_collector.buffer)
         if i % args.log_interval == 0:
             print("losses", losses)
-            option.print_epsilons()
+            if not args.true_environment:
+                option.print_epsilons()
             # print("epsilons", epsilon, interaction, epsilon_close)
 
         if args.save_interval > 0 and (i+1) % args.save_interval == 0:

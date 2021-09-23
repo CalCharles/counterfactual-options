@@ -112,7 +112,6 @@ class TSPolicy(nn.Module):
             Actor, Critic = dActor, dCritic
         else:
             Actor, Critic = cActor, cCritic
-        print(input_shape, action_shape, max_action, discrete_actions)
         actor, critic, critic2 = None, None, None
         actor_optim, critic_optim, critic2_optim = None, None, None
         PolicyType = networks[args.policy_type]
@@ -321,10 +320,7 @@ class TSPolicy(nn.Module):
         '''
         Matches the call for the forward of another algorithm method. Calls 
         '''
-            # not cloning batch could result in issues
-        # print(batch.obs.shape, batch.obs_next.shape)
-        # print("input: ", batch.obs, self.use_input_norm, self.input_mean, self.input_var)
-        # print("forward call")
+        # not cloning batch could result in issues
         batch = copy.deepcopy(batch) # make sure input norm does not alter the input batch
         # self.apply_input_norm(batch)
         vals= self.algo_policy(batch, state = state, input=input, **kwargs)

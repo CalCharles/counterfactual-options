@@ -321,11 +321,11 @@ class RawOption(Option):
         The temporal extension of options is exploited using temp_ext, which first checks if a previous option is still running, and if so returns the same action as before
         '''
         if random:
-            act = self.action_space.sample()
+            act = self.action_map.sample()
             policy_batch = None
             state = None
         else:
-            batch['obs'] = self.state_extractor.get_raw(batch['full_state'])
+            # batch['obs'] = self.state_extractor.get_raw(batch['full_state'])
             policy_batch = self.policy.forward(batch, state_chain[-1] if state_chain is not None else None)
             state = policy_batch.state
             act, mapped_act = self.action_map.map_action(policy_batch.act, batch)
@@ -339,10 +339,26 @@ class RawOption(Option):
     def extended_action_sample(self, batch, state_chain, term_chain, ext_terms, random=False, use_model=False):
         return (*self.sample_action_chain(batch, state_chain, random, use_model), True)
 
+    def update(self, buffer, done, last_state, act, chain, term_chain, param, masks, update_policy=True):
+        # updates internal states of the option
+        if self.next_option is not None:
+            self.next_option.update(buffer, done, last_state, chain[:len(chain)-1], chain[:len(chain)-1], term_chain[:len(term_chain)-1], chain[-1], masks[:len(masks)-1], update_policy = False)
+        self.done_model.update(done)
+        if update_policy:
+            self.policy.update_time()
+            self.policy.update_norm(buffer)
+            self.policy.update_la()
+
     def reset(self, full_state):
         # reset the timers for temporal extension, termination
         # does NOT reset the environment
         return [ True ]
+
+    def terminate_reward_chain(self, full_state, next_full_state, param, chain, mask, mask_chain, environment_model=None):
+        done = self.state_extractor.get_true_done(next_full_state)
+        rewards = [self.state_extractor.get_true_reward(next_full_state)]
+
+        return done, rewards, [done], [True], False, False
 
 
 
