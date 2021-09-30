@@ -13,6 +13,7 @@ from Environments.Nav2D.Nav2D import Nav2D
 from EnvironmentModels.Pushing.pushing_environment_model import PushingEnvironmentModel
 from Environments.Pushing.screen import Pushing
 from EnvironmentModels.Gym.gym_environment_model import GymEnvironmentModel
+from Environments.RobosuitePushing.find_path import find_path
 
 from Rollouts.rollouts import ObjDict
 from ReinforcementLearning.test_RL import testRL
@@ -23,9 +24,9 @@ from Options.done_model import DoneModel
 from Options.option_graph import OptionGraph, OptionNode, load_graph
 from Options.option import Option, PrimitiveOption, option_forms
 from Options.Reward.reward import reward_forms
-from DistributionalModels.DatasetModels.dataset_model import FactoredDatasetModel
+from Options.terminate_reward import TerminateReward
+from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel
 from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model, interaction_models
-from DistributionalModels.distributional_model import load_factored_model
 from DistributionalModels.InteractionModels.samplers import samplers
 from Rollouts.collector import OptionCollector
 from Rollouts.param_buffer import ParamReplayBuffer
@@ -47,22 +48,38 @@ if __name__ == '__main__':
     else:
         args.parameterized = True
 
-    if args.true_environment:
-        dataset_model = interaction_models["dummy"](environment_model=environment_model)
-    else:
-        dataset_model = load_hypothesis_model(args.dataset_dir)
-        torch.cuda.empty_cache()
-        dataset_model.cpu()
-    if len(args.force_mask) > 0:
-        dataset_model.selection_binary = pytorch_model.wrap(np.array(args.force_mask),cuda=args.cuda)
+
+    if args.dataset_dir != "dummy":
+        if args.true_environment:
+            dataset_model = interaction_models["dummy"](environment_model=environment_model)
+        else:
+            dataset_model = load_hypothesis_model(args.dataset_dir)
+            torch.cuda.empty_cache()
+            dataset_model.cpu()
+        if len(args.force_mask):
+            dataset_model.selection_binary = pytorch_model.wrap(args.force_mask, cuda = dataset_model.iscuda)
+        dataset_model.environment_model = environment_model
+
+    if args.object == "Block" and args.env == "SelfBreakout":
+        args.num_instance = environment.num_blocks
+        if args.target_mode:
+            dataset_model = DummyBlockDatasetModel(environment_model)
+            dataset_model.environment_model = environment_model
+        dataset_model.sample_able.vals = np.array([dataset_model.sample_able.vals[0]]) # for some reason, there are some interaction values that are wrong
+        discretize_actions = {0: np.array([-1,-1]), 1: np.array([-2,-1]), 2: np.array([-2,1]), 3: np.array([-1,1])}
+
+    dataset_model.sample_continuous = True
     if args.sample_continuous != 0:
         dataset_model.sample_continuous = False if args.sample_continuous == 1 else True 
-
+    if args.object == "Ball" and args.env == "SelfBreakout":
+        dataset_model.sample_able.vals = [np.array([0,0,-1,-1,0]).astype(np.float), np.array([0,0,-2,-1,0]).astype(np.float), np.array([0,0,-2,1,0]).astype(np.float), np.array([0,0,-1,1,0]).astype(np.float)]
     dataset_model.environment_model = environment_model
+    args.dataset_model = dataset_model
     init_state = environment.reset() # get an initial state to define shapes
 
-    # dataset_model = load_factored_model(args.dataset_dir)
-    sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule, environment_model=environment_model, init_state=init_state, no_combine_param_mask=args.no_combine_param_mask)
+    sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, sample_schedule=args.sample_schedule,
+     environment_model=environment_model, init_state=init_state, no_combine_param_mask=args.no_combine_param_mask, 
+     sample_distance=args.sample_distance, target_object=args.target, path_fn=find_path)
     if sampler is not None: sampler.dataset_model = dataset_model
 
     if args.cuda:
@@ -70,19 +87,11 @@ if __name__ == '__main__':
     # print(dataset_model.observed_outcomes)
     graph = load_graph(args.graph_dir)
 
-    # TODO: remove line below, hacked for changes
-    graph.nodes["Action"].option.action_map.action_featurizer = graph.nodes["Paddle"].option.dataset_model.controllable[0]
-    if "Paddle" in graph.nodes: graph.nodes["Paddle"].option.state_extractor.use_pair_gamma = False
-    if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.use_pair_gamma = False
-    if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.hardcoded_normalization = ["breakout", 3, 1]
-    if "Paddle" in graph.nodes: graph.nodes["Paddle"].option.state_extractor.num_instance = 1
-    if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.num_instance = 1
-    print(graph.nodes["Action"].option)
-
     option_name = dataset_model.name.split("->")[0]
     names = [args.object, option_name]
     load_option = args.object in graph.nodes
     print(load_option, args.object)
+
     if args.change_option:
         load_option = graph.nodes[args.object].option
         load_option.cuda()
@@ -120,6 +129,23 @@ if __name__ == '__main__':
         # graph.nodes[args.object] = OptionNode(args.object, option, action_shape = option.action_shape)
     else:
         option = graph.nodes[args.object].option
+        # initialize new terminate_reward (for if we want to assess a different function than the one given)
+        # initialize termination function, reward function, done model
+        tt = args.terminal_type[:4] if args.terminal_type.find('inst') != -1 else args.terminal_type
+        rt = args.reward_type[:4] if args.reward_type.find('inst') != -1 else args.reward_type
+        termination = terminal_forms[tt](name=args.object, **vars(args))
+        reward = reward_forms[rt](**vars(args)) # using the same epsilon for now, but that could change
+        done_model = DoneModel(use_termination = args.use_termination, time_cutoff=args.time_cutoff, true_done_stopping = not args.not_true_done_stopping)
+        
+        # initialize terminate-reward
+        args.reward = reward
+        args.termination = termination
+        args.state_extractor = option.state_extractor
+        args.dataset_model = option.dataset_model
+        terminate_reward = TerminateReward(args)
+
+        option.terminate_reward = terminate_reward
+        option.sampler = sampler
 
     np.set_printoptions(threshold = 1000000, linewidth = 150, precision=3)
 

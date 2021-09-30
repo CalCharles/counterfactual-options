@@ -18,9 +18,9 @@ breakout_hot_norm = (np.array([0,0,0,0]), np.array([1,1,1,1]))
 # .8725, .0425
 robopush_action_norm = (np.array([0,0,0]), np.array([1,1,1]))
 robopush_gripper_norm = (np.array([0.0,-.05,.8725]), np.array([.2,.26,.0425]))
-robopush_state_norm = (np.array([0.0,-.05,.802]), np.array([.2,.26,.001]))
+robopush_state_norm = (np.array([0.0,-.05,.824]), np.array([.2,.26,.1]))
 robopush_relative_norm = (np.array([0,0,0]), np.array([.2,.26,.0425]))
-robopush_relative_surface_norm = (np.array([0,0,0]), np.array([.2,.2,.002]))
+robopush_relative_surface_norm = (np.array([0,0,0]), np.array([.2,.2,.1]))
 
 
 robo_norms = {"Action": robopush_action_norm, "Gripper": robopush_gripper_norm, "Block": robopush_state_norm, "Target": robopush_state_norm, 

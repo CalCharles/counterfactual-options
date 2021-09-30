@@ -120,6 +120,7 @@ class FeatureExplorer():
         self.model_args['first_obj_dim'] = self.em.object_sizes[cfs]
         nout = self.em.object_sizes[name] * self.em.object_num[name]
         nin = self.em.object_sizes[cfs] * self.em.object_num[cfs] + nout
+        print(train_args.multi_instanced, train_args.hardcode_norm)
         if train_args.multi_instanced:
             input_norm_fun = PointwiseConcatNorm(object_dim = self.model_args['object_dim'], first_obj_dim = self.model_args['first_obj_dim'])
             delta_norm_fun = PointwiseNorm(object_dim = self.model_args['object_dim'])
@@ -144,7 +145,7 @@ class FeatureExplorer():
         self.model_args['normalization_function'] = input_norm_fun#nflen(nin)
         self.model_args['delta_normalization_function'] = delta_norm_fun#nflen(nout) if not train_args.predict_dynamics else nf5
         self.model_args['base_variance'] = train_args.base_variance
-
+        print(train_args.base_variance)
         print(entity_selection.output_size())
         self.model_args['num_inputs'] = self.model_args['gamma'].output_size()
         self.model_args['num_outputs'] = self.model_args['delta'].output_size()

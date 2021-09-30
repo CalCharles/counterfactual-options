@@ -12,7 +12,9 @@ class ParamReplayBuffer(ReplayBuffer):
     # target, next target is the state of the target object, used for reward and termination
     # true_reward, true_done are the actual dones and rewards
     # option_terminate is for temporal extension, stating if the last object terminated
-    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", "mask", "target", "next_target", "terminate", "true_reward", "true_done", "option_resample", "mapped_act", "inter", "inter_state", "time")
+    _reserved_keys = ("obs", "act", "rew", "done", "obs_next", "info", "policy", "param", 
+        "mask", "target", "next_target", "terminate", "true_reward", "true_done", "option_resample", 
+        "mapped_act", "inter", "inter_state", "time")
 
     def __getitem__(self, index: Union[slice, int, List[int], np.ndarray]) -> Batch:
         """Return a data batch: self[index].
@@ -108,7 +110,7 @@ class SamplerBuffer(ReplayBuffer):
     # target, next target is the state of the target object, used for reward and termination
     # true_reward, true_done are the actual dones and rewards
     # option_terminate is for temporal extension, stating if the last object terminated
-    _reserved_keys = ("obs", "instance_binary", "target", "act", "rew", "done")
+    _reserved_keys = ("obs", "instance_binary", "target", "true_act", "act", "rew", "done")
 
     def __getitem__(self, index: Union[slice, int, List[int], np.ndarray]) -> Batch:
         """Return a data batch: self[index].
@@ -128,6 +130,7 @@ class SamplerBuffer(ReplayBuffer):
         return Batch(
             obs=obs,
             act=self.act[indice],
+            true_act=self.true_act[indice],
             instance_binary=self.instance_binary[indice],
             target=self.target[indice],
             rew = self.rew[indice],

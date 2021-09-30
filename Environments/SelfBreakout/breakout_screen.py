@@ -53,10 +53,9 @@ class Screen(RawEnvironment):
             np.random.seed(self.seed_counter)
         vel= np.array([np.random.randint(1,2), np.random.choice([-1,1])])
         # self.ball = Ball(np.array([52, np.random.randint(14, 70)]), 1, vel)
-        if self.target_mode:
-            self.ball = Ball(np.array([41, np.random.randint(20, 52)]), 1, vel, top_reset=self.target_mode)
-        else:
-            self.ball = Ball(np.array([46, np.random.randint(20, 36)]), 1, vel, top_reset=self.target_mode)
+        self.ball = Ball(np.array([41, np.random.randint(20, 52)]), 1, vel, top_reset=self.target_mode)
+        self.ball.reset_pos(self.target_mode)
+        self.ball.losses = 0
         self.paddle = Paddle(np.array([71, 84//2]), 1, np.zeros((2,), dtype = np.int64))
         self.actions = Action(np.zeros((2,), dtype = np.int64), 0)
         self.blocks = []
@@ -168,22 +167,22 @@ class Screen(RawEnvironment):
             # self.paddle.move() # ensure the ball moves after the paddle to ease counterfactual
             # self.ball.interact(self.paddle)
             # self.ball.move()
-            if self.angle_mode:
-                if self.ball.pos[0] == 69:
-                    if angle >= 0:
-                        self.ball.vel = ball_vels[angle].copy()
-                        self.used_angle= True
+            # print(self.ball.pos[0])
+            if (68 <= self.ball.pos[0] <= 69 and self.ball.vel[0] == 1) or (67 <= self.ball.pos[0] <= 69 and self.ball.vel[0] == 2):
+                self.used_angle= True
             for ani_obj in self.animate:
                 ani_obj.move()
             pre_stop = (self.ball.pos[0] == 77 and self.ball.vel[0] == 2) or (self.ball.pos[0] == 78 and self.ball.vel[0] == 1) or (self.ball.pos[0] == 78 and self.ball.vel[0] == 2)
-            if pre_stop and self.drop_stopping:
+            if pre_stop and (self.drop_stopping or self.target_mode):
                 self.reward += -1 # negative reward for dropping the ball since done is not triggered
                 self.done = True
                 self.needs_ball_reset = True
+                print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
                 break
             if (self.ball.losses == 4 and pre_stop) or (self.target_mode and (self.ball.top_wall or self.ball.bottom_wall or self.ball.block)):
                 self.average_points_per_life = self.total_score / 5.0
                 self.done = True
+                self.reward += -1 * int(not self.ball.block)
                 self.episode_rewards.append(self.total_score)
                 self.total_score = 0
                 needs_reset = True
@@ -214,8 +213,9 @@ class Screen(RawEnvironment):
             os.makedirs(save_path)
         except OSError:
             pass
+        angle = policy.get_angle(self)
         for self.itr in range(iterations):
-            action = policy.act(self)
+            action = policy.act(self, angle=angle)
             if action == -1: # signal to quit
                 break
             if self.angle_mode:
@@ -228,11 +228,14 @@ class Policy():
     def act(self, screen):
         print ("not implemented")
 
+    def get_angle(self, screen):
+        return 0
+
 class RandomPolicy(Policy):
     def __init__(self, action_space):
         self.action_space = action_space
 
-    def act(self, screen):
+    def act(self, screen, angle=0):
         return np.random.randint(self.action_space)
 
 class RandomConsistentPolicy(Policy):
@@ -241,7 +244,7 @@ class RandomConsistentPolicy(Policy):
         self.change_prob = change_prob
         self.current_action = np.random.randint(self.action_space)
 
-    def act(self, screen):
+    def act(self, screen, angle=0):
         if np.random.rand() < self.change_prob:
             self.current_action = np.random.randint(self.action_space)
         return self.current_action
@@ -253,7 +256,7 @@ class RotatePolicy(Policy):
         self.current_action = 0
         self.current_count = 0
 
-    def act(self, screen):
+    def act(self, screen, angle=0):
         self.current_count += 1
         if self.current_count >= self.hold_count:
             self.current_action = np.random.randint(self.action_space)
@@ -268,7 +271,7 @@ class BouncePolicy(Policy):
         self.objective_location = 84//2
         self.last_paddlehits = -1
 
-    def act(self, screen):
+    def act(self, screen, angle=0):
         # print(screen.ball.paddlehits, screen.ball.losses, self.last_paddlehits)
         if screen.ball.paddlehits + screen.ball.losses > self.last_paddlehits or (screen.ball.paddlehits + screen.ball.losses == 0 and self.last_paddlehits != 0):
             if (screen.ball.paddlehits + screen.ball.losses == 0 and self.last_paddlehits != 0):
@@ -292,12 +295,13 @@ class BouncePolicy(Policy):
         else:
             return 0
 
-class BouncePolicy(Policy):
+class AnglePolicy(Policy):
     def __init__(self, action_space):
         self.action_space = action_space
         self.internal_screen = Screen(angle_mode = False)
         self.objective_location = 84//2
         self.last_paddlehits = -1
+        self.counter = 0
 
     def reset_screen(self, screen):
         self.internal_screen = copy.deepcopy(screen)
@@ -312,41 +316,6 @@ class BouncePolicy(Policy):
         else:
             return 0
 
-
-    def act(self, screen):
-        # print(screen.ball.paddlehits, screen.ball.losses, self.last_paddlehits)
-        if screen.ball.paddlehits + screen.ball.losses > self.last_paddlehits or (screen.ball.paddlehits + screen.ball.losses == 0 and self.last_paddlehits != 0):
-            if (screen.ball.paddlehits + screen.ball.losses == 0 and self.last_paddlehits != 0):
-                self.last_paddlehits = 0
-            self.reset_screen()
-            # print(self.internal_screen.ball.pos, screen.ball.pos, self.last_paddlehits)
-
-            while self.internal_screen.ball.pos[0] < 71 and not self.internal_screen.done:
-                # print("running internal")
-                self.internal_screen.step(0)
-            # print("completed")
-            # print(self.internal_screen.ball.pos, screen.ball.pos, self.last_paddlehits)
-            self.objective_location = self.internal_screen.ball.pos[1] + np.random.choice([-1, 0, 1])
-            self.last_paddlehits += 1
-            self.reset_screen()
-            while self.internal_screen.ball.pos[0] < 65 and not self.internal_screen.done:
-                self.internal_screen.step(pick_action(self.objective_location, self.internal_screen.getMidpoint()[1]))
-            screen_before = copy.deepcopy(self.internal_screen)
-
-
-        return self.pick_action(self.objective_location, screen.paddle.getMidpoint()[1])
-
-
-class BounceAnglePolicy(BouncePolicy):
-    def __init__(self, action_space):
-        super().__init__(action_space)
-        self.counter = 0
-
-    def act(self, screen):
-        if screen.used_angle:
-            self.counter = (self.counter + 1) % 4
-        return super().act(screen)
-
     def get_angle(self, screen):
         # frame = screen.render_frame()
         # cv2.imshow('frame',frame)
@@ -354,8 +323,37 @@ class BounceAnglePolicy(BouncePolicy):
         return self.counter
 
 
+    def act(self, screen, angle=0):
+        # print(screen.ball.paddlehits, screen.ball.losses, self.last_paddlehits)
+        if screen.used_angle:
+            # print(self.counter)
+            self.counter = np.random.randint(4)
+        if screen.ball.vel[0] > 0 and 46 <= screen.ball.pos[0] <= 47 or screen.ball.vel[0] < 0 and 67 <= screen.ball.pos[0] <= 68:
+            if (screen.ball.paddlehits + screen.ball.losses == 0 and self.last_paddlehits != 0):
+                self.last_paddlehits = 0
+            self.reset_screen(screen)
+            # print(self.internal_screen.ball.pos, screen.ball.pos, self.last_paddlehits)
+
+            while self.internal_screen.ball.pos[0] < 69 and not self.internal_screen.done:
+                # print("running internal")
+                self.internal_screen.step(0)
+            # print("completed")
+            # print(self.internal_screen.ball.pos, screen.ball.pos, self.last_paddlehits)
+            base_location = self.internal_screen.ball.pos[1]
+            sv = self.internal_screen.ball.vel[1]
+            if angle == 0:
+                self.objective_location = base_location + sv * 1
+            elif angle == 1:
+                self.objective_location = base_location - 2 + sv * 1
+            elif angle == 2:
+                self.objective_location = base_location - 4 + sv * 1
+            elif angle == 3:
+                self.objective_location = base_location - 6 + sv * 1
+            self.objective_location += self.objective_location % 2
+        return self.pick_action(self.objective_location, screen.paddle.pos[1])
+
 def DemonstratorPolicy(Policy):
-    def act(self, screen):
+    def act(self, screen, angle=0):
         action = 0
         frame = screen.render_frame()
         cv2.imshow('frame',frame)

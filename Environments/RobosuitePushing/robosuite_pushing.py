@@ -93,7 +93,7 @@ macros.SIMULATION_TIMESTEP = 0.02
 #         return self.curr_obs["frontview_image"][::-1]
 
 class RoboPushingEnvironment(RawEnvironment):
-    def __init__(self, control_freq=2, horizon=30, renderable=False, num_obstacles=0):
+    def __init__(self, control_freq=2, horizon=30, renderable=False, num_obstacles=0, standard_reward=-1, goal_reward=10, obstacle_reward=-10, out_of_bounds_reward=-1):
         super().__init__()
         self.env = robosuite.make(
                 "Push",
@@ -109,7 +109,11 @@ class RoboPushingEnvironment(RawEnvironment):
                 use_object_obs=True,
                 use_camera_obs=renderable,
                 hard_reset = False,
-                num_obstacles=num_obstacles
+                num_obstacles=num_obstacles,
+                standard_reward=standard_reward, 
+                goal_reward=goal_reward, 
+                obstacle_reward=obstacle_reward, 
+                out_of_bounds_reward=out_of_bounds_reward
             )
 
         self.frameskip = control_freq
@@ -127,7 +131,7 @@ class RoboPushingEnvironment(RawEnvironment):
         self.episode_rewards = deque(maxlen=10) # the episode rewards for the last 10 episodes
         self.reshape = (-1) # the shape of an observation
         self.discrete_actions = False
-        self.renderable = False
+        self.renderable = renderable
 
         # should be set in subclass
         self.action_shape = (3,) # should be set in the environment, (1,) is for discrete action environments
@@ -175,6 +179,8 @@ class RoboPushingEnvironment(RawEnvironment):
             if self.itr == 0:
                 object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
                 object_dumps.close()
+            print(next_obs["frontview_image"][::-1].astype(np.uint8).shape)
+            print(self.renderable)
             self.write_objects(obs["factored_state"], next_obs["frontview_image"][::-1].astype(np.uint8) if self.renderable else None)
         if self.done:
             reward = self.reward

@@ -87,7 +87,10 @@ class Option():
         obs = batch['obs']
         mask = batch['mask']
         next_mask = self.next_option.sampler.get_mask(param) if self.next_option.sampler is not None else self.next_option.mask
-        if type(self.next_option) != PrimitiveOption: param_act = self.next_option.sampler.convert_param(mapped_act) # self.next_option.state_extractor.convert_param(mapped_act) if self.next_option.state_extractor is not None else mapped_act
+        if type(self.next_option) != PrimitiveOption: 
+            param_act = self.next_option.sampler.convert_param(mapped_act) # self.next_option.state_extractor.convert_param(mapped_act) if self.next_option.state_extractor is not None else mapped_act
+            param_act = self.next_option.sampler.get_mask_param(param_act, next_mask)
+            # print(self.name, param_act, mapped_act, self.next_option.sampler, next_mask)
         else: param_act = [mapped_act]
         batch['param'] = param_act
         batch['mask'] = [next_mask]
@@ -124,15 +127,16 @@ class Option():
             state = None
             act = self.action_map.sample_policy_space()
             act, mapped_act = self.action_map.map_action(act, batch)
+            # if self.name == "Block": print(act, mapped_act)
             policy_batch = Batch()
         else:
             policy_batch = self.policy.forward(batch, state_chain[-1] if state_chain is not None else None) # uncomment this
             state = policy_batch.state
             act, mapped_act = self.action_map.map_action(policy_batch.act, batch)
+            # if self.name == "Block": print(act, mapped_act, policy_batch.act)
             if use_model: 
                 act, mapped_act = self.search(batch, state_chain, act, mapped_act) # only this line differs from the main
         chain = [mapped_act]
-
         # recursively propagate action up the chain
         if self.next_option is not None:
             param, obs, mask = self._set_next_option(batch, mapped_act)
@@ -147,6 +151,7 @@ class Option():
         init_terms = self.next_option.reset(full_state)
         init_term = self.terminate_reward.reset()
         self.temporal_extension_manager.reset()
+        self.sampler.reset(full_state)
         return init_terms + [init_term]
 
     def update(self, buffer, done, last_state, act, chain, term_chain, param, masks, update_policy=True):
@@ -178,7 +183,6 @@ class Option():
         termination, reward, inter, time_cutoff = self.terminate_reward.check(full_state, next_full_state, param, mask, true_inter=true_inter)
         ext_term = self.temporal_extension_manager.get_extension(termination, last_termination[-1])
         done = self.done_model.check(termination, self.state_extractor.get_true_done(next_full_state))
-
         rewards, terminations, ext_term = last_rewards + [reward], last_termination + [termination], last_ext_term + [ext_term]
         return done, rewards, terminations, ext_term, inter, time_cutoff
 

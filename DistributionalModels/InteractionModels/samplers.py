@@ -103,9 +103,14 @@ class Sampler():
         param = new_param
         return param
 
+    def reset(self, init_state):
+        # resets internal state if needed
+        pass
+
 class TargetSampler(Sampler):
     def __init__(self, **kwargs):
         # a sampler that just takes the "Target" object as the "sample"
+        print(kwargs["target_object"])
         self.delta = kwargs["environment_model"].create_entity_selector([kwargs["target_object"]])
         self.combine_param_mask = True
         self.current_distance = 0
@@ -300,7 +305,7 @@ class LinearUniformCenteredSampling(Sampler):
         self.distance = kwargs["sample_distance"] # normalized
         self.schedule_counter = 0
         self.schedule = kwargs["sample_schedule"]
-        self.current_distance = .05 if self.schedule > 0 else self.distance
+        self.current_distance = .1 if self.schedule > 0 else self.distance
         super().__init__(**kwargs)
 
     def update(self, param, mask, data=None):
@@ -322,7 +327,7 @@ class LinearUniformCenteredUnclipSampling(Sampler):
         self.schedule_counter = 0
         self.schedule = kwargs["sample_schedule"]
         super().__init__(**kwargs)
-        self.current_distance = .05 if self.schedule > 0 else kwargs["sample_distance"]
+        self.current_distance = .1 if self.schedule > 0 else kwargs["sample_distance"]
 
     def update(self, param, mask, data=None):
         super().update(param, mask, data=None)
@@ -364,8 +369,60 @@ class GaussianOffCenteredSampling(Sampler):
         else: # sample discrete with weights
             return
 
+class PathSampler(Sampler):
+    # a sampler that returns the path to the goal as samples
+    def __init__(self, **kwargs):
+        self.path_fn = kwargs["path_fn"]
+        self.table_offset = kwargs["environment_model"].environment.env.table_offset
+        self.spawn_size = kwargs["environment_model"].environment.env.SPAWN_AREA_SIZE * 2
+        self.obstacle_half_sidelength = kwargs["environment_model"].environment.env.OBSTACLE_HALF_SIDELENGTH
+        self.grid_resolution = kwargs["environment_model"].environment.env.OBSTACLE_GRID_RESOLUTION
+        self.current_samples = list()
+        self.reset(kwargs["init_state"])
+        self.repeat_param = self.current_samples[-1]
+        super().__init__(**kwargs)
+
+    def _get_obstacles(self, factored_state):
+        obs = list()
+        for k in factored_state.keys():
+            if k.find("Obstacle") != -1:
+                obs.append(factored_state[k])
+        return np.stack(obs, axis=0).squeeze()
+
+    def reset(self, init_state):
+        obstacles = init_state["factored_state"]
+        block = init_state["factored_state"]["Block"]
+        target = init_state["factored_state"]["Target"]
+        self.current_samples = self.path_fn(self._get_obstacles(obstacles), self.table_offset, self.spawn_size, self.obstacle_half_sidelength, self.grid_resolution, block, target)[1]
+        print(self.current_samples)
+        
+    def sample(self, states):
+        param = self.current_samples.pop(0) if len(self.current_samples) > 0 else self.repeat_param
+        if len(self.current_samples) == 0:
+            self.repeat_param = param
+        # print(states, param)
+        if type(states) == dict:
+            state_len = len(states["factored_state"]["Action"].shape)
+        else:
+            state_len = len(states.shape)
+        # pad_vals = [(0, 0)] * len(states.shape) - 1
+        # pad_vals += [(0,1)]
+        # param = np.pad(param, pad_width=pad_vals, mode='constant', constant_values=0)
+        mask = np.array([1.,1.,0.])
+        for i in range(state_len - 1):
+            mask = np.expand_dims(mask, 0)
+            param = np.expand_dims(param, 0)
+        return param * mask, mask
+
+PREDICT_BINARY = 0
+PREDICT_VALUE = 1
 class PredictiveSampling(Sampler):
     def __init__(self, **kwargs):
+        self.action_prediction = kwargs["action_prediction"] if "action_prediction" in kwargs else 0
+        self.value = 10
+        kwargs["value"] = 10
+        self.noise_actions = kwargs["noise_actions"] if "noise_actions" in kwargs else 0
+
         self.selector = kwargs["entity_selector"]
         self.target_selector = kwargs["target_selector"]
         self.num_actions = kwargs["num_actions"]
@@ -373,14 +430,20 @@ class PredictiveSampling(Sampler):
         self.iscuda=False
         self.input_size = self.get_input(kwargs["init_state"], 0).shape[0]        
         kwargs["num_inputs"] = self.get_input(kwargs["init_state"], 0).shape[0]
-        kwargs["num_outputs"] = self.get_output(kwargs["init_state"]).shape[0]
+        kwargs["num_outputs"] = self.get_output(kwargs["init_state"], 0).shape[0]
+        kwargs["post_dim"] = 0
+        kwargs["obs"] = self.get_input(kwargs["init_state"], 0)
+        print(kwargs["num_inputs"], kwargs["num_outputs"])
         self.network = forward_nets[kwargs["sampler_type"]](**kwargs)
         self.train_rate = kwargs["sampler_train_rate"]
         self.update_counter = 0
         self.buffer = SamplerBuffer(kwargs["buffer_len"], stack_num=1)
         self.test_buffer = SamplerBuffer(kwargs["buffer_len"], stack_num=1)
         self.grad_steps = kwargs["sampler_grad_epoch"]
-        self.inter_loss = nn.BCELoss()
+        if self.action_prediction == PREDICT_BINARY:
+            self.inter_loss = nn.BCELoss()
+        elif self.action_prediction == PREDICT_VALUE:
+            self.inter_loss = nn.MSELoss()
         self.optimizer = optim.Adam(self.network.parameters(), 1e-4, eps=1e-5, betas=(.9,.999), weight_decay=0)
         self.batch_size = 128
         self.last_done = True
@@ -417,14 +480,18 @@ class PredictiveSampling(Sampler):
     def get_input(self, full_state, act=0):
         act = self.hot_action(act)
         obs = self.selector(full_state["factored_state"])
-        obs = np.concatenate([act, obs])
+        if self.action_prediction == PREDICT_BINARY:
+            obs = np.concatenate([act, obs])
         return obs
 
-    def get_output(self, full_state):
-        target = self.target_selector(full_state["factored_state"])
-        final_instances = self.split_instances(target)
-        instance_binary = self.split_binary(final_instances)
-        return instance_binary
+    def get_output(self, full_state, act=0):
+        if self.action_prediction == PREDICT_BINARY: 
+            target = self.target_selector(full_state["factored_state"])
+            final_instances = self.split_instances(target)
+            out_val = self.split_binary(final_instances)
+        elif self.action_prediction == PREDICT_VALUE:
+            out_val = self.hot_action(act) * self.value
+        return out_val
 
     def aggregate(self, data):
         # given a data point, add
@@ -433,16 +500,25 @@ class PredictiveSampling(Sampler):
             self.last_done = False
         if data.act != -1 and not self.added_since_last:
             act = self.hot_action(data.act)
-            obs = np.concatenate([act, self.data.obs])
-            self.data.update(obs=obs, act=data.act)
+            if self.action_prediction == PREDICT_BINARY:
+                obs = np.concatenate([act, self.data.obs])
+            elif self.action_prediction == PREDICT_VALUE:
+                obs = self.data.obs
+            act = data.act
+            if self.noise_actions > 0:
+                act = np.random.randint(self.num_actions) if np.random.rand() < self.noise_actions else data.act
+            self.data.update(obs=obs, act=act, true_act=data.act)
             self.added_since_last = True
         if data.done:
             final_instances = self.split_instances(data.target)
             instance_binary = self.split_binary(final_instances)
             self.data.update(done=data.done, target=data.target, instance_binary=instance_binary)
+            print(self.data)
             if len(self.data.obs) == self.input_size: 
                 if np.random.rand() < self.train_test: self.buffer.add(self.data)
-                else: self.test_buffer.add(self.data)
+                else: 
+                    self.data.act = self.data.true_act
+                    self.test_buffer.add(self.data)
             self.last_done = True
             self.added_since_last = False
 
@@ -474,12 +550,25 @@ class PredictiveSampling(Sampler):
         obs = pytorch_model.wrap(batch.obs, cuda=self.iscuda)
         return self.network(obs) # outputs [batch_size, num_instances]
 
+    def compute_loss(self, batch):
+        obs = pytorch_model.wrap(batch.obs, cuda=self.iscuda)
+        predicted = self.network(obs) # outputs [batch_size, num_instances]
+        if self.action_prediction == PREDICT_BINARY:
+            target = pytorch_model.wrap(batch.instance_binary, cuda=self.iscuda)
+            target.needs_grad = False
+            loss = self.inter_loss(predicted, target) # TODO: use target if predicting distancenot instance binary
+        elif self.action_prediction == PREDICT_VALUE:
+            instance_binary =batch.instance_binary
+            target = pytorch_model.wrap(instance_binary * (self.value + 1) - 1, cuda=self.iscuda)
+            # print(target, predicted, predicted[np.stack([np.arange(len(predicted)), batch.act])])
+            # print(target.shape, predicted[np.stack([np.arange(len(predicted)), batch.act])].shape)
+            loss = self.inter_loss(target, predicted[np.stack([np.arange(len(predicted)), batch.act])].unsqueeze(1))
+        return loss, predicted, target, pytorch_model.wrap(batch.act, cuda=self.iscuda).unsqueeze(-1), pytorch_model.wrap(batch.true_act, cuda=self.iscuda).unsqueeze(-1)
+
     def assess_test(self):
         batch, indice = self.test_buffer.sample(0)
-        obs, instance_binary = pytorch_model.wrap(batch.obs, cuda=self.iscuda), pytorch_model.wrap(batch.instance_binary, cuda=self.iscuda)
-        predicted_binaries = self.network(obs) # outputs [batch_size, num_instances]
-        loss = self.inter_loss(predicted_binaries, instance_binary) # TODO: use target if predicting distancenot instance binary
-        return loss, predicted_binaries, instance_binary
+        return self.compute_loss(batch)
+
 
     def update(self, param, mask, data=None):
         # updates param and mask accordingly
@@ -492,17 +581,16 @@ class PredictiveSampling(Sampler):
             for i in range(self.grad_steps):
                 batch, indice = self.buffer.sample(self.batch_size)
                 # batch.obs = self.combine_act(batch.obs, batch.act)
-                obs, instance_binary = pytorch_model.wrap(batch.obs, cuda=self.iscuda), pytorch_model.wrap(batch.instance_binary, cuda=self.iscuda)
-                predicted_binaries = self.network(obs) # outputs [batch_size, num_instances]
-                loss = self.inter_loss(predicted_binaries, instance_binary) # TODO: use target if predicting distancenot instance binary
+                loss, predicted, target, act, true_act = self.compute_loss(batch)
                 self.run_optimizer(self.optimizer, self.network, loss)
                 total_loss += loss
             total_loss = total_loss.mean()
         self.update_counter += 1
-        return total_loss, predicted_binaries, instance_binary
+        return total_loss, predicted, target, act, true_act
 
     def sample(self, states):
         obs = pytorch_model.wrap(self.get_input(states), cuda=self.iscuda)
+        print(obs)
         predicted_binaries = pytorch_model.unwrap(self.network(obs))
         return np.array(1), np.array(1)
 
@@ -511,4 +599,4 @@ class PredictiveSampling(Sampler):
 mask_samplers = {"rans": RandomSubsetSampling, "pris": PrioritizedSubsetSampling} # must be 4 characters
 samplers = {"uni": LinearUniformSampling, "cuni": LinearUniformCenteredSampling, 'cuuni': LinearUniformCenteredUnclipSampling,
             "gau": GaussianCenteredSampling, "hst": HistorySampling, 'inst': InstanceSampling,
-            "hstinst": HistoryInstanceSampling, 'tar': TargetSampler}
+            "hstinst": HistoryInstanceSampling, 'tar': TargetSampler, 'path': PathSampler}

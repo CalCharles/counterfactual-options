@@ -201,7 +201,7 @@ class BasicMLPNetwork(Network):
             if self.use_layer_norm:
                 layers = [nn.LayerNorm(self.num_inputs), nn.Linear(self.num_inputs, self.num_outputs)]
             else:
-                layers = [nn.LayerNorm(self.num_inputs), nn.Linear(self.num_inputs, self.num_outputs)]
+                layers = [nn.Linear(self.num_inputs, self.num_outputs)]
         elif self.use_layer_norm:
             layers = ([nn.LayerNorm(self.num_inputs), nn.Linear(self.num_inputs, self.hs[0]), nn.ReLU(inplace=True),nn.LayerNorm(self.hs[0])] + 
                   sum([[nn.Linear(self.hs[i-1], self.hs[i]), nn.ReLU(inplace=True), nn.LayerNorm(self.hs[i])] for i in range(1, len(self.hs))], list()) + 
@@ -217,6 +217,33 @@ class BasicMLPNetwork(Network):
     def forward(self, x):
         x = self.model(x)
         return x
+
+class BasicResNetwork(Network):    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.hs = kwargs['hidden_sizes']
+        self.use_layer_norm = kwargs['use_layer_norm']
+        self.residual_rate = 2
+        last_layer = nn.Linear(self.hs[-1], self.num_outputs) if len(self.hs) % 2 == 1 else nn.Linear(self.hs[-1] + self.hs[-2], self.num_outputs)
+        even_layer = [nn.Linear(self.hs[-2], self.hs[-1])] if len(self.hs) % 2 == 0 else list()
+        layers = ([nn.Linear(self.num_inputs, self.hs[0])] + 
+              sum([[nn.Linear(self.hs[i-2], self.hs[i-1]), nn.Linear(self.hs[i-1] + self.hs[i-2], self.hs[i])] for i in [j * 2 for j in range(1, len(self.hs) // 2 + int(len(self.hs) % 2))]], list()) + 
+            even_layer + [last_layer])
+        self.model = nn.ModuleList(layers)
+        self.train()
+        self.reset_parameters()
+
+    def forward(self, x):
+        for i, l in enumerate(self.model):
+            x = l(x)
+            if i != len(self.model) - 1:
+                x = torch.relu(x)
+            if i % 2 == 0:
+                lx = x
+            elif i != len(self.model) - 1:
+                x = torch.cat([lx, x], dim=-1)
+        return x
+
 
 class BasicConvNetwork(Network):    
     def __init__(self, **kwargs):
@@ -291,11 +318,11 @@ class PairNetwork(Network):
         super().__init__(**kwargs)
         # assumes the input is flattened list of input space sized values
         # needs an object dim
+        # does NOT require a fixed number of objects, because it collects through a max operator
         self.object_dim = kwargs['object_dim']
         self.hs = kwargs["hidden_sizes"]
         self.first_obj_dim = kwargs["first_obj_dim"]
         self.post_dim = kwargs['post_dim']
-        self.num_instance = kwargs['num_instance']
         print(self.object_dim, self.first_obj_dim, self.post_dim)
         if kwargs["first_obj_dim"] > 0: # only supports one to many concatenation, not many to many
             kwargs["object_dim"] += self.first_obj_dim

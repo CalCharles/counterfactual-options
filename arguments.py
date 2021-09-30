@@ -180,6 +180,8 @@ def get_args():
     # values for determining if significant things are happening
     parser.add_argument('--model-error-significance', type=float, default=.5,
                     help='amount of difference in l2 norm to determine that prediction is happening')
+    parser.add_argument('--feature-step', type=float, default=1,
+                    help='amount of step in estimating feature significance')
     parser.add_argument('--train-reward-significance', type=float, default=5,
                     help='amount of difference in per-episode reward to determine control')
     # HER/DQN parameters
@@ -273,7 +275,7 @@ def get_args():
                         help='only saves the last n timesteps (-1 if not used)')
     parser.add_argument('--record-rollouts', default="",
                         help='path to where rollouts are recorded (when adding edges, where data was recorded to compute min/max)')
-    parser.add_argument('--save-action', action ='store_true', default=False,
+    parser.add_argument('--no-save-action', action ='store_true', default=False,
                         help='saves the highest option level action in record-rollouts')
     parser.add_argument('--graph-dir', default='./data/optgraph/',
                         help='directory to load graph')
@@ -329,6 +331,7 @@ def get_args():
     args.actor_lr = args.lr if args.actor_lr < 0 else args.actor_lr
     args.deterministic_eval = not args.not_deterministic_eval
     args.bound_output = 0 if not args.bound_output else args.time_cutoff
+    args.save_action = not args.no_save_action and len(args.record_rollouts) > 0
 
     return args
 

@@ -120,7 +120,7 @@ class HER(LearningOptimizer):
 
             early_stopping_counter = self.early_stopping
             if (self.only_interaction == 1 and total_interaction > 0.5) or (self.only_interaction == 2 and total_change > 0.001) or (self.only_interaction == 0): # only keep cases where an interaction occurred in the trajectory TODO: interaction model unreliable, use differences in state instead
-                print("adding change", term_resample, timer_resample, inter_resample, self.sample_timer, total_interaction, param, self._get_mask_param(her_batch.next_target[0], mask), len(rv_search))
+                # print("adding change", term_resample, timer_resample, inter_resample, self.sample_timer, total_interaction, param, self._get_mask_param(her_batch.next_target[0], mask), len(rv_search))
                 for i in range(1, len(rv_search)+1):
                     her_batch = rv_search[-i]
                     # print("her", len(rv_search), her_batch.act, her_batch.inter_state, her_batch.target, her_batch.next_target, her_batch.rew)

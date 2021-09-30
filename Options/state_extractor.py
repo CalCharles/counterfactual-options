@@ -51,13 +51,16 @@ def hardcode_norm_option(hardcoded_normalization, anorm, v1norm, v2norm):
         var = v1norm[1]
     return mean, var
 
-def hardcode_norm_target(hardcoded_normalization, anorm, v1norm, v2norm):
+def hardcode_norm_target(hardcoded_normalization, v1norm, v2norm, v3norm):
     if hardcoded_normalization[1] == '1':
         mean = v1norm[0]
         var = v1norm[1]
-    else:
+    elif hardcoded_normalization[1] == '2' or hardcoded_normalization[1] == '3':
         mean = v2norm[0]
         var = v2norm[1]
+    else:
+        mean = v3norm[0]
+        var = v3norm[1]
     return mean, var
 
 def hardcode_norm_param(get_mask_param, hardcoded_normalization, mask, v1norm, v2norm):
@@ -106,15 +109,16 @@ class StateExtractor():
         # get the amount each component contributes to the input observation
         inter, target, flat, use_param, param_relative, relative, action, option, diff = self.obs_setting
         self.inter_shape = self.get_state(full_state, (inter,0,0,0,0,0,0,0,0)).shape
-        self.relative_shape = self.get_state(full_state, (0,0,0,0,0,relative,0,0,0)).shape
+        self.relative_shape = self.get_state(full_state, (0,0,0,0,0,relative,0,0,0), use_pair = self.use_pair_gamma).shape
         self.target_shape = self.get_state(full_state, (0,target,0,0,0,0,0,0,0)).shape
         self.flat_shape = self.get_state(full_state, (0,0,flat,0,0,0,0,0,0)).shape
         obs_inter_shape = self.get_state(full_state, (inter,0,0,0,0,0,0,0,0), use_pair=self.use_pair_gamma).shape
-        self.pre_param = obs_inter_shape[0] + self.target_shape[0] + self.flat_shape[0] + self.relative_shape[0]
+        self.option_shape = self.get_state(full_state, (0,0,0,0,0,0,0,option,0)).shape
+        self.pre_param = self.option_shape[0] + obs_inter_shape[0] + self.target_shape[0] + self.flat_shape[0] + self.relative_shape[0]
+        print(self.option_shape[0], obs_inter_shape[0], self.target_shape[0], self.flat_shape[0], self.relative_shape[0])
         self.param_shape = self.get_state(full_state, (0,0,0,use_param,0,0,0,0,0), param=param, mask=mask).shape
         self.param_rel_shape = self.get_state(full_state, (0,0,0,0,param_relative,0,0,0,0), param=param, mask=mask).shape
         self.action_shape = self.get_state(full_state, (0,0,0,0,0,0,action,0,0)).shape
-        self.option_shape = self.get_state(full_state, (0,0,0,0,0,0,0,option,0)).shape
         self.diff_shape = self.get_state(full_state, (0,0,0,0,0,0,0,0,diff)).shape
         self.obs_shape = self.get_obs(full_state, param=param, mask=mask).shape
 
@@ -177,7 +181,7 @@ class StateExtractor():
         if option: state_comb.append(self._option_featurizer(factored_state))
         if inter: state_comb.append(self._get_inter(factored_state, normalize=normalize, use_pair = use_pair))
         if relative: state_comb.append(self._get_relative(factored_state, normalize=normalize, use_pair=use_pair))
-        if target: state_comb.append(self._delta_featurizer(factored_state))
+        if target: state_comb.append(self._get_target(factored_state, normalize=normalize))
         if flat: state_comb.append(self._flatten_factored_state(factored_state, instanced=True))
         if use_param: state_comb.append(self._broadcast_param(shape, param, mask, normalize=normalize)) # only handles param as a concatenation
         if param_relative: state_comb.append(self._relative_param(shape, factored_state, param, mask, normalize=normalize))
@@ -200,10 +204,10 @@ class StateExtractor():
         unnorm_target = self._delta_featurizer(factored_state)
         if normalize and len(self.hardcoded_normalization) > 0: 
             if self.hardcoded_normalization[0] == 'breakout':
-                mean, var = hardcode_norm_target(breakout_action_norm, breakout_paddle_norm, breakout_state_norm, self.hardcoded_normalization)
+                mean, var = hardcode_norm_target(breakout_paddle_norm, breakout_state_norm, breakout_block_norm, self.hardcoded_normalization)
                 return (unnorm_target - mean) / var * self.scale
             elif self.hardcoded_normalization[0] == 'robopush':
-                mean, var = hardcode_norm_target(robopush_action_norm, robopush_gripper_norm, robopush_state_norm, self.hardcoded_normalization)  
+                mean, var = hardcode_norm_target(robopush_gripper_norm, robopush_state_norm, robopush_state_norm, self.hardcoded_normalization)  
             return (unnorm_target - mean) / var * self.scale
         return unnorm_target
 

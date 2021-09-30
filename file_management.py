@@ -48,11 +48,16 @@ def dump_from_line(line, time_dict):
             time_dict[name] = state
     return time_dict
 
-def get_start(pth, filename, i, rng):
+def get_start(pth, filename, i, rng, tab_count=False):
     total_len = 0
     if i < 0:
-        for line in open(os.path.join(pth, filename), 'r'):
-            total_len += 1
+        if tab_count:
+            for line in open(os.path.join(pth, filename), 'r'):
+                for action_str in line.split("\t"):
+                    total_len += len(action_str) > 0
+        else:
+            for line in open(os.path.join(pth, filename), 'r'):
+                total_len += 1
         print("length", total_len)
         if rng == -1:
             i = 0
@@ -78,12 +83,18 @@ def action_toString(action):
 
 def read_action_dumps(pth, i=0, rng=-1, filename='action_dumps.txt'):
     action_dumps = list()
+    i, total_len = get_start(pth, filename, i, rng, tab_count = True)
+    print(i, total_len)
+    current_len = 0
     for line in open(os.path.join(pth, filename), 'r'): # there should only be one line since actions are tab separated
         for action_str in line.split("\t"):
+            current_len += 1
+            if current_len< i:
+                continue
             splt = action_str.split(',')
             if len(splt) > 1:
                 action_dumps.append([float(s.strip("\t\n")) for s in splt])
-            else:
+            elif len(action_str) > 0:
                 action_dumps.append(float(splt[0].strip("\t\n")))
     return action_dumps
 
@@ -96,6 +107,7 @@ def read_obj_dumps(pth, i= 0, rng=-1, filename='object_dumps.txt'):
     '''
     obj_dumps = []
     i, total_len = get_start(pth, filename, i, rng)
+    print(i, total_len)
     current_len = 0
     for line in open(os.path.join(pth, filename), 'r'):
         current_len += 1

@@ -23,7 +23,7 @@ class ActionMap():
         self.discrete_actions = args.discrete_actions # 0 if continuous, also 0 if discretize_acts is used
         self.discretize_acts = args.discretize_acts# none if not used
         self.discrete_control = args.discrete_params # if the parameter is sampled from a discrete dict
-        self.num_actions = args.num_actions 
+        self.num_actions = args.num_actions
         self.control_min, self.control_max = np.array(args.control_min), np.array(args.control_max) # from dataset model
         self.control_shape = self.control_min.shape
         self.relative_actions = args.relative_action # uses actions relative to the current values
@@ -56,7 +56,6 @@ class ActionMap():
             self.mapped_action_min = np.array(next_act_map.control_min)
             self.action_space = gym.spaces.Box(self.mapped_action_min, self.mapped_action_max)
 
-
     def assign_policy_map(self, policy_map_action, policy_reverse_map_action, policy_exploration_noise):
         self._policy_map_action = policy_map_action # a function from option.policy
         self._policy_reverse_map_action = policy_reverse_map_action # a function from option.policy
@@ -82,6 +81,8 @@ class ActionMap():
         act = to_numpy(act)
         if len(act.shape) == 2:
             act = act[0]
+        if self.discrete_actions or self.discretize_acts:
+            act = act.squeeze()
         if len(act.shape) == 0: # exploration noise requires "len"  
             act = np.array([act])
             act = self._exploration_noise(act, batch)

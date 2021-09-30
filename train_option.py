@@ -19,7 +19,6 @@ from Options.action_map import PrimitiveActionMap, ActionMap
 from Options.state_extractor import StateExtractor
 from Options.terminate_reward import TerminateReward
 from Options.temporal_extension_manager import TemporalExtensionManager
-from DistributionalModels.distributional_model import load_factored_model
 from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel, DummyNegativeRewardDatasetModel
 from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model, interaction_models
 from DistributionalModels.InteractionModels.samplers import samplers
@@ -62,6 +61,8 @@ if __name__ == '__main__':
     discretize_actions = args.discretize_actions
     target_object = "Reward"
     args.num_instance = 1
+    if args.object == "Ball" and args.env == "SelfBreakout":
+        dataset_model.sample_able.vals = [np.array([0,0,-1,-1,0]).astype(np.float), np.array([0,0,-2,-1,0]).astype(np.float), np.array([0,0,-2,1,0]).astype(np.float), np.array([0,0,-1,1,0]).astype(np.float)]
     if args.object == "Block" and args.env == "SelfBreakout":
         args.num_instance = environment.num_blocks
         if args.target_mode:
@@ -74,6 +75,8 @@ if __name__ == '__main__':
         dataset_model.environment_model = environment_model
         args.target_object = "Target"
         args.num_instance = args.num_obstacles
+        args.reverse_feature_selector = dataset_model.cfnonselector[0]
+
 
     if args.cuda: dataset_model.cuda()
     else: dataset_model.cpu()
@@ -93,22 +96,10 @@ if __name__ == '__main__':
             nodes = {'Action': OptionNode('Action', actions, action_shape = environment.action_shape)}
             graph = OptionGraph(nodes, dict(), dataset_model.controllable)
     
-    # TODO: REMOVE LINE BELOW
-    # graph.nodes["Paddle"].option.terminate_reward.true_interaction = False
-    graph.nodes["Action"].option.device = None
-    if "Paddle" in graph.nodes: graph.nodes["Paddle"].option.state_extractor.use_pair_gamma = False
-    if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.use_pair_gamma = False
-    if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.hardcoded_normalization = ["breakout", 3, 1]
-    if "Gripper" in graph.nodes: graph.nodes["Gripper"].option.state_extractor.use_pair_gamma = False
-    if "Gripper" in graph.nodes: graph.nodes["Gripper"].option.state_extractor.num_instance = 1
-    if "Paddle" in graph.nodes: graph.nodes["Paddle"].option.state_extractor.num_instance = 1
-    if "Ball" in graph.nodes: graph.nodes["Ball"].option.state_extractor.num_instance = 1
-    if "Block" in graph.nodes and args.env == "RoboPushing": graph.nodes["Block"].option.state_extractor.num_instance = 1
-
     # initialize sampler
     sampler = None if args.true_environment else samplers[args.sampler_type](dataset_model=dataset_model, 
         sample_schedule=args.sample_schedule, environment_model=environment_model, init_state=init_state, 
-        no_combine_param_mask=args.no_combine_param_mask, sample_distance=args.sample_distance, target_object=args.target_object)
+        no_combine_param_mask=args.no_combine_param_mask, sample_distance=args.sample_distance, target_object=args.target)
 
     # initialize state extractor
     option_name = dataset_model.name.split("->")[0].split("+")[0] # TODO: assumes only one option in the tail for now
@@ -125,6 +116,7 @@ if __name__ == '__main__':
     args.dataset_model = dataset_model
     args.environment_model = environment_model
     args.action_feature_selector = next_option.dataset_model.feature_selector if next_option is not None and next_option.name != "Action" else environment_model.construct_action_selector()
+    # args.action_reverse_selector = next_option.dataset_model.reverse_feature_selector if next_option is not None and next_option.name != "Action" else None
     if sampler is None: param, mask = None, None
     else: param, mask = sampler.param, sampler.mask
     state_extractor = StateExtractor(args, option_selector, full_state, param, mask)
@@ -149,6 +141,9 @@ if __name__ == '__main__':
     args.num_actions = len(next_option.action_map.discrete_control) if next_option.action_map.discrete_control is not None else 0
     args.discrete_params = args.dataset_model.sample_able if args.sampler_type == "hst" else None# historical the only discrete sampler at the moment
     args.control_min, args.control_max = dataset_model.control_min, dataset_model.control_max# from dataset model
+    if args.object == "Reward" and args.env == "RoboPushing":
+        next_option.action_map.control_max = np.array([.07, .17])
+        next_option.action_map.control_min = np.array([-.26, -.17])
     action_map = ActionMap(args, next_option.action_map)
 
     # initialize temporal extension manager
@@ -171,7 +166,7 @@ if __name__ == '__main__':
         option = option_forms[args.option_type](args, models, None, next_option) # TODO: make exploration noise more alterable 
     else: # load the pre-constructed model
         option = graph.nodes[args.object].option
-        self.assign_models(models)
+        option.assign_models(models)
 
     # initialize policy
     if not args.true_environment:

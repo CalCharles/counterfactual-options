@@ -195,9 +195,11 @@ class EnvironmentModel():
             factored_state['Action'] = copy.copy(next_factored_state['Action'])
         state = torch.tensor(self.flatten_factored_state(factored_state, instanced=instanced)).float()
         next_state = torch.tensor(self.flatten_factored_state(next_factored_state, instanced=instanced)).float()
-        skip = self.get_done({"factored_state": next_factored_state})
-        # print(skip, factored_state["Paddle"], next_factored_state["Paddle"])
-        insert_dict = {'state': state, 'next_state': next_state, 'state_diff': next_state-state, 'done': self.get_done({"factored_state": next_factored_state}), 'action': self.get_action({"factored_state": factored_state})}
+        # skip = self.get_done({"factored_state": next_factored_state})
+        skip = self.get_done({"factored_state": factored_state})
+
+        # print(skip, self.get_done({"factored_state": factored_state}))
+        insert_dict = {'state': state, 'next_state': next_state, 'state_diff': next_state-state, 'done': self.get_done({"factored_state": factored_state}), 'action': self.get_action({"factored_state": factored_state})}
         return insert_dict, state, skip
 
     def create_entity_selector(self, names):
@@ -236,7 +238,29 @@ class EnvironmentModel():
             if n != lastn:
                 clean_names.append(n)
         fs = {n: np.array(fs[n]) for n in fs.keys()}
-        return FeatureSelector(a, ad, fs, clean_names)
+        control_selector = FeatureSelector(a, ad, fs, clean_names)
+
+        a = entity_selector.flat_features[torch.nonzero((flat_bin == 0).long())].flatten()
+        fs = dict()
+        ad = dict()
+        names = list()
+        for i, (n, idx) in zip(a, [self.flat_to_factored(i) for i in a]):
+            if n in ad:
+                fs[n].append([i,idx])
+                ad[n].append(idx)
+            else:
+                fs[n] = [[i, idx]]
+                ad[n] = [idx]
+            names.append(n)
+        lastn = names[0]
+        clean_names = [lastn]
+        for n in names:
+            if n != lastn:
+                clean_names.append(n)
+        fs = {n: np.array(fs[n]) for n in fs.keys()}
+        non_control_selector = FeatureSelector(a, ad, fs, clean_names)
+        return control_selector, non_control_selector
+
 
     def construct_action_selector(self):
         if self.environment.discrete_actions:
@@ -263,20 +287,19 @@ def sample_multiple(controllable_features, states):
         num = int((cf.feature_range[1] - cf.feature_range[0] ) / cf.feature_step) + 1
         linspaces.append(np.linspace(cf.feature_range[0], cf.feature_range[1], num))
     ranges = np.meshgrid(*linspaces)
-    ranges = [r.flatten() for r in ranges]
-    vals = np.array(ranges).T
+    vals = np.array(ranges).T.reshape(-1,len(controllable_features))
     MAX_NUM = 200
     if len(vals) > 0:
         vals = vals[np.random.choice(np.arange(len(vals)), size=(min(MAX_NUM, len(vals)),), replace=False)]
     all_states = list()
     for control_values in vals:
-        assigned_states = states.clone()
+        assigned_states = states.copy()
         for cf, f in zip(controllable_features, control_values):
             cf.assign_feature(assigned_states, f)
         all_states.append(assigned_states)
     if len(states.shape) == 1: # a single flattened state
-        return torch.stack(all_states, dim=0) # if there are no batches, then this is the 0th dim
-    return torch.stack(all_states, dim=1) # if we have a batch of states, then this is the 1st dim
+        return np.stack(all_states, axis=0) # if there are no batches, then this is the 0th dim
+    return np.stack(all_states, axis=1) # if we have a batch of states, then this is the 1st dim
 
 
 class ControllableFeature():
