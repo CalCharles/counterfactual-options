@@ -15,6 +15,8 @@ def get_args():
                         help='take primitive actions instead of next level options')
     parser.add_argument('--frameskip', type=int, default=1,
                         help='number of frames to skip (default: 1 (no skipping))')
+    parser.add_argument('--num-obstacles', type=int, default=0,
+                        help='number of obstacles for pushing domain (default: 0)')
     parser.add_argument('--object', default='',
                         help='name of the object whose options are being investigated')
     parser.add_argument('--target', default='',
@@ -61,7 +63,7 @@ def get_args():
     parser.add_argument('--discretize-actions', action='store_true', default=False,
                         help='converts a continuous action space to a discrete one (TODO: currently requires relative-action)')
 
-    parser.add_argument('--observation-setting', type=int, nargs='+', default=(1,0,0,1,0,0,0,0,0, 0),
+    parser.add_argument('--observation-setting', type=int, nargs='+', default=(1,0,0,1,0,0,0,0,0),
                         help='sets the components of the input state to the policy (default: (1,0,0,1,0,0,0,0,0))' +
                         'components in this order: interaction_state, target state, full flattened state' +
                         'param, target state relative to param, relative interaction state, action state, diff')
@@ -178,6 +180,8 @@ def get_args():
     # values for determining if significant things are happening
     parser.add_argument('--model-error-significance', type=float, default=.5,
                     help='amount of difference in l2 norm to determine that prediction is happening')
+    parser.add_argument('--feature-step', type=float, default=1,
+                    help='amount of step in estimating feature significance')
     parser.add_argument('--train-reward-significance', type=float, default=5,
                     help='amount of difference in per-episode reward to determine control')
     # HER/DQN parameters
@@ -193,6 +197,8 @@ def get_args():
                         help='only resample if an interaction (1) or change(2) occurs at some point')
     parser.add_argument('--use-interact', action='store_true', default=False,
                         help='only resamples HER when an interaction occurs')
+    parser.add_argument('--sample-merged', action='store_true', default=False,
+                        help='samples a batch from both the main buffer and the HER buffer and merges the batches')
 
     #interaction parameters
     parser.add_argument('--train-pair', type=str, nargs='+', default=list(),
@@ -221,6 +227,8 @@ def get_args():
                         help='the minimum distance for a single dimension in the active set default .5 ')
     parser.add_argument('--sample-schedule', type=int, default=-1,
                     help='changes sampling after a certain number of calls')
+    parser.add_argument('--sample-distance', type=float, default=.4,
+                        help='the distance to sample local values (default: .4)')
     parser.add_argument('--passive-error-cutoff', type=float, default=2,
                         help='the cutoff for error to weight the value (default: 2)')
     parser.add_argument('--passive-weighting', type=float, default=0,
@@ -237,6 +245,8 @@ def get_args():
                         help='the value given to true reward negative component (default: 0)')
     parser.add_argument('--reward-constant', type=float, default=-1,
                         help='constant value to add to the reward (default: -1)')
+    parser.add_argument('--sum-rewards', action = 'store_true', default=False,
+                    help='takes the sum of rewards for temporal extension, rather than a single value')
     # Option Chain Parameters
     parser.add_argument('--base-node', default="Action",
                         help='The name of the lowest node in the option chain (generally should be Action)')
@@ -265,6 +275,8 @@ def get_args():
                         help='only saves the last n timesteps (-1 if not used)')
     parser.add_argument('--record-rollouts', default="",
                         help='path to where rollouts are recorded (when adding edges, where data was recorded to compute min/max)')
+    parser.add_argument('--no-save-action', action ='store_true', default=False,
+                        help='saves the highest option level action in record-rollouts')
     parser.add_argument('--graph-dir', default='./data/optgraph/',
                         help='directory to load graph')
     parser.add_argument('--dataset-dir', default='./data/',
@@ -319,6 +331,7 @@ def get_args():
     args.actor_lr = args.lr if args.actor_lr < 0 else args.actor_lr
     args.deterministic_eval = not args.not_deterministic_eval
     args.bound_output = 0 if not args.bound_output else args.time_cutoff
+    args.save_action = not args.no_save_action and len(args.record_rollouts) > 0
 
     return args
 

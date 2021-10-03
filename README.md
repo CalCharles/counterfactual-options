@@ -25,10 +25,10 @@ Gym tests:
 python train_option.py --gpu 0 --hidden-sizes 128 128 128 --env gymenvPendulum-v0 --learning-type sac --actor-lr 1e-4 --critic-lr 1e-3 --tau .005 --num-steps 10 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 7000 --buffer-len 100000 --observation-setting 0 0 0 0 0 0 0 0 0 1
 
 # ddpg
-python train_option.py --gpu 1 --hidden-sizes 128 128 128 --env gymenvPendulum-v0 --learning-type ddpg --actor-lr 1e-4 --critic-lr 1e-3 --tau .005 --num-steps 10 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 7000 --buffer-len 100000
+python train_option.py --gpu 0 --hidden-sizes 128 128 128 --env gymenvPendulum-v0 --learning-type ddpg --actor-lr 1e-4 --critic-lr 1e-3 --tau .005 --num-steps 10 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 7000 --buffer-len 100000 --observation-setting 0 0 0 0 0 0 0 0 0 1
 
 # dqn
-python train_option.py --gpu 1 --hidden-sizes 128 128 128 --env gymenvCartPole-v0 --learning-type dqn --actor-lr 1e-4 --critic-lr 1e-3 --tau 100 --num-steps 10 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 2000 --buffer-len 50000
+python train_option.py --gpu 0 --hidden-sizes 128 128 128 --env gymenvCartPole-v0 --learning-type dqn --actor-lr 1e-4 --critic-lr 1e-3 --tau 100 --num-steps 10 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 2000 --buffer-len 50000 --observation-setting 0 0 0 0 0 0 0 0 0 1
 
 # ppo
 python train_option.py --gpu 1 --hidden-sizes 64 64 --env gymenvCartPole-v0 --learning-type ppo --actor-lr 1e-3 --critic-lr 1e-3 --tau 100 --num-steps 64 --true-environment --option-type raw --pretrain-iters 1000 --num-iters 20000 --buffer-len 20000 --grad-epoch 48 --log-interval 25

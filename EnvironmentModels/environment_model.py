@@ -195,9 +195,11 @@ class EnvironmentModel():
             factored_state['Action'] = copy.copy(next_factored_state['Action'])
         state = torch.tensor(self.flatten_factored_state(factored_state, instanced=instanced)).float()
         next_state = torch.tensor(self.flatten_factored_state(next_factored_state, instanced=instanced)).float()
-        skip = self.get_done({"factored_state": next_factored_state})
-        # print(skip, factored_state["Paddle"], next_factored_state["Paddle"])
-        insert_dict = {'state': state, 'next_state': next_state, 'state_diff': next_state-state, 'done': self.get_done({"factored_state": next_factored_state}), 'action': self.get_action({"factored_state": factored_state})}
+        # skip = self.get_done({"factored_state": next_factored_state})
+        skip = self.get_done({"factored_state": factored_state})
+
+        # print(skip, self.get_done({"factored_state": factored_state}))
+        insert_dict = {'state': state, 'next_state': next_state, 'state_diff': next_state-state, 'done': self.get_done({"factored_state": factored_state}), 'action': self.get_action({"factored_state": factored_state})}
         return insert_dict, state, skip
 
     def create_entity_selector(self, names):
@@ -236,7 +238,29 @@ class EnvironmentModel():
             if n != lastn:
                 clean_names.append(n)
         fs = {n: np.array(fs[n]) for n in fs.keys()}
-        return FeatureSelector(a, ad, fs, clean_names)
+        control_selector = FeatureSelector(a, ad, fs, clean_names)
+
+        a = entity_selector.flat_features[torch.nonzero((flat_bin == 0).long())].flatten()
+        fs = dict()
+        ad = dict()
+        names = list()
+        for i, (n, idx) in zip(a, [self.flat_to_factored(i) for i in a]):
+            if n in ad:
+                fs[n].append([i,idx])
+                ad[n].append(idx)
+            else:
+                fs[n] = [[i, idx]]
+                ad[n] = [idx]
+            names.append(n)
+        lastn = names[0]
+        clean_names = [lastn]
+        for n in names:
+            if n != lastn:
+                clean_names.append(n)
+        fs = {n: np.array(fs[n]) for n in fs.keys()}
+        non_control_selector = FeatureSelector(a, ad, fs, clean_names)
+        return control_selector, non_control_selector
+
 
     def construct_action_selector(self):
         if self.environment.discrete_actions:
@@ -263,20 +287,19 @@ def sample_multiple(controllable_features, states):
         num = int((cf.feature_range[1] - cf.feature_range[0] ) / cf.feature_step) + 1
         linspaces.append(np.linspace(cf.feature_range[0], cf.feature_range[1], num))
     ranges = np.meshgrid(*linspaces)
-    ranges = [r.flatten() for r in ranges]
-    vals = np.array(ranges).T
+    vals = np.array(ranges).T.reshape(-1,len(controllable_features))
     MAX_NUM = 200
     if len(vals) > 0:
         vals = vals[np.random.choice(np.arange(len(vals)), size=(min(MAX_NUM, len(vals)),), replace=False)]
     all_states = list()
     for control_values in vals:
-        assigned_states = states.clone()
+        assigned_states = states.copy()
         for cf, f in zip(controllable_features, control_values):
             cf.assign_feature(assigned_states, f)
         all_states.append(assigned_states)
     if len(states.shape) == 1: # a single flattened state
-        return torch.stack(all_states, dim=0) # if there are no batches, then this is the 0th dim
-    return torch.stack(all_states, dim=1) # if we have a batch of states, then this is the 1st dim
+        return np.stack(all_states, axis=0) # if there are no batches, then this is the 0th dim
+    return np.stack(all_states, axis=1) # if we have a batch of states, then this is the 1st dim
 
 
 class ControllableFeature():
@@ -325,6 +348,28 @@ class ControllableFeature():
         else:
             assign_feature(states, (self.feature_selector.flat_features[0], f), edit=edit, clipped=clip)
         return states # assign feature should mutate states
+
+    def relative_range(self, states, factored=False): 
+    # assignment is a tuple assignment keys (tuples or indexes)
+    # edit means that the assignment is added
+        upper_diff = 0
+        lower_diff = 0
+        assignment = self.feature_selector.flat_features[0]
+        if factored: # factored features, assumes that shapes for assignment[0][1] and assignment[1] match
+            assignment = list(self.feature_selector.factored_features.items())[0]
+            lower_diff = states[assignment[0]][assignment[1]] - self.feature_range[0]
+            upper_diff = self.feature_range[1] - states[assignment[0]][assignment[1]]
+        elif len(states.shape) == 1: # a single flattened state
+            lower_diff = states[assignment] - self.feature_range[0]
+            upper_diff = self.feature_range[0] - states[assignment] 
+        elif len(states.shape) == 2: # a batch of flattened state
+            lower_diff = states[:, assignment] - self.feature_range[0]
+            upper_diff = self.feature_range[1] - states[:, assignment] 
+        elif len(states.shape) == 3: # a batch of stacks of flattened state
+            lower_diff = states[:,:, assignment] - self.feature_range[0]
+            upper_diff = self.feature_range[1] - states[:,:, assignment]
+        return lower_diff, upper_diff 
+
 
 class FeatureSelector():
     def __init__(self, flat_features, factored_features, feature_match, names):
@@ -420,26 +465,43 @@ class FeatureSelector():
             # ks = self.factored_features.keys()
             # return {name: states[name][idxes] for name, idxes in self.factored_features}
             # TODO: Above lines are old code, if new code breaks revert back, otherwise remove
-            if not hasattr(self, "names"): 
-                pnames = list(self.factored_features.keys())
-                self.names = [n for n in ["Action", "Paddle", "Ball", "Block", 'Done', "Reward"] if n in pnames] # TODO: above lines are hack, remove
-            if type(states[self.names[0]]) == np.ndarray:
+            # if not hasattr(self, "names"): 
+            #     pnames = list(self.factored_features.keys())
+            #     self.names = [n for n in ["Action", "Paddle", "Ball", "Block", 'Done', "Reward"] if n in pnames] # TODO: above lines are hack, remove
+            state_check = states[self.names[0]] if self.names[0] in states else states[self.names[0] + str(0)]
+            # TODO: I think I can use ... slice notation here to make this much simpler
+            if type(state_check) == np.ndarray:
                 cat = lambda x, a: np.concatenate(x, axis=a)
-            elif type(states[self.names[0]]) == torch.Tensor:
+            elif type(state_check) == torch.Tensor:
                 cat = lambda x, a: torch.cat(x, dim=a)
-            if len(states[self.names[0]].shape) == 1: # only support internal dimension up to 2
-                if len(self.names) == 1 and len(self.factored_features[self.names[0]].shape) == 0: # TODO: should initialize self.feactored_features as arrays, mking this code wrong
-                    if type(states[self.names[0]]) == np.ndarray:
-                        cat = np.array
-                    elif type(states[self.names[0]]) == torch.Tensor:
-                        cat = torch.tensor
+            if len(self.names) == 1 and len(self.factored_features[self.names[0]].shape) == 0: # TODO: should initialize self.factored_features as arrays, mking this code wrong
+                if type(states[self.names[0]]) == np.ndarray:
+                    cat = np.array
+                elif type(states[self.names[0]]) == torch.Tensor:
+                    cat = torch.tensor
+                if len(state_check.shape) == 1: # only support internal dimension up to 2
                     return cat([states[name][self.factored_features[name]] for name in self.names])
-                return cat([states[name][self.factored_features[name]] for name in self.names], 0)
-            if len(states[self.names[0]].shape) == 2: # only support internal dimension up to 2
-                # print(self.factored_features)
-                # print(states[self.names[0]], [states[name][:, self.factored_features[name]] for name in self.names], self.names, self.factored_features[self.names[0]])
-                # print(states[self.names[0]], states[self.names[0]][:, self.factored_features[self.names[0]]], self.factored_features[self.names[0]], [states[name][:, self.factored_features[name]] for name in self.names])
-                return cat([states[name][:, self.factored_features[name]] for name in self.names], 1)
+                elif len(state_check.shape) == 2:
+                    return cat([states[name][:, self.factored_features[name]] for name in self.names])
+            state_cat = list()
+            for name in self.names:
+                if name in states:
+                    if len(state_check.shape) == 1:
+                        state_cat.append(states[name][self.factored_features[name]])
+                    elif len(state_check.shape) == 2:
+                        state_cat.append(states[name][:, self.factored_features[name]])
+                else:
+                    i = 0 # TODO: looks for multiple instances by searching through name+index, not sure if this is great
+                    while name + str(i) in states.keys():
+                        if len(state_check.shape) == 1:
+                            state_cat.append(states[name + str(i)][self.factored_features[name]])
+                        elif len(state_check.shape) == 2:
+                            state_cat.append(states[name + str(i)][:, self.factored_features[name]])
+                        i += 1
+            if len(state_check.shape) == 1:
+                return cat(state_cat, 0)
+            elif len(state_check.shape) == 2:
+                return cat(state_cat, 1)
         elif len(states.shape) == 1: # a single flattened state
             return states[self.flat_features]
         elif len(states.shape) == 2: # a batch of flattened state
@@ -468,7 +530,7 @@ def cpu_state(factored_state):
 def assign_feature(states, assignment, edit=False, clipped=None): 
 # assignment is a tuple assignment keys (tuples or indexes), and assignment values
 # edit means that the assignment is added 
-    if type(states) is dict: # factored features, assumes that shapes for assignment[0][1] and assignment[1] match
+    if type(states) is dict or type(states) == OrderedDict or type(states) == Batch: # factored features, assumes that shapes for assignment[0][1] and assignment[1] match
         states[assignment[0][0]][assignment[0][1]] = assignment[1] if not edit else states[assignment[0][0]][assignment[0][1]] + assignment[1]
         if clipped is not None:
             states[assignment[0][0]][assignment[0][1]] = states[assignment[0][0]][assignment[0][1]].clip(clipped[0], clipped[1])
@@ -486,6 +548,8 @@ def assign_feature(states, assignment, edit=False, clipped=None):
         if clipped is not None:
             cstates = states[:, :, assignment[0]].clip(clipped[0], clipped[1])
             states[:, :, assignment[0]] = cstates
+
+
 
 def discretize_space(action_shape): # converts a continuous action space into a discrete one
     # takes action +- 1, 0 at each dimension, for every combination

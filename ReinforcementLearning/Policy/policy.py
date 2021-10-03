@@ -262,7 +262,7 @@ class TSPolicy(nn.Module):
                 if type(batch['obs_next']) == np.ndarray: batch['obs_next'] = param_process(batch['obs_next'], batch['param']) # relies on batch defaulting to Batch, and np.ndarray for all other state representations
             else: # indices indicates that it is handling a buffer
                 batch.obs[indices] = param_process(batch.obs[indices], batch.param[indices])
-                if type(batch.obs_next[indices]) == np.ndarray: batch.obs_next[indices] = param_process(batch.obs_next[indices], batch.param[indices])                
+                if type(batch.obs_next[indices]) == np.ndarray: batch.obs_next[indices] = param_process(batch.obs_next[indices], batch.param[indices])
                 # print(batch.obs[indices].shape, batch.obs_next.shape)
         return orig_obs, orig_next
 
