@@ -18,7 +18,11 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     for j in range(trials):
         result = test_collector.collect(n_episode=1, n_term=1, n_step=args.max_steps, random=random)
 
-        if args.true_environment:
+        print(result['rews'])
+        if type(result['rews']) == int:
+            test_perf.append(result['rews'])
+        elif args.true_environment:
+            print('what switch')
             test_perf.append(result["rews"].sum())
         else:
             test_perf.append(result["rews"].mean())

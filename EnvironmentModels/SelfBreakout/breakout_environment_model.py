@@ -43,6 +43,9 @@ class BreakoutEnvironmentModel(EnvironmentModel):
         factored_state["Reward"] = np.array([float(self.environment.reward)])
         return factored_state
 
+    def get_raw_state(self, state):
+        return state['raw_state']
+
     # def flatten_factored_state(self, factored_state, instanced=False, names=None):
     #     if names is None:
     #         names = self.object_names

@@ -104,7 +104,12 @@ if __name__ == '__main__':
         args.primitive_action_map = PrimitiveActionMap(args)
         args.action_featurizer = dataset_model.controllable[0] if environment.discrete_actions else [c for c in dataset_model.controllable if c.object() == "Action"]
         next_option = PrimitiveOption(args, None)
-    option_selector = environment_model.create_entity_selector([option_name]) 
+
+    if args.true_environment:
+        option_selector = None
+    else:
+        option_selector = environment_model.create_entity_selector([option_name])
+
     full_state = environment.reset()
     args.dataset_model = dataset_model
     args.environment_model = environment_model
@@ -115,14 +120,13 @@ if __name__ == '__main__':
         param, mask = sampler.param, sampler.mask
     state_extractor = StateExtractor(args, option_selector, full_state, param, mask)
 
-
     # initialize termination function, reward function, done model
     tt = args.terminal_type[:4] if args.terminal_type.find('inst') != -1 else args.terminal_type
     rt = args.reward_type[:4] if args.reward_type.find('inst') != -1 else args.reward_type
     termination = terminal_forms[tt](name=args.object, **vars(args))
     reward = reward_forms[rt](**vars(args)) # using the same epsilon for now, but that could change
     done_model = DoneModel(use_termination = args.use_termination, time_cutoff=args.time_cutoff, true_done_stopping = not args.not_true_done_stopping)
-    
+
     # initialize terminate-reward
     args.reward = reward
     args.termination = termination

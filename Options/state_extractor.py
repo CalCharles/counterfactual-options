@@ -90,7 +90,8 @@ class StateExtractor():
         '''
         self.use_parametrized = not args.true_environment
         self.use_pair_gamma = args.use_pair_gamma
-        self._pair_featurizer = args.environment_model.create_entity_selector(args.name_pair)
+        if not args.true_environment:
+            self._pair_featurizer = args.environment_model.create_entity_selector(args.name_pair)
         self._gamma_featurizer = args.dataset_model.gamma
         self._option_featurizer = option_selector # selects the TAIL
         self._delta_featurizer = args.dataset_model.delta
@@ -228,7 +229,7 @@ class StateExtractor():
                 mean, var = hardcode_norm_inter(breakout_action_norm, breakout_paddle_norm, breakout_state_norm, self.hardcoded_normalization)
                 return (inter_state - mean) / var * self.scale
             elif self.hardcoded_normalization[0] == 'robopush':
-                mean, var = hardcode_norm_inter(robopush_action_norm, robopush_gripper_norm, robopush_state_norm, self.hardcoded_normalization)  
+                mean, var = hardcode_norm_inter(robopush_action_norm, robopush_gripper_norm, robopush_state_norm, self.hardcoded_normalization)
             return (inter_state - mean) / var * self.scale
         return inter_state
 
