@@ -154,6 +154,7 @@ class RoboPushingEnvironment(RawEnvironment):
 
     def construct_full_state(self, factored_state, raw_state):
         obs = {'raw_state': raw_state, 'factored_state': factored_state}
+        self.full_state = obs
         return obs
 
     def step(self, action):
@@ -179,8 +180,6 @@ class RoboPushingEnvironment(RawEnvironment):
             if self.itr == 0:
                 object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
                 object_dumps.close()
-            print(next_obs["frontview_image"][::-1].astype(np.uint8).shape)
-            print(self.renderable)
             self.write_objects(obs["factored_state"], next_obs["frontview_image"][::-1].astype(np.uint8) if self.renderable else None)
         if self.done:
             reward = self.reward
@@ -203,6 +202,7 @@ class RoboPushingEnvironment(RawEnvironment):
         # print(list(obs.keys()))
         # print(obs['robot0_eef_pos'], obs['cube_pos'], obs['goal_pos'])
         # 'robot0_joint_pos_cos', 'robot0_joint_pos_sin', 'robot0_joint_vel', 'robot0_eef_pos', 'robot0_eef_quat', 'robot0_gripper_qpos', 'robot0_gripper_qvel', 'frontview_image', 'cube_pos', 'gripper_to_cube_pos', 'goal_pos', 'gripper_to_goal_pos', 'cube_to_goal_pos', 'robot0_proprio-state', 'object-state', 'Action', 'Gripper', 'Block', 'Target', 'Reward', 'Done'
+        print(obs)
         return self.construct_full_state(obs, obs["frontview_image"][::-1] if self.renderable else None)
 
     def render(self):

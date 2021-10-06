@@ -72,7 +72,7 @@ if __name__ == '__main__':
     if args.sample_continuous != 0:
         dataset_model.sample_continuous = False if args.sample_continuous == 1 else True 
     if args.object == "Ball" and args.env == "SelfBreakout":
-        dataset_model.sample_able.vals = [np.array([0,0,-1,-1,0]).astype(np.float), np.array([0,0,-2,-1,0]).astype(np.float), np.array([0,0,-2,1,0]).astype(np.float), np.array([0,0,-1,1,0]).astype(np.float)]
+        dataset_model.sample_able.vals = [np.array([0,0,-1,-1,0]).astype(float), np.array([0,0,-2,-1,0]).astype(float), np.array([0,0,-2,1,0]).astype(float), np.array([0,0,-1,1,0]).astype(float)]
     dataset_model.environment_model = environment_model
     args.dataset_model = dataset_model
     init_state = environment.reset() # get an initial state to define shapes

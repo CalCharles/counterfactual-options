@@ -44,6 +44,9 @@ class TSNet(nn.Module):
     def forward(self, obs, state=None, info={}):
         # TODO: make this not hardcoded
         obs = self.input_norm(obs)
+
+        if self.continuous_critic and self.action_dim > 0: # the action values need to be at the front for pointnet type networks to work properly
+            obs = torch.cat([obs[...,-self.action_dim:], obs[...,:obs.shape[-1] - self.action_dim]], dim=-1) 
         if not isinstance(obs, torch.Tensor):
             obs = pytorch_model.wrap(obs, dtype=torch.float, cuda=self.iscuda)
         batch = obs.shape[0]

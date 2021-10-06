@@ -73,10 +73,7 @@ class TemporalAggregator():
         next_data = copy.deepcopy(self.current_data)
         # if we just resampled (meaning temporal extension occurred)
         added = False
-        # print(np.any(data.ext_term) # going to resample a new action
-        # ,np.any(data.done)
-        # ,np.any(data.terminate), self.temporal_skip, self.current_data.inter_state, self.current_data.act)
-        # print("at", self.current_data.obs, self.current_data.obs_next)
+        # print(data.act, data.rew, data.ext_term, self.temporal_skip, data.mapped_act, data.param, data.target)
         if (
             np.any(data.ext_term) or # going to resample a new action
             np.any(data.done)
@@ -86,16 +83,15 @@ class TemporalAggregator():
             if not self.temporal_skip:
                 added = True
                 # print(next_data.act)
-                # print(next_data.obs, next_data.act, next_data.done, next_data.rew, next_data.full_state['factored_state']["Block"], next_data.next_full_state['factored_state']["Block"])
+                # print(next_data.obs, next_data.time, next_data.act, next_data.mapped_act, next_data.done, next_data.rew, next_data.target, next_data.next_target)
                 # print(len(buffer))
                 self.ptr, ep_rew, ep_len, ep_idx = buffer.add(
                         next_data, buffer_ids=ready_env_ids)
             else:
                 skipped = True
-            self.temporal_skip = False
-            self.temporal_skip = "TimeLimit.truncated" in self.current_data.info[0] and self.current_data.info[0]["TimeLimit.truncated"] and np.any(data.done)
             # print(self.temporal_skip, self.keep_next)
             self.time_counter = 0
+        self.temporal_skip = "TimeLimit.truncated" in self.current_data.info[0] and self.current_data.info[0]["TimeLimit.truncated"] and np.any(data.done)
         self.time_counter += 1
         return next_data, skipped, added, self.ptr
 
@@ -151,6 +147,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self._reset_components(full_state[0])
 
     def _reset_components(self, full_state):
+        # if "param" in self.data: # reset components
+        #     print("resetting components", self.data.param, self.data.obs, self.data.next_obs, self.data.terminations, self.data.done)
         if self.preprocess_fn:
             full_state = self.preprocess_fn(obs=full_state).get("obs", full_state)
         self._reset_state(0)
@@ -158,6 +156,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         param, mask = self._reset_data(full_state)
         self.data.update(obs=[self.state_extractor.get_obs(full_state, param, mask)]) # self.option.get_state(obs, setting=self.option.input_setting, param=self.param if self.param is not None else None)
         self.temporal_aggregator.reset(self.data)
+        # print("called reset", param, self.data.obs, self.data.terminations)
 
     def next_index(self, val):
         return (val + 1) % self.buffer.maxsize
@@ -314,12 +313,16 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
 
             # update hit-miss values
             rews += rew
+            print("rew sum", rews, rew)
             if term: 
                 reward_check =  (done and rew >= 0)
-                hit = np.linalg.norm((param-next_target) * mask) <= self.option.terminate_reward.epsilon_close or reward_check
+                hit = ((np.linalg.norm((param-next_target) * mask) <= self.option.terminate_reward.epsilon_close and not true_done)
+                            or reward_check)
+                # print(reward_check, param, next_target, mask)
                 hit_count += int(hit)
                 miss_count += int(not hit)
-            if term: print("term", term, true_done, done, inter, not time_cutoff, hit, rew, param, self.data.mapped_act.squeeze(), act, next_target, inter_state)
+            if term: 
+                print("term", term, true_done, done, inter, not time_cutoff, hit,hit_count, miss_count, rew, param, self.data.mapped_act.squeeze(), act, next_target, inter_state, obs)
             # print(rew, target, self.data.mapped_act.squeeze(), act, param)
 
             # update the current values
@@ -327,6 +330,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 param=[param], mask = [mask], info = info, inter = [inter], time=[1],
                 rew=[rew], done=[done], terminate=[term], ext_term = [ext_term], # all prior are stored, after are not 
                 terminations= terminations, rewards=rewards, masks=masks, ext_terms=ext_terms)
+            # print (self.data) # FDO
             if self.preprocess_fn:
                 self.data.update(self.preprocess_fn(
                     obs_next=self.data.obs_next,
@@ -352,7 +356,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             # debugging and visualization
             # if self.test: print(self.data.target.squeeze(), self.data.next_target.squeeze(), self.data.param.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # print(self.data.mapped_act, self.data.inter_state, self.data.param, self.data.obs)
-            if self.test: print(self.data.inter_state.squeeze(), self.data.obs.squeeze(), self.data.param.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
+            if self.test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # if self.test: print(self.data.obs.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()
@@ -367,10 +371,12 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
 
             # update counters
             if np.any(done) or np.any(term):
+                print("done", done, term)
                 episode_count += int(np.any(done))
                 term_count += int(np.any(term))
                 term_done, timer, true = self._done_check(term, true_done)
                 term_end = term and not time_cutoff
+                print(term, time_cutoff, true_done)
             if np.any(true_done):
                 true_episode_count += 1
                 # if we have a true done, reset the environments and self.data
@@ -380,12 +386,13 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 else:
                     self.reset_env()
 
-                full_state_reset = self.data.full_state[0] # set by reset_env
-                if self.preprocess_fn:
-                    full_state_reset = self.preprocess_fn(obs=full_state_reset).get("obs", full_state_reset)
-                self.data.update(next_full_state = [full_state_reset]) # obs_reset
-                self._reset_state(0)
-                self._reset_data(full_state_reset)
+                # full_state_reset = self.data.full_state[0] # set by reset_env
+                # if self.preprocess_fn:
+                #     full_state_reset = self.preprocess_fn(obs=full_state_reset).get("obs", full_state_reset)
+                # self.data.update(next_full_state = [full_state_reset]) # obs_reset
+                # self._reset_state(0)
+                # self._reset_data(full_state_reset)
+                # print(self.data)
 
             self.data.full_state = self.data.next_full_state
             self.data.target = self.data.next_target
@@ -398,11 +405,11 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 break
             if (n_term and term_count >= n_term):
                 break
+        print(rews)
         # generate statistics
         self.collect_step += step_count
         self.collect_episode += episode_count
         self.collect_time += max(time.time() - start_time, 1e-9)
-
         return { # TODO: some of these don't return valid values
             "n/ep": episode_count,
             "n/tr": term_count,

@@ -184,6 +184,10 @@ class Option():
         ext_term = self.temporal_extension_manager.get_extension(termination, last_termination[-1])
         done = self.done_model.check(termination, self.state_extractor.get_true_done(next_full_state))
         rewards, terminations, ext_term = last_rewards + [reward], last_termination + [termination], last_ext_term + [ext_term]
+        mid_term = False
+        for i in range(1, len(ext_term) + 1):
+            mid_term = ext_term[len(ext_term) - i] or mid_term
+            ext_term[len(ext_term) - i] = mid_term
         return done, rewards, terminations, ext_term, inter, time_cutoff
 
     def tensor_state(self, factored_state):

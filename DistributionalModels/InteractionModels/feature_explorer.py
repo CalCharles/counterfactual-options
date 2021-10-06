@@ -64,9 +64,7 @@ class FeatureExplorer():
                     # HACKED LINE TO SPEED UP TRAINING
                     for name in target_names:
                         if name != controllable_entity and name not in delta_tested and (controllable_entity, name) not in self.graph.edges:
-                            names = [controllable_entity] + additional_feature + [name]
-                            entity_selection = self.em.create_entity_selector(names)
-                            model, test, gamma_new, delta_new = self.train(cfs, cfsdict[cfs], additional_feature, rollouts, train_args, entity_selection, name)
+                            model, test, gamma_new, delta_new = self.train(cfs, cfsdict[cfs], additional_feature, rollouts, train_args, name)
                             comb_passed, combined = self.pass_criteria(train_args, model, test, train_args.model_error_significance)
                             gamma_comb = gamma_new
                             delta_comb = delta_new
@@ -103,7 +101,7 @@ class FeatureExplorer():
         print("comparison", forward_error, passive_error, model_error_significance, passed)
         return passed, forward_error-passive_error
 
-    def train(self, cfs, cfss, additional_object, rollouts, train_args, entity_selection, name):
+    def train(self, cfs, cfss, additional_object, rollouts, train_args, name):
         print("Edge ", cfs, "-> ", name)
         aosize = 0
         model_name = cfs + "->"+ name
@@ -113,6 +111,8 @@ class FeatureExplorer():
             print("Training ", cfs, " + ", additional_obj, " -> ", name)
             model_name = cfs + "+" + additional_obj+ "->" + name
         self.model_args['name'] = model_name
+        gamma_names = [cfs] + additional_object + [name]
+        entity_selection = self.em.create_entity_selector(gamma_names)
         self.model_args['gamma'] = entity_selection
         self.model_args['delta'] = self.em.create_entity_selector([name])
         self.model_args['object_dim'] = self.em.object_sizes[name]

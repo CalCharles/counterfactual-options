@@ -62,7 +62,7 @@ if __name__ == '__main__':
     target_object = "Reward"
     args.num_instance = 1
     if args.object == "Ball" and args.env == "SelfBreakout":
-        dataset_model.sample_able.vals = [np.array([0,0,-1,-1,0]).astype(np.float), np.array([0,0,-2,-1,0]).astype(np.float), np.array([0,0,-2,1,0]).astype(np.float), np.array([0,0,-1,1,0]).astype(np.float)]
+        dataset_model.sample_able.vals = [np.array([0,0,-1,-1,0]).astype(float), np.array([0,0,-2,-1,0]).astype(float), np.array([0,0,-2,1,0]).astype(float), np.array([0,0,-1,1,0]).astype(float)]
     if args.object == "Block" and args.env == "SelfBreakout":
         args.num_instance = environment.num_blocks
         if args.target_mode:

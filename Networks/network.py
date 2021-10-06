@@ -120,7 +120,7 @@ class Network(nn.Module):
                 layer.reset_parameters()
             elif type(layer) == nn.Parameter:
                 nn.init.uniform_(layer.data, 0.0, 0.2/np.prod(layer.data.shape))#.01 / layer.data.shape[0])
-            elif type(layer) == nn.Linear:
+            elif type(layer) == nn.Linear or type(layer) == nn.Conv1d:
                 fulllayer = layer
                 if type(layer) != nn.ModuleList:
                     fulllayer = [layer]
@@ -338,56 +338,79 @@ class PairNetwork(Network):
             kwargs["include_last"] = True
             self.output_dim = kwargs['output_dim']
         kwargs['output_dim'] = self.output_dim
+        layers = list()
         self.conv = BasicConvNetwork(**kwargs)
+        layers.append(self.conv)
         if kwargs['post_dim'] > 0:
-            kwargs["num_inputs"] = kwargs['post_dim']
+            kwargs["num_inputs"] = kwargs['post_dim'] + kwargs['first_obj_dim']
             kwargs["num_outputs"] = self.hs[-1]
             self.post_channel = BasicMLPNetwork(**kwargs)
+            layers.append(self.post_channel)
         self.aggregate_final = kwargs["aggregate_final"]
-        if kwargs["aggregate_final"]:
+        if kwargs["aggregate_final"]: # does not work with a post-channel
             kwargs["include_last"] = True
             kwargs["num_inputs"] = self.output_dim
             kwargs["num_outputs"] = self.num_outputs
-            kwargs["hidden_sizes"] = [64, 64, 64] # TODO: hardcoded final hidden sizes for now
+            kwargs["hidden_sizes"] = [128, 128, 128] # TODO: hardcoded final hidden sizes for now
             self.MLP = BasicMLPNetwork(**kwargs)
-            self.model = nn.Sequential(self.conv, self.MLP)
-        else:
-            self.model = [self.conv]
+            layers.append(self.MLP)
+        self.model = nn.ModuleList(layers)
+        self.train()
+        self.reset_parameters()
 
     def forward(self, x):
-        if len(x.shape) == 1: # if there is only one input
-            # outputs the target shape, which is all the output objects but not the input object
-            batch_size = 1
-            output_shape = x.shape[0] - self.first_obj_dim - self.post_dim
-            if self.post_dim > 0:
-                px = x[x.shape[0] - self.post_dim:]
-            if self.first_obj_dim > 0: # if there is a "first" object like the ball
-                fx = x[:self.first_obj_dim] # TODO: always assumes first object dim is the first dimensions
-                x = x[self.first_obj_dim:x.shape[0] - self.post_dim]
-            nobj = x.shape[0] // self.object_dim
-            x = x.view(nobj, self.object_dim)
-            if self.first_obj_dim > 0:
-                broadcast_fx = torch.stack([fx.clone() for i in range(nobj)], dim=0)
-                x = torch.cat((broadcast_fx, x), dim=1)
-            x = x.transpose(1,0)
-            x = x.unsqueeze(0)
-        elif len(x.shape) == 2:
-            batch_size = x.shape[0]
-            output_shape = x.shape[1] - self.first_obj_dim  - self.post_dim
-            if self.post_dim > 0:
-                px = x[:, x.shape[1]-self.post_dim:]
-            if self.first_obj_dim > 0:
-                fx = x[:, :self.first_obj_dim] # TODO: always assumes first object dim is the first dimensions
-                x = x[:, self.first_obj_dim:x.shape[1]-self.post_dim]
-            nobj = x.shape[1] // self.object_dim
-            x = x.view(-1, nobj, self.object_dim)
-            if self.first_obj_dim > 0:
-                broadcast_fx = torch.stack([fx.clone() for i in range(nobj)], dim=1)
-                # print(broadcast_fx.shape, x.shape)
-                x = torch.cat((broadcast_fx, x), dim=2)
-            # torch.set_printoptions(threshold=1000000)
-            # print(x)
-            x = x.transpose(2,1)
+        # if len(x.shape) == 1: # if there is only one input
+        #     # outputs the target shape, which is all the output objects but not the input object
+        #     batch_size = 1
+        #     output_shape = x.shape[0] - self.first_obj_dim - self.post_dim
+        #     if self.post_dim > 0:
+        #         px = x[x.shape[0] - self.post_dim:]
+        #     if self.first_obj_dim > 0: # if there is a "first" object like the ball
+        #         fx = x[:self.first_obj_dim] # TODO: always assumes first object dim is the first dimensions
+        #         x = x[self.first_obj_dim:x.shape[0] - self.post_dim]
+        #     nobj = x.shape[0] // self.object_dim
+        #     x = x.view(nobj, self.object_dim)
+        #     if self.first_obj_dim > 0:
+        #         broadcast_fx = torch.stack([fx.clone() for i in range(nobj)], dim=0)
+        #         x = torch.cat((broadcast_fx, x), dim=1)
+        #     x = x.transpose(1,0)
+        #     x = x.unsqueeze(0)
+        # elif len(x.shape) == 2:
+        #     batch_size = x.shape[0]
+        #     output_shape = x.shape[1] - self.first_obj_dim  - self.post_dim
+        #     if self.post_dim > 0:
+        #         px = x[:, x.shape[1]-self.post_dim:]
+        #     if self.first_obj_dim > 0:
+        #         fx = x[:, :self.first_obj_dim] # TODO: always assumes first object dim is the first dimensions
+        #         x = x[:, self.first_obj_dim:x.shape[1]-self.post_dim]
+        #     nobj = x.shape[1] // self.object_dim
+        #     x = x.view(-1, nobj, self.object_dim)
+        #     if self.first_obj_dim > 0:
+        #         broadcast_fx = torch.stack([fx.clone() for i in range(nobj)], dim=1)
+        #         # print(broadcast_fx.shape, x.shape)
+        #         x = torch.cat((broadcast_fx, x), dim=2)
+        #     # torch.set_printoptions(threshold=1000000)
+        #     # print(x)
+        #     x = x.transpose(2,1)
+
+        # print("before append", x)
+        batch_size = x.shape[0]
+        output_shape = x.shape[-1] - self.first_obj_dim  - self.post_dim
+        if self.post_dim > 0:
+            px = torch.cat([x[...,:self.first_obj_dim], x[..., x.shape[-1]-self.post_dim:]], dim=-1)
+        if self.first_obj_dim > 0:
+            fx = x[..., :self.first_obj_dim] # TODO: always assumes first object dim is the first dimensions
+            x = x[..., self.first_obj_dim:x.shape[-1]-self.post_dim]
+        nobj = x.shape[-1] // self.object_dim
+        x = x.view(-1, nobj, self.object_dim)
+        if self.first_obj_dim > 0:
+            broadcast_fx = torch.stack([fx.clone() for i in range(nobj)], dim=len(fx.shape) - 1)
+            x = torch.cat((broadcast_fx, x), dim=-1)
+        # torch.set_printoptions(threshold=1000000)
+        # print(x)
+        x = x.transpose(2,1)
+        # print("after append", x, px)
+
 
         x = self.conv(x)
         if self.aggregate_final:

@@ -29,6 +29,7 @@ class Sampler():
         self.len_cfs = np.array([j-i for i,j in [tuple(cfs.feature_range) for cfs in self.cfselectors]])
 
         self.param, self.mask = self.sample(kwargs["init_state"])
+        print("ranges", self.lower_cfs, self.upper_cfs)
         self.iscuda = False
 
     def cuda(self, device=None):
@@ -109,7 +110,7 @@ class Sampler():
 
 class TargetSampler(Sampler):
     def __init__(self, **kwargs):
-        # a sampler that just takes the "Target" object as the "sample"
+        # a sampler that just takes the "Target" object as the "sample", assumes dim 3 with 1,1,0 mask
         print(kwargs["target_object"])
         self.delta = kwargs["environment_model"].create_entity_selector([kwargs["target_object"]])
         self.combine_param_mask = True
@@ -119,8 +120,9 @@ class TargetSampler(Sampler):
 
     def sample(self, states):
         states = states["factored_state"]
-        target = self.delta(states)
-        return target, np.zeros(target.shape)
+        mask = np.array([1,1,0])
+        target = self.get_mask_param(self.delta(states), mask)
+        return target, np.array([1,1,0])
 
 class RawSampler(Sampler):
     # never actually samples
@@ -129,6 +131,7 @@ class RawSampler(Sampler):
 
 class LinearUniformSampling(Sampler):
     def get_targets(self, states):
+        print(self.dataset_model.sample_continuous)
         if self.dataset_model.sample_continuous:
             cfselectors = self.dataset_model.cfselectors
             weights = np.random.random((len(cfselectors,))) # random weight vector
@@ -335,7 +338,7 @@ class LinearUniformCenteredUnclipSampling(Sampler):
 
     def get_targets(self, states):
         distance = self.current_distance
-        if self.schedule > 0: # the distance changes, otherwise it is a set constant .15 of the maximum TODO: add hyperparam
+        if self.schedule > 0: # the distance changes, otherwise it is set to kwargs.sample_distance
             self.current_distance = self.distance - (self.distance - distance) * np.exp(-(self.schedule_counter + 1)/self.schedule)
         cfselectors = self.dataset_model.cfselectors
 

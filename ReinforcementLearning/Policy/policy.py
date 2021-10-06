@@ -138,7 +138,7 @@ class TSPolicy(nn.Module):
             args.bound_output = 0
             actor = PolicyType(num_inputs=input_shape, num_outputs=aout_shape, aggregate_final=True, **args)
             args.bound_output = critic_bo
-            if args.policy_type == 'pair': args.post_dim = args.post_dim + ainp_dim
+            if args.policy_type == 'pair': args.first_obj_dim = args.first_obj_dim + ainp_dim
             critic = PolicyType(num_inputs=cinp_shape, num_outputs=cout_shape, action_dim=ainp_dim, aggregate_final=True, continuous_critic=True, **args)
             if discrete_actions: critic = Critic(critic, last_size=action_shape, device=device).to(device)
             else: critic = Critic(critic, device=device).to(device)

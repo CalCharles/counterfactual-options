@@ -252,13 +252,16 @@ class EnvironmentModel():
                 fs[n] = [[i, idx]]
                 ad[n] = [idx]
             names.append(n)
-        lastn = names[0]
-        clean_names = [lastn]
-        for n in names:
-            if n != lastn:
-                clean_names.append(n)
-        fs = {n: np.array(fs[n]) for n in fs.keys()}
-        non_control_selector = FeatureSelector(a, ad, fs, clean_names)
+        if len(names) > 0:
+            lastn = names[0]
+            clean_names = [lastn]
+            for n in names:
+                if n != lastn:
+                    clean_names.append(n)
+            fs = {n: np.array(fs[n]) for n in fs.keys()}
+            non_control_selector = FeatureSelector(a, ad, fs, clean_names)
+        else:
+            non_control_selector = None
         return control_selector, non_control_selector
 
 
@@ -447,10 +450,21 @@ class FeatureSelector():
                 cat = lambda x, a: np.concatenate(x, axis=a)
             elif type(states[self.names[0]]) == torch.Tensor:
                 cat = lambda x, a: torch.cat(x, dim=a)
-            if len(states[self.names[0]].shape) == 1: # only support internal dimension up to 2
-                return cat([states[names[0]][i] - states[names[1]][i] for names, i in self.relative_indexes.items()], 0)
-            if len(states[self.names[0]].shape) == 2: # only support internal dimension up to 2
-                return cat([states[names[0]][:, i] - states[names[1]][:, i] for names, i in self.relative_indexes.items()], 1)
+            # if len(states[self.names[0]].shape) == 1: # only support internal dimension up to 2
+            #     return cat([states[names[0]][i] - states[names[1]][i] for names, i in self.relative_indexes.items()], 0)
+            # if len(states[self.names[0]].shape) == 2: # only support internal dimension up to 2
+            relative_expanded = dict()
+            for names, i in self.relative_indexes.items():
+                if names[1] in states:
+                    relative_expanded[names] = i
+                else:
+                    j=0
+                    add_name = names[1] + str(j)
+                    while add_name in states:
+                        relative_expanded[(names[0], add_name)] = i
+                        j += 1
+                        add_name = names[1] + str(j)
+            return cat([states[names[0]][...,i] - states[names[1]][...,i] for names, i in relative_expanded.items()], -1)
             # return [states[names[0]][i] - states[names[1]][i] for names, i in self.relative_indexes.items()]
         elif len(states.shape) == 1: # a single flattened state
             return states[self.relative_flat_indexes[:,0]] - states[self.relative_flat_indexes[:,1]]

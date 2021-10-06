@@ -11,7 +11,7 @@ class TerminateReward():
         self.true_interaction = args.true_interaction
         # self.init_term = args.init_term # whether to be terminated on the first state after a reset, false except for primitive terminate reward
 
-        self.time_cutoff = args.time_cutoff
+        self.time_cutoff = args.time_cutoff# + int(args.env_reset) # plus 1 is to adjust for environment resets
         self.timer = 0 # used for timed terminations
 
         self.epsilon_min = args.epsilon_min

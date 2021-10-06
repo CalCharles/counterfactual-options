@@ -40,4 +40,5 @@ def draw_line(frame, loc, direc):
 		col = COLOR
 	for i in range(LINELEN):
 		pt = np.round(loc + direction * i)
-		frame[int(pt[0]), int(pt[1])] = col
+		if 0 <= pt[0] < 84 and 0 <= pt[1] < 84:
+			frame[int(pt[0]), int(pt[1])] = col
