@@ -103,8 +103,8 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
 
             for j in range(50):
                 idx = (train_collector.get_buffer_idx() + (j - 100)) % args.buffer_len
-                d, info,r, bi, a, ma, ti, p, itr, t, obs = buf[idx].done, buf[idx].info, buf[idx].rew, buf[idx].inter, buf[idx].act, buf[idx].mapped_act, buf[idx].time, buf[idx].param, buf[idx].inter_state, buf[idx].next_target, buf[idx].obs_next
-                print(j, idx, d, info["TimeLimit.truncated"], r, bi, a, ma, ti, p, itr, t, obs, rv(obs))
+                d, info,r, bi, a, ma, ti, p, t, nt, itr, obs = buf[idx].done, buf[idx].info, buf[idx].rew, buf[idx].inter, buf[idx].act, buf[idx].mapped_act, buf[idx].time, buf[idx].param, buf[idx].target, buf[idx].next_target, buf[idx].inter_state, buf[idx].obs_next
+                print(j, idx, d, info["TimeLimit.truncated"], r, bi, a, ma, ti, p, t, nt, itr, obs, rv(obs))
 
             if option.policy.is_her:
                 hrb = option.policy.learning_algorithm.replay_buffer
@@ -112,8 +112,8 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                     print("hindsight buffer", len(hrb), option.policy.learning_algorithm.get_buffer_idx())
                     for j in range(50):
                         idx = (option.policy.learning_algorithm.get_buffer_idx() + (j - 100)) % args.buffer_len
-                        dh, infoh, rh, ih, ah, mah, tih, ph, itrh, th, obsh = hrb[idx].done, hrb[idx].info, hrb[idx].rew, hrb[idx].inter, hrb[idx].act, hrb[idx].mapped_act, hrb[idx].time, hrb[idx].param, hrb[idx].inter_state, hrb[idx].next_target, hrb[idx].obs_next
-                        print(j, idx, dh, infoh["TimeLimit.truncated"], rh, ih, ah, mah, tih, ph, itrh, th, obsh, rv(obsh))
+                        dh, infoh, rh, ih, ah, mah, tih, ph, th, nth, itrh, obsh = hrb[idx].done, hrb[idx].info, hrb[idx].rew, hrb[idx].inter, hrb[idx].act, hrb[idx].mapped_act, hrb[idx].time, hrb[idx].param, hrb[idx].target, hrb[idx].next_target, hrb[idx].inter_state, hrb[idx].obs_next
+                        print(j, idx, dh, infoh["TimeLimit.truncated"], rh, ih, ah, mah, tih, ph, th, nth, itrh, obsh, rv(obsh))
         # # END PRINTOUTS
 
     if args.save_interval > 0:

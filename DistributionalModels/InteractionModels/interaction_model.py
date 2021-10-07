@@ -281,11 +281,12 @@ class NeuralInteractionForwardModel(nn.Module):
         return np.concatenate(l1mag, axis=0)
 
 
-    def get_interaction_vals(self, rollouts):
+    def get_interaction_vals(self, rollouts, multi=False):
         interaction = []
         for i in range(int(np.ceil(rollouts.filled / 500))):
             inputs = rollouts.get_values("state")[i*500:(i+1)*500]
-            ints = self.interaction_model(self.gamma(inputs))
+            if self.multi_instanced and multi: ints = self.interaction_model.instance_labels(self.gamma(inputs))
+            else: ints = self.interaction_model(self.gamma(inputs))
             interaction.append(pytorch_model.unwrap(ints))
         return np.concatenate(interaction, axis=0)
 
@@ -609,7 +610,7 @@ class NeuralInteractionForwardModel(nn.Module):
                 self.run_optimizer(train_args, interaction_optimizer, self.interaction_model, trace_loss)
                 
                 if i % train_args.log_interval == 0:
-                    obj_indices = list(range(30))
+                    obj_indices = list(range(min(30, train_args.batch_size)))
                     inp = self.gamma(batchvals.values.state)
                     if self.multi_instanced: 
                         # print out only the interaction instances which are true
@@ -636,8 +637,8 @@ class NeuralInteractionForwardModel(nn.Module):
                         print(target[obj_indices[0][0]], interaction_likelihood[obj_indices[0][0]])
                         for a in obj_indices:
                             print("state:", pytorch_model.unwrap(inp)[a[0], a[1]],
-                            "inter: ", interaction_likelihood[a[0], a[1]],
-                            "target: ", target[a[0], a[1]])
+                            "inter: ", pytorch_model.unwrap(interaction_likelihood[a[0], a[1]]),
+                            "target: ", pytorch_model.unwrap(target[a[0], a[1]]))
                     else:
                         print(i, ": tl: ", trace_loss)
                         print("\nstate:", pytorch_model.unwrap(inp)[obj_indices],
@@ -868,11 +869,15 @@ class NeuralInteractionForwardModel(nn.Module):
 
 
     def compute_interaction_stats(self, rollouts, trace=None, passive_error_cutoff=2):
-        ints = self.get_interaction_vals(rollouts)
+        ints = self.get_interaction_vals(rollouts, multi=True)
         bins, fe, pe = self.get_binaries(rollouts)
+        # if self.multi_instanced: bins = torch.max(bins, )
         if trace is None:
             trace = self.generate_interaction_trace(rollouts, [self.control_feature], [self.target_name])
-        if self.multi_instanced: trace = torch.max(trace, dim=1)[0].squeeze()
+        traceidx, intsidx = trace, ints
+        if self.multi_instanced: 
+            traceidx = torch.max(trace, dim=1)[0].squeeze()
+            intsidx = np.max(ints, axis=1)[0].squeeze()
         trace = pytorch_model.unwrap(trace)
         passive_error = self.get_prediction_error(rollouts)
         weights, use_weights, total_live, total_dead, ratio_lambda = self._get_weights(passive_error, ratio_lambda=1, passive_error_cutoff=passive_error_cutoff)     
@@ -880,11 +885,12 @@ class NeuralInteractionForwardModel(nn.Module):
         pints, ptrace = np.zeros(ints.shape), np.zeros(trace.shape)
         pints[ints > .7] = 1
         ptrace[trace > 0] = 1
-        print_weights = (weights + pints.squeeze() + ptrace).squeeze()
-        print_weights[print_weights > 1] = 1
+        # print_weights = (weights + pints.squeeze() + ptrace).squeeze()
+        # print_weights[print_weights > 1] = 1
 
         print(ints.shape, bins.shape, np.expand_dims(trace, 1).shape, fe.shape, pe.shape)
-        comb = np.concatenate([ints, bins, np.expand_dims(trace, 1), fe, pe], axis=1)
+        if not self.multi_instanced: trace = np.expand_dims(trace, 1)
+        comb = np.concatenate([ints, bins, trace, fe, pe], axis=1)
         
         bin_error = bins.squeeze()-trace.squeeze()
         bin_false_positives = np.sum(bin_error[bin_error > 0])
@@ -1092,7 +1098,7 @@ class NeuralInteractionForwardModel(nn.Module):
 
         # create a feature selector to match that
         self.selection_binary = pytorch_model.wrap(v, cuda=self.iscuda)
-        self.feature_selector, self.reverse_feature_selector = self.environment_model.get_subset(self.delta, v)
+        self.feature_selector, self.reverse_feature_selector = self.environment_model.get_factored_subset(self.delta, v)
 
         # create a controllable feature selector for each controllable feature
         self.cfselectors = list()

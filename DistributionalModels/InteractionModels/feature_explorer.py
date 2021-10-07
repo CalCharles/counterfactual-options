@@ -112,7 +112,8 @@ class FeatureExplorer():
             model_name = cfs + "+" + additional_obj+ "->" + name
         self.model_args['name'] = model_name
         gamma_names = [cfs] + additional_object + [name]
-        entity_selection = self.em.create_entity_selector(gamma_names)
+        add_relative = train_args.observation_setting[0] == 1
+        entity_selection = self.em.create_entity_selector(gamma_names, add_relative=add_relative)
         self.model_args['gamma'] = entity_selection
         self.model_args['delta'] = self.em.create_entity_selector([name])
         self.model_args['object_dim'] = self.em.object_sizes[name]
@@ -120,7 +121,8 @@ class FeatureExplorer():
         self.model_args['first_obj_dim'] = self.em.object_sizes[cfs]
         nout = self.em.object_sizes[name] * self.em.object_num[name]
         nin = self.em.object_sizes[cfs] * self.em.object_num[cfs] + nout
-        print(train_args.multi_instanced, train_args.hardcode_norm)
+        print(train_args.multi_instanced, train_args.hardcode_norm, nin, nout)
+        # TODO: add_relative does not play nice with hardcode norms at the moment
         if train_args.multi_instanced:
             input_norm_fun = PointwiseConcatNorm(object_dim = self.model_args['object_dim'], first_obj_dim = self.model_args['first_obj_dim'])
             delta_norm_fun = PointwiseNorm(object_dim = self.model_args['object_dim'])

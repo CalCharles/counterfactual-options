@@ -66,7 +66,7 @@ class TerminateReward():
 
         # compute the termination and reward values
         term = self.term.check(inter, target_state, param, mask, true_done)
-        rew = self.reward.get_reward(inter, target_state, param, mask, true_reward)
+        rew = self.reward.get_reward(inter, target_state, param, mask, true_reward, info=full_state)
         # time cutoff indicates whether the termination was due to the timer cutoff
         time_cutoff = False
         if self.timer == self.time_cutoff and use_timer:

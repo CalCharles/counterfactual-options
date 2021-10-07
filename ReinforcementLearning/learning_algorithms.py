@@ -57,6 +57,12 @@ class HER(LearningOptimizer):
         self.use_interact = not args.true_environment and args.use_interact
         self.max_hindsight = args.max_hindsight
         self.replay_queue = deque(maxlen=args.max_hindsight)
+
+        # stores single states for reward summing
+        self.between_replay = [0]
+        self.between_replay_counter = 0
+        self.single_batch_queue = list()
+
         self.early_stopping = args.early_stopping # stops after seeing early stopping number of termiantions
         self.only_interaction = args.her_only_interact # only resamples if at least one interaction occurs
 
@@ -69,6 +75,8 @@ class HER(LearningOptimizer):
         full_batch is (state, next_state) from the aggregator, handling temporal extension
         single_batch is (state, next_state) according to the environment
         '''
+        self.single_batch_queue.append(copy.deepcopy(single_batch))
+        self.between_replay_counter += 1
         if skipped or not added: 
             # see collector aggregate class method, but skipped follows a "true done" to avoid adding the transition
             # if not added, then temporal extension is occurring
@@ -81,6 +89,7 @@ class HER(LearningOptimizer):
         if (term_resample
              or timer_resample
              or inter_resample): # either end of episode or end of timer, might be good to have if interaction, this relies on termination == interaction in the appropriate place
+            self.between_replay.append(self.between_replay_counter)
             mask = full_batch.mask[0]
             if self.option.dataset_model.multi_instanced: # if multiinstanced, param should not be masked, and needs to be defined by the instance, not just the object state
                 dataset_model = self.option.dataset_model
@@ -103,9 +112,18 @@ class HER(LearningOptimizer):
                     obs_next = self.state_extractor.assign_param(batch.next_full_state[0], batch.obs_next, param, mask), mask=[mask])
                 true_done = batch.true_done
                 true_reward = batch.true_reward
+
                 term, rew, inter, time_cutoff = self.option.terminate_reward.check(batch.full_state[0], batch.next_full_state[0], param, mask, inter_state=inter_state, use_timer=False, true_inter=batch.inter.squeeze())
-                if self.sum_rewards and rew < -0.1: # TODO: right now, use the given rewards IF rew < -0.1, a hack to get the summed rewards
-                    rew = batch.rew.squeeze()
+                if self.sum_rewards:
+                    rew = 0
+                    between_pair = (self.between_replay[-i-1], self.between_replay[-i])
+                    # print(between_pair)
+                    for j in range(*between_pair):
+                        old_batch = self.single_batch_queue[j]
+                        # only use the last termination, not if any intermediate terminations occurred
+                        _, ss_rew, _, _ = self.option.terminate_reward.check(old_batch.full_state[0], old_batch.next_full_state[0], param, mask, inter_state=inter_state, use_timer=False, true_inter=old_batch.inter.squeeze())
+                        rew += ss_rew
+                        # print(rew, ss_rew, j, old_batch.full_state["factored_state"]["Block"], old_batch.target, old_batch.next_target, old_batch.mapped_act, param)
                 total_interaction += float(self._check_interaction(inter.squeeze()))
                 timer, self.done_model.timer = self.done_model.timer, 0
                 done = self.done_model.check(term, true_done)
@@ -135,6 +153,10 @@ class HER(LearningOptimizer):
             self.sample_timer = 0
             del self.replay_queue
             self.replay_queue = deque(maxlen=self.max_hindsight)
+            self.single_batch_queue = list()
+            self.between_replay = list() # will append zero
+            self.between_replay_counter = 0
+        self.between_replay.append(self.between_replay_counter)
 
     def get_buffer_idx(self):
         return self.at

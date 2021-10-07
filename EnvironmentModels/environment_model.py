@@ -202,20 +202,59 @@ class EnvironmentModel():
         insert_dict = {'state': state, 'next_state': next_state, 'state_diff': next_state-state, 'done': self.get_done({"factored_state": factored_state}), 'action': self.get_action({"factored_state": factored_state})}
         return insert_dict, state, skip
 
-    def create_entity_selector(self, names):
+    def match_factored_flat(self, f, name):
+        # returns the corresponding flat features for factored feature @param f: int in name @param name
+        return [self.indexes[name][0] + f + j * self.object_sizes[name] for j in range(self.object_num[name])]
+
+    def create_entity_selector(self, names, add_relative=False):
         flat_features = list()
         factored_features = dict()
         feature_match = dict()
         for name in names:
             flat_features += list(range(*self.indexes[name]))
             factored_features[name] = np.arange(self.object_sizes[name]).astype('int')
-            feature_match[name] = np.array([[fac, flt] for fac,flt in zip(factored_features[name], list(range(*self.indexes[name])))])
-        return FeatureSelector(flat_features, factored_features, feature_match, names)
+            feature_match_flat = list()
+            fac = factored_features[name]
+            for i in range(len(factored_features[name])):
+                flt = np.array(self.match_factored_flat(i, name)).astype(int)
+                feature_match_flat.append(np.array([fac[i], flt]))
+            feature_match[name] = np.array(feature_match_flat)
+        return FeatureSelector(flat_features, factored_features, feature_match, names, add_relative=add_relative)
 
     def flat_to_factored(self, idx):
         for name in self.indexes.keys():
             if self.indexes[name][0] <= idx < self.indexes[name][1]: 
                 return name, idx - self.indexes[name][0]
+
+    def get_factored_subset(self, entity_selector, factored_bin):
+        # assumes a single object entity selector
+        # factored binary for a single instance of an object
+        facfea = pytorch_model.unwrap(torch.nonzero((factored_bin == 1).long())).flatten()
+        name = entity_selector.names[0]
+        factored_features = {name: facfea}
+        feature_match = dict()
+        flat_features = list()
+        names = [name]
+        for f in facfea:
+            flat_eq = self.match_factored_flat(f, name)
+            feature_match[name] = np.array([f, np.array(flat_eq)])
+            flat_features += flat_eq
+        flat_features.sort()
+        control_selector = FeatureSelector(factored_features, np.array(flat_features), feature_match, names)
+
+        facfea = pytorch_model.unwrap(torch.nonzero((factored_bin == 0).long())).flatten()
+        name = entity_selector.names[0]
+        factored_features = {name: facfea}
+        feature_match = dict()
+        flat_features = list()
+        names = [name]
+        for f in facfea:
+            flat_eq = self.match_factored_flat(f, name)
+            feature_match[name] = np.array([f, np.array(flat_eq)])
+            flat_features += flat_eq
+        flat_features.sort()
+        non_control_selector = FeatureSelector(factored_features, np.array(flat_features), feature_match, names)
+        return control_selector, non_control_selector
 
     def get_subset(self, entity_selector, flat_bin):
         # flat_bin is a binary vector that is 1 when the feature is chosen and 0 otherwise
@@ -226,10 +265,10 @@ class EnvironmentModel():
         names = list()
         for i, (n, idx) in zip(a, [self.flat_to_factored(i) for i in a]):
             if n in ad:
-                fs[n].append([i,idx])
+                fs[n].append([idx, [i]])
                 ad[n].append(idx)
             else:
-                fs[n] = [[i, idx]]
+                fs[n] = [[idx, [i]]]
                 ad[n] = [idx]
             names.append(n)
         lastn = names[0]
@@ -246,10 +285,10 @@ class EnvironmentModel():
         names = list()
         for i, (n, idx) in zip(a, [self.flat_to_factored(i) for i in a]):
             if n in ad:
-                fs[n].append([i,idx])
+                fs[n].append([idx,[i]])
                 ad[n].append(idx)
             else:
-                fs[n] = [[i, idx]]
+                fs[n] = [[idx,[i]]]
                 ad[n] = [idx]
             names.append(n)
         if len(names) > 0:
@@ -267,9 +306,9 @@ class EnvironmentModel():
 
     def construct_action_selector(self):
         if self.environment.discrete_actions:
-            return FeatureSelector([self.indexes['Action'][1] - 1], {'Action': [self.object_sizes['Action'] - 1]}, {'Action': np.array([self.indexes['Action'][1] - 1, self.object_sizes['Action'] - 1])}, ['Action'])
+            return FeatureSelector([self.indexes['Action'][1] - 1], {'Action': [self.object_sizes['Action'] - 1]}, {'Action': np.array([self.indexes['Action'][1] - 1, [self.object_sizes['Action'] - 1]])}, ['Action'])
         else:
-            return [FeatureSelector([self.indexes['Action'][0] + i], {'Action': np.array([i])}, {'Action': np.array([self.indexes['Action'][0] + i, i])}, ['Action']) for i in range( self.object_sizes['Action'])]
+            return [FeatureSelector([self.indexes['Action'][0] + i], {'Action': np.array([i])}, {'Action': np.array([self.indexes['Action'][0] + i, [i]])}, ['Action']) for i in range( self.object_sizes['Action'])]
 
 def get_selection_list(cfss): # TODO: put this inside ControllableFeature as a static function
     possibility_lists = list()
@@ -375,7 +414,7 @@ class ControllableFeature():
 
 
 class FeatureSelector():
-    def __init__(self, flat_features, factored_features, feature_match, names):
+    def __init__(self, flat_features, factored_features, feature_match, names, add_relative=False):
         '''
         flat features: a list of indexes which are the features when flat
         factored_features: a dict of the entity name and the feature indices as a numpy array, with only one index per tuple
@@ -387,6 +426,7 @@ class FeatureSelector():
         self.feature_match = feature_match # a dict of name: [[factored feature, flat feature]...]
         n = list(self.feature_match.keys())[0]
         self.names=names
+        self.add_relative = add_relative
 
         def find_idx(i, l2):
             for idx, k in enumerate(l2):
@@ -401,6 +441,8 @@ class FeatureSelector():
 
         self.relative_indexes = dict()
         self.relative_flat_indexes = dict()
+        self.name_order = list()
+        self.len_relative = 0
         for n in self.names:
             for on in self.names: # for each name
                 if n != on:
@@ -417,9 +459,12 @@ class FeatureSelector():
                             if i not in self.relative_indexes[hsh]:
                                 self.relative_indexes[hsh].append(i)
                                 self.relative_flat_indexes[hsh].append([t,flt2[idx]])
+                                self.len_relative += 1
+                            if hsh not in self.name_order:
+                                self.name_order.append(hsh)
         # print(self.relative_indexes, self.relative_flat_indexes)
         if len(list(self.relative_flat_indexes.keys())) > 0:
-            self.relative_flat_indexes = np.concatenate([np.array(self.relative_flat_indexes[hsh]) for hsh in self.relative_flat_indexes.keys()], axis=0)
+            self.relative_flat_indexes = np.concatenate([np.array(self.relative_flat_indexes[hsh]) for hsh in self.name_order], axis=0)
         print(list(self.feature_match.keys()), self.names, self.relative_indexes, self.relative_flat_indexes)
 
         self.clean_factored_features()
@@ -434,7 +479,7 @@ class FeatureSelector():
         return list(self.factored_features.keys())
 
     def output_size(self):
-        return len(self.flat_features)
+        return len(self.flat_features) + int(self.add_relative) * self.len_relative
 
     def clean_factored_features(self): # only cleaned once at the start
         for name in self.names:
@@ -445,6 +490,7 @@ class FeatureSelector():
 
     def get_relative(self, states):
         # print("states", states, self.relative_indexes)
+
         if type(states) is dict or type(states) is Batch or type(states) is OrderedDict: # factored features
             if type(states[self.names[0]]) == np.ndarray:
                 cat = lambda x, a: np.concatenate(x, axis=a)
@@ -454,6 +500,7 @@ class FeatureSelector():
             #     return cat([states[names[0]][i] - states[names[1]][i] for names, i in self.relative_indexes.items()], 0)
             # if len(states[self.names[0]].shape) == 2: # only support internal dimension up to 2
             relative_expanded = dict()
+            expanded_order = list()
             for names, i in self.relative_indexes.items():
                 if names[1] in states:
                     relative_expanded[names] = i
@@ -466,15 +513,14 @@ class FeatureSelector():
                         add_name = names[1] + str(j)
             return cat([states[names[0]][...,i] - states[names[1]][...,i] for names, i in relative_expanded.items()], -1)
             # return [states[names[0]][i] - states[names[1]][i] for names, i in self.relative_indexes.items()]
-        elif len(states.shape) == 1: # a single flattened state
-            return states[self.relative_flat_indexes[:,0]] - states[self.relative_flat_indexes[:,1]]
-        elif len(states.shape) == 2: # a batch of flattened state
-            return states[:, self.relative_flat_indexes[:,0]] - states[:, self.relative_flat_indexes[:,1]]
-        elif len(states.shape) == 3: # a batch of stacks of flattened state
-            return states[:,:, self.relative_flat_indexes[:,0]] - states[:,:, self.relative_flat_indexes[:,1]]
+        return states[..., self.relative_flat_indexes[:,0]] - states[...,self.relative_flat_indexes[:,1]]
 
 
     def __call__(self, states):
+        # REMOVE LINE BELOW
+        if not hasattr(self, "add_relative"):
+            self.add_relative = False
+
         if type(states) is dict or type(states) is Batch or type(states) is OrderedDict: # factored features, returns a flattened state to match the other calls
             # ks = self.factored_features.keys()
             # return {name: states[name][idxes] for name, idxes in self.factored_features}
@@ -493,46 +539,39 @@ class FeatureSelector():
                     cat = np.array
                 elif type(states[self.names[0]]) == torch.Tensor:
                     cat = torch.tensor
-                if len(state_check.shape) == 1: # only support internal dimension up to 2
-                    return cat([states[name][self.factored_features[name]] for name in self.names])
-                elif len(state_check.shape) == 2:
-                    return cat([states[name][:, self.factored_features[name]] for name in self.names])
-            state_cat = list()
-            for name in self.names:
-                if name in states:
-                    if len(state_check.shape) == 1:
-                        state_cat.append(states[name][self.factored_features[name]])
-                    elif len(state_check.shape) == 2:
-                        state_cat.append(states[name][:, self.factored_features[name]])
-                else:
-                    i = 0 # TODO: looks for multiple instances by searching through name+index, not sure if this is great
-                    while name + str(i) in states.keys():
-                        if len(state_check.shape) == 1:
-                            state_cat.append(states[name + str(i)][self.factored_features[name]])
-                        elif len(state_check.shape) == 2:
-                            state_cat.append(states[name + str(i)][:, self.factored_features[name]])
-                        i += 1
-            if len(state_check.shape) == 1:
-                return cat(state_cat, 0)
-            elif len(state_check.shape) == 2:
-                return cat(state_cat, 1)
-        elif len(states.shape) == 1: # a single flattened state
-            return states[self.flat_features]
-        elif len(states.shape) == 2: # a batch of flattened state
-            return states[:, self.flat_features]
-        elif len(states.shape) == 3: # a batch of stacks of flattened state
-            return states[:, :, self.flat_features]
+                cut_state = cat([states[name][...,self.factored_features[name]] for name in self.names], -1)
+            else:
+                state_cat = list()
+                for name in self.names:
+                    if name in states:
+                        state_cat.append(states[name][..., self.factored_features[name]])
+                    else:
+                        i = 0 # TODO: looks for multiple instances by searching through name+index, not sure if this is great
+                        while name + str(i) in states.keys():
+                            state_cat.append(states[name + str(i)][..., self.factored_features[name]])
+                            i += 1
+                cut_state = cat(state_cat, -1)
+            if self.add_relative:
+                rel_state = self.get_relative(states)
+                cut_state = cat([state_cat, rel_state], -1)
+            return cut_state
+        if self.add_relative:
+            if type(states) == np.ndarray:
+                cat = lambda x, a: np.concatenate(x, axis=a)
+            elif type(states) == torch.Tensor:
+                cat = lambda x, a: torch.cat(x, dim=a)
+                rel_state = self.get_relative(states)
+            return cat([states[..., self.flat_features], rel_state], -1)
+        return states[..., self.flat_features]
 
     def reverse(self, delta_state, insert_state):
+        '''
+        assigns the relavant values of insert_state to delta_state
+        '''
         if type(insert_state) == dict: # only works for dict to one object
             for name, idxes in self.factored_features.keys():
                 insert_state[name][idxes] = delta_state
-        elif len(insert_state.shape) == 1:
-            insert_state[self.flat_features] = delta_state
-        elif len(insert_state.shape) == 2: # a batch of flattened state
-            insert_state[:, self.flat_features] = delta_state
-        elif len(insert_state.shape) == 3: # a batch of flattened state
-            insert_state[:, self.flat_features] = delta_state
+        insert_state[..., self.flat_features] = delta_state
 
 def cpu_state(factored_state):
     fs = dict()
@@ -548,20 +587,11 @@ def assign_feature(states, assignment, edit=False, clipped=None):
         states[assignment[0][0]][assignment[0][1]] = assignment[1] if not edit else states[assignment[0][0]][assignment[0][1]] + assignment[1]
         if clipped is not None:
             states[assignment[0][0]][assignment[0][1]] = states[assignment[0][0]][assignment[0][1]].clip(clipped[0], clipped[1])
-    elif len(states.shape) == 1: # a single flattened state
-        states[assignment[0]] = assignment[1] if not edit else states[assignment[0]] + assignment[1]
+    else:
+        states[...,assignment[0]] = assignment[1] if not edit else states[...,assignment[0]] + assignment[1]
         if clipped is not None:
-            states[assignment[0]] = states[assignment[0]].clip(clipped[0], clipped[1])
-    elif len(states.shape) == 2: # a batch of flattened state
-        states[:, assignment[0]] = assignment[1] if not edit else states[:, assignment[0]] + assignment[1]
-        if clipped is not None:
-            cstates = states[:, assignment[0]].clip(clipped[0], clipped[1])
-            states[:, assignment[0]] = cstates
-    elif len(states.shape) == 3: # a batch of stacks of flattened state
-        states[:, :, assignment[0]] = assignment[1] if not edit else states[:, :, assignment[0]] + assignment[1]
-        if clipped is not None:
-            cstates = states[:, :, assignment[0]].clip(clipped[0], clipped[1])
-            states[:, :, assignment[0]] = cstates
+            cstates = states[...,assignment[0]].clip(clipped[0], clipped[1])
+            states[...,assignment[0]] = cstates
 
 
 

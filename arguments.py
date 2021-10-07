@@ -63,10 +63,11 @@ def get_args():
     parser.add_argument('--discretize-actions', action='store_true', default=False,
                         help='converts a continuous action space to a discrete one (TODO: currently requires relative-action)')
 
-    parser.add_argument('--observation-setting', type=int, nargs='+', default=(1,0,0,1,0,0,0,0,0),
+    parser.add_argument('--observation-setting', type=int, nargs='+', default=(0,0,0,0,0,0,0,0,0),
                         help='sets the components of the input state to the policy (default: (1,0,0,1,0,0,0,0,0))' +
                         'components in this order: interaction_state, target state, full flattened state' +
-                        'param, target state relative to param, relative interaction state, action state, diff')
+                        'param, target state relative to param, relative interaction state, action state, diff,' +
+                        'used in interation model to indicate relative state if position 0 is 1')
 
     parser.add_argument('--relative-action', type=float, default=-1,
                     help='the model computes actions relative to the current object position (-1 is not used)')
@@ -118,8 +119,12 @@ def get_args():
     # termination set parameters
     parser.add_argument('--max-distance-epsilon', type=float, default=-1,
                     help='minimum distance for multi-instanced reward/termination (default: -1)')
+    parser.add_argument('--param-norm', type=int, default=1,
+                    help='p-norm p value to use for the norm (default 1)')
     parser.add_argument('--epsilon-close', type=float, default=0.1,
-                    help='minimum distance for states to be considered the same')
+                    help='minimum distance for states to be considered the same (default 0.1)')
+    parser.add_argument('--negative-epsilon-close', type=float, default=0.1,
+                    help='minimum distance for negative reward regions (robosuite pushing)')
     parser.add_argument('--epsilon-min', type=float, default=0.1,
                     help='minimum distance to end for ring schedule')
     parser.add_argument('--epsilon-close-schedule', type=float, default=0.0,
@@ -187,8 +192,8 @@ def get_args():
     # HER/DQN parameters
     parser.add_argument('--select-positive', type=float, default=0.5,
                     help='For hindsight experience replay, selects the positive reward x percent of the time (default .5)')
-    parser.add_argument('--resample-timer', type=int, default=10,
-                        help='how often to resample a goal (default: 10)')
+    parser.add_argument('--resample-timer', type=int, default=-1,
+                        help='how often to resample a goal (default: -1)')
     parser.add_argument('--early-stopping', type=int, default=-1,
                         help='stop adding too many terminal states to HER (default: -1)')
     parser.add_argument('--max-hindsight', type=int, default=500,

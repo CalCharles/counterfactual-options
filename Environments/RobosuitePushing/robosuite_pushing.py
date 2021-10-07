@@ -202,7 +202,6 @@ class RoboPushingEnvironment(RawEnvironment):
         # print(list(obs.keys()))
         # print(obs['robot0_eef_pos'], obs['cube_pos'], obs['goal_pos'])
         # 'robot0_joint_pos_cos', 'robot0_joint_pos_sin', 'robot0_joint_vel', 'robot0_eef_pos', 'robot0_eef_quat', 'robot0_gripper_qpos', 'robot0_gripper_qvel', 'frontview_image', 'cube_pos', 'gripper_to_cube_pos', 'goal_pos', 'gripper_to_goal_pos', 'cube_to_goal_pos', 'robot0_proprio-state', 'object-state', 'Action', 'Gripper', 'Block', 'Target', 'Reward', 'Done'
-        print(obs)
         return self.construct_full_state(obs, obs["frontview_image"][::-1] if self.renderable else None)
 
     def render(self):

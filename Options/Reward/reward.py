@@ -8,7 +8,7 @@ class Reward():
 	def __init__(self, **kwargs):
 		pass
 		
-	def get_reward(self, inter, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
 		return 1
 
 class BinaryParameterizedReward(Reward):
@@ -17,8 +17,9 @@ class BinaryParameterizedReward(Reward):
 		# self.use_diff = kwargs['use_diff'] # compare the parameter with the diff, or with the outcome
 		# self.use_both = kwargs['use_both'] # supercedes use_diff
 		self.epsilon_close = kwargs['epsilon_close']
+		self.norm_p = kwargs['param_norm']
 
-	def get_reward(self, inter, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
 		# NOTE: input state is from the current state, state, param are from the next state
 		# if self.use_both:
 		# 	if len(diff.shape) == 1 and len(param.shape) == 1:
@@ -46,12 +47,47 @@ class ConstantParameterizedReward(Reward):
 		self.reward_constant = kwargs["reward_constant"]
 		self.epsilon_close = kwargs["epsilon_close"]
 
-	def get_reward(self, inter, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
 		# NOTE: input state is from the current state, state, param are from the next state
 		self.parameterized_reward.epsilon_close = self.epsilon_close
 
 		preward = self.parameterized_reward.get_reward(inter, state, param, mask)
 		return pytorch_model.unwrap(self.reward_constant + preward * self.plmbda) # preward * interacting.squeeze() * self.plmbda
+
+class NegativeParameterizedReward(Reward):
+	def __init__(self, **kwargs):
+		super().__init__(**kwargs)
+		self.epsilon_close = kwargs['negative_epsilon_close']
+
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
+		# hardcoded for robosuite obstacles based on naming
+		i=0
+		name = "Obstacle" + str(i)
+		obstacles = list()
+		while name in info["factored_state"]:
+			obstacles.append(info["factored_state"][name])
+			i += 1
+			name = "Obstacle" + str(i)
+		obstacles = np.array(obstacles)
+		return float(np.any(np.max(np.abs(obstacles[:, :2] - state[:2]), axis=-1) <= self.epsilon_close)) # hardcoded for robosuite obstacles
+
+class ConstantNegativePositiveParameterizedReward(Reward):
+	def __init__(self, **kwargs):
+		super().__init__(**kwargs)
+		self.parameterized_reward = BinaryParameterizedReward(**kwargs)
+		self.negative_reward = NegativeParameterizedReward(**kwargs)
+		self.plmbda = kwargs["parameterized_lambda"]
+		self.reward_constant = kwargs["reward_constant"]
+		self.nlambda = kwargs["true_reward_lambda"]
+		self.epsilon_close = kwargs["epsilon_close"]
+
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
+		# NOTE: input state is from the current state, state, param are from the next state
+		self.parameterized_reward.epsilon_close = self.epsilon_close
+
+		preward = self.parameterized_reward.get_reward(inter, state, param, mask)
+		nreward = self.negative_reward.get_reward(inter, state, param, mask, info=info)
+		return self.reward_constant + preward * self.plmbda + nreward * self.nlambda # preward * interacting.squeeze() * self.plmbda
 
 
 class InteractionReward(Reward):
@@ -60,7 +96,7 @@ class InteractionReward(Reward):
 		# self.interaction_model = kwargs["dataset_model"].interaction_model
 		# self.interaction_model = kwargs["interaction_model"]
 
-	def get_reward(self, inter, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
 		# NOTE: input state is from the current state, state, param are from the next state
 		# return (self.interaction_model(input_state) - 1).squeeze()
 		# print(pytorch_model.unwrap(self.interaction_model(input_state)), pytorch_model.unwrap(input_state))
@@ -73,7 +109,7 @@ class TrueConstantReward(Reward):
 		self.reward_constant = kwargs["reward_constant"]
 		self.rlambda = kwargs["true_reward_lambda"]
 
-	def get_reward(self, inter, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
 		# print(self.rlambda * true_reward * float(true_reward < 0))
 		return self.reward_constant + self.rlambda * true_reward
 
@@ -84,7 +120,7 @@ class TrueNegativeCombinedReward(Reward):
 		self.combined = CombinedReward(**kwargs)
 		self.rlambda = kwargs["true_reward_lambda"]
 
-	def get_reward(self, inter, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
 		# print(self.rlambda * true_reward * float(true_reward < 0))
 		if type(true_reward) == np.ndarray:
 			new_true = true_reward.copy()
@@ -104,7 +140,7 @@ class CombinedReward(Reward):
 		self.reward_constant = kwargs["reward_constant"]
 		self.epsilon_close = kwargs["epsilon_close"]
 
-	def get_reward(self, inter, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
 		# NOTE: input state is from the current state, state, param are from the next state
 		self.parameterized_reward.epsilon_close = self.epsilon_close
 
@@ -125,7 +161,7 @@ class InstancedReward(Reward):
 		self.dataset_model = kwargs["dataset_model"]
 		self.rewarder = reward_forms[kwargs["reward_type"][4:]](**kwargs)
 
-	def get_reward(self, inter, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
 		'''
 		finds out of the desired instance now has the desired value,
 		Finds the instance by matching the values of the instance NOT masked (inverse mask)
@@ -149,7 +185,7 @@ class ProximityInstancedReward(Reward):
 		self.rlambda = kwargs["true_reward_lambda"]
 		self.reward_constant = kwargs["reward_constant"]
 
-	def get_reward(self, inter, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
 		'''
 		finds out of the desired instance now has the desired value,
 		Finds the instance by matching the values of the instance NOT masked (inverse mask)
@@ -212,7 +248,7 @@ class TrueReward(Reward):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 
-	def get_reward(self, inter, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
 		return true_reward
 
 class EnvFnReward(Reward):
@@ -220,9 +256,9 @@ class EnvFnReward(Reward):
 		super().__init__(**kwargs)
 		self.reward_fn = kwargs["environment"].check_reward
 
-	def get_reward(self, inter, state, param, mask, true_reward=0):
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
 		return self.reward_fn(inter, state, param)
 
 
-reward_forms = {'bin': BinaryParameterizedReward, 'param': ConstantParameterizedReward, 'int': InteractionReward, 'comb': CombinedReward, 'inst': InstancedReward,
+reward_forms = {'bin': BinaryParameterizedReward, 'param': ConstantParameterizedReward, 'negparam': ConstantNegativePositiveParameterizedReward, 'int': InteractionReward, 'comb': CombinedReward, 'inst': InstancedReward,
 				'true': TrueReward, 'env': EnvFnReward, 'tcomb': TrueNegativeCombinedReward, 'proxist': ProximityInstancedReward, 'tconst': TrueConstantReward}

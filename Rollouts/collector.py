@@ -313,7 +313,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
 
             # update hit-miss values
             rews += rew
-            print("rew sum", rews, rew)
+            # print("rew sum", rews, rew) # debugging
             if term: 
                 reward_check =  (done and rew >= 0)
                 hit = ((np.linalg.norm((param-next_target) * mask) <= self.option.terminate_reward.epsilon_close and not true_done)
@@ -350,7 +350,6 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             full_ptr, ep_rew, ep_len, ep_idx = self.full_buffer.add(
                 self.data, buffer_ids=ready_env_ids)
 
-            # print(act, action_chain, next_full_state['factored_state']["Gripper"])
             next_data, skipped, added, self.at = self._aggregate(self.data, self.buffer, full_ptr, ready_env_ids)
             if not self.test and self.policy_collect is not None: self.policy_collect(next_data, self.data, skipped, added)
             # debugging and visualization
@@ -371,12 +370,10 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
 
             # update counters
             if np.any(done) or np.any(term):
-                print("done", done, term)
                 episode_count += int(np.any(done))
                 term_count += int(np.any(term))
                 term_done, timer, true = self._done_check(term, true_done)
                 term_end = term and not time_cutoff
-                print(term, time_cutoff, true_done)
             if np.any(true_done):
                 true_episode_count += 1
                 # if we have a true done, reset the environments and self.data
@@ -405,7 +402,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 break
             if (n_term and term_count >= n_term):
                 break
-        print(rews)
+        # print(rews)
         # generate statistics
         self.collect_step += step_count
         self.collect_episode += episode_count
