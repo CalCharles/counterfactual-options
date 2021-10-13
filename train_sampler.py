@@ -41,8 +41,8 @@ if __name__ == '__main__':
     graph, controllable_feature_selectors, args = graph_construct_load(args, environment, environment_model)
     graph.load_environment_model(environment_model)
     data = read_obj_dumps(args.record_rollouts, i=-1, rng = args.num_frames, filename='object_dumps.txt')
-    try:
-        params = read_action_dumps(args.record_rollouts, i=-1, rng=args.num_frames, filename='param_dumps.txt')
+    try: # adjusts for offset
+        params, param_idxes, term_info = read_action_dumps(args.record_rollouts, i=-1, rng=args.num_frames + 1000, filename='param_dumps.txt', indexed=True)
         has_params = True
     except OSError as e:
         has_params = False
@@ -50,22 +50,43 @@ if __name__ == '__main__':
     entity_selector = environment_model.create_entity_selector(args.train_pair)
     target_selector = environment_model.create_entity_selector([args.object])
 
+    # sampler for big block domain
+    # last_state = None
+    # ACT_DIM = 4
+    # normalization_function = InterInputNorm(object_dim = environment_model.object_sizes[args.object], first_obj_dim = ACT_DIM + environment_model.object_sizes[args.train_pair[0]])
+    # input_vals = hardcode_norm(args.hardcode_norm[0], ["Ball", "Block"])
+    # normalization_function.assign_mean_var(*input_vals)
+    # sampler_type = 'bin'
+    # kwargs = dict()
+    # kwargs["num_bases"] = [1, 12, 12, 12, 1, 1, 6, 1, 1, 1]
+    # kwargs["variance"] = .1
+    # kwargs["range"] = .7
+    # kwargs["basis_function"] = "rbf"
+    # sampler = PredictiveSampling(sampler_type='flat', sampler_train_rate=1, buffer_len=len(data), entity_selector=entity_selector, target_selector=target_selector,
+    #                             sampler_grad_epoch=args.grad_epoch, object_dim=environment_model.object_sizes[args.object], first_obj_dim=ACT_DIM + environment_model.object_sizes[args.train_pair[0]],
+    #                             init_state={'factored_state': numpy_factored(data[0])}, num_actions=ACT_DIM, init_form=args.init_form, activation=args.activation,
+    #                             hidden_sizes=args.hidden_sizes, use_layer_norm=args.use_layer_norm, normalization_function=normalization_function, base_variance=args.base_variance,
+    #                             mask=torch.zeros(1), action_prediction=1, noise_actions=0.0, **kwargs)
+    if has_params:
+        terminations = np.array(term_info)[...,1]
+        param_term_dict = dict()
+        for i in range(len(param_idxes)):
+            # print(i, len(param_idxes), len(params), len(terminations), param_idxes[i])
+            param_term_dict[param_idxes[i]] = (params[i], terminations[i])
     last_state = None
     ACT_DIM = 4
-    normalization_function = InterInputNorm(object_dim = environment_model.object_sizes[args.object], first_obj_dim = ACT_DIM + environment_model.object_sizes[args.train_pair[0]])
-    input_vals = hardcode_norm(args.hardcode_norm[0], ["Ball", "Block"])
-    normalization_function.assign_mean_var(*input_vals)
-    sampler_type = 'bin'
+    normalization_function = PointwiseConcatNorm(object_dim = environment_model.object_sizes[args.object], first_obj_dim = ACT_DIM + environment_model.object_sizes[args.train_pair[0]])
+    input_vals_first = hardcode_norm(args.hardcode_norm[0], ["Hot", "Ball"])
+    input_vals_obj = hardcode_norm(args.hardcode_norm[0], ["Block"])
+    print(*(*input_vals_first, *input_vals_obj))
+    normalization_function.assign_mean_var(*(*input_vals_first, *input_vals_obj))
     kwargs = dict()
-    kwargs["num_bases"] = [1, 12, 12, 12, 1, 1, 6, 1, 1, 1]
-    kwargs["variance"] = .1
-    kwargs["range"] = .7
-    kwargs["basis_function"] = "rbf"
-    sampler = PredictiveSampling(sampler_type='flat', sampler_train_rate=1, buffer_len=len(data), entity_selector=entity_selector, target_selector=target_selector,
+    sampler = PredictiveSampling(sampler_type='bin', sampler_train_rate=1, buffer_len=len(data), entity_selector=entity_selector, target_selector=target_selector,
                                 sampler_grad_epoch=args.grad_epoch, object_dim=environment_model.object_sizes[args.object], first_obj_dim=ACT_DIM + environment_model.object_sizes[args.train_pair[0]],
                                 init_state={'factored_state': numpy_factored(data[0])}, num_actions=ACT_DIM, init_form=args.init_form, activation=args.activation,
                                 hidden_sizes=args.hidden_sizes, use_layer_norm=args.use_layer_norm, normalization_function=normalization_function, base_variance=args.base_variance,
-                                mask=torch.zeros(1), action_prediction=1, noise_actions=0.0, **kwargs)
+                                mask=torch.zeros(1), action_prediction=0, noise_actions=0.0, diff_binary=True, **kwargs)
+
 
     # normalization_function = PointwiseConcatNorm(object_dim = environment_model.object_sizes[args.object], first_obj_dim = ACT_DIM + environment_model.object_sizes[args.train_pair[0]])
     # first_norm_vals = hardcode_norm(args.hardcode_norm[0], ["Hot", "Ball"])
@@ -78,23 +99,34 @@ if __name__ == '__main__':
     #                             mask=torch.zeros(1), action_prediction=0, noise_actions=0)
 
     if not args.load_intermediate:
+
+        last_first_term, first_term=False, False
+        print(range(len(data)))
+        print(list(param_term_dict.keys()))
         for i in range(len(data)):
             data_dict = data[i]
-            if has_params: param_val = np.array(params[i])
+            print(data_dict["ITR"])
+            if has_params: param_val = np.array(param_term_dict[int(np.array(data_dict["ITR"]).squeeze())][0])
             batch = sampler.assign_data({'factored_state': numpy_factored(data_dict)}, data_dict["Action"][0])
             # batch.act = action_assignment(numpy_factored(data_dict))
             if has_params:
+                batch.terminate = param_term_dict[int(data_dict["ITR"].squeeze())][1]
                 batch.act = param_assignment(param_val)
+                if batch.terminate:
+                    first_term = True
             else:
+                batch.terminate = batch.done
                 batch.act = action_assignment(numpy_factored(data_dict))
-            # print(batch.act, param_val[2:4], data_dict["Ball"][:4])
-            sampler.aggregate(batch)
+            if first_term and last_first_term: # skip all the ones up to this one
+                print(batch.terminate, batch.act, param_val[2:4], data_dict["Ball"][:4])
+                sampler.aggregate(batch)
+            last_first_term = first_term
         if args.save_intermediate:
-            save_to_pickle("data/temp/buffer.pkl", sampler.buffer)
-            save_to_pickle("data/temp/test_buffer.pkl", sampler.test_buffer)
+            save_to_pickle("/hdd/datasets/counterfactual_data/breakout/temp/buffer.pkl", sampler.buffer)
+            save_to_pickle("/hdd/datasets/counterfactual_data/breakout/temp/test_buffer.pkl", sampler.test_buffer)
     else:
-        sampler.buffer = load_from_pickle("data/temp/buffer.pkl")
-        sampler.test_buffer = load_from_pickle("data/temp/test_buffer.pkl")
+        sampler.buffer = load_from_pickle("/hdd/datasets/counterfactual_data/breakout/temp/buffer.pkl")
+        sampler.test_buffer = load_from_pickle("/hdd/datasets/counterfactual_data/breakout/temp/test_buffer.pkl")
 
     for i in range(len(sampler.buffer)):
         print(i, sampler.buffer.obs[i], sampler.buffer.act[i], sampler.buffer.instance_binary[i], sampler.buffer.target[i])

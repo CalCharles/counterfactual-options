@@ -393,8 +393,7 @@ class PairNetwork(Network):
         #     # print(x)
         #     x = x.transpose(2,1)
 
-        # print("before append", x)
-        batch_size = x.shape[0]
+        batch_size = x.shape[0] if len(x.shape) > 1 else 1
         output_shape = x.shape[-1] - self.first_obj_dim  - self.post_dim
         if self.post_dim > 0:
             px = torch.cat([x[...,:self.first_obj_dim], x[..., x.shape[-1]-self.post_dim:]], dim=-1)
@@ -403,14 +402,11 @@ class PairNetwork(Network):
             x = x[..., self.first_obj_dim:x.shape[-1]-self.post_dim]
         nobj = x.shape[-1] // self.object_dim
         x = x.view(-1, nobj, self.object_dim)
+        fx = fx.view(-1, self.first_obj_dim)
         if self.first_obj_dim > 0:
             broadcast_fx = torch.stack([fx.clone() for i in range(nobj)], dim=len(fx.shape) - 1)
             x = torch.cat((broadcast_fx, x), dim=-1)
-        # torch.set_printoptions(threshold=1000000)
-        # print(x)
-        x = x.transpose(2,1)
-        # print("after append", x, px)
-
+        x = x.transpose(-1,-2)
 
         x = self.conv(x)
         if self.aggregate_final:

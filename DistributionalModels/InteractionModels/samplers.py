@@ -431,7 +431,9 @@ class PredictiveSampling(Sampler):
         self.num_actions = kwargs["num_actions"]
         self.object_dim = kwargs["object_dim"]
         self.iscuda=False
-        self.input_size = self.get_input(kwargs["init_state"], 0).shape[0]        
+        self.input_size = self.get_input(kwargs["init_state"], 0).shape[0]
+        # self.append_instance_binary = kwargs["append_instance_binary"]
+        self.diff_binary = kwargs["diff_binary"]
         kwargs["num_inputs"] = self.get_input(kwargs["init_state"], 0).shape[0]
         kwargs["num_outputs"] = self.get_output(kwargs["init_state"], 0).shape[0]
         kwargs["post_dim"] = 0
@@ -512,9 +514,10 @@ class PredictiveSampling(Sampler):
                 act = np.random.randint(self.num_actions) if np.random.rand() < self.noise_actions else data.act
             self.data.update(obs=obs, act=act, true_act=data.act)
             self.added_since_last = True
-        if data.done:
+            self.start_instances = self.split_instances(data.target)
+        if data.done or data.terminate:
             final_instances = self.split_instances(data.target)
-            instance_binary = self.split_binary(final_instances)
+            instance_binary = self.split_binary(final_instances, start_instances=self.start_instances)
             self.data.update(done=data.done, target=data.target, instance_binary=instance_binary)
             print(self.data)
             if len(self.data.obs) == self.input_size: 
@@ -525,8 +528,11 @@ class PredictiveSampling(Sampler):
             self.last_done = True
             self.added_since_last = False
 
-    def split_binary(self, instances):
-        return 1-instances[...,-1]
+    def split_binary(self, instances, start_instances=None):
+        if self.diff_binary and start_instances is not None:
+            return self.start_instances[...,-1] - self.final_instances[...,-1]
+        else:
+            return 1-instances[...,-1]
 
     def split_instances(self, state, obj_dim=-1):
         # split up a state or batch of states into instances
@@ -565,7 +571,7 @@ class PredictiveSampling(Sampler):
             target = pytorch_model.wrap(instance_binary * (self.value + 1) - 1, cuda=self.iscuda)
             # print(target, predicted, predicted[np.stack([np.arange(len(predicted)), batch.act])])
             # print(target.shape, predicted[np.stack([np.arange(len(predicted)), batch.act])].shape)
-            loss = self.inter_loss(target, predicted[np.stack([np.arange(len(predicted)), batch.act])].unsqueeze(1))
+            loss = self.inter_loss(target, predicted[np.stack([batch.act, np.arange(len(predicted))])].unsqueeze(1))
         return loss, predicted, target, pytorch_model.wrap(batch.act, cuda=self.iscuda).unsqueeze(-1), pytorch_model.wrap(batch.true_act, cuda=self.iscuda).unsqueeze(-1)
 
     def assess_test(self):
@@ -592,8 +598,13 @@ class PredictiveSampling(Sampler):
         return total_loss, predicted, target, act, true_act
 
     def sample(self, states):
-        obs = pytorch_model.wrap(self.get_input(states), cuda=self.iscuda)
-        print(obs)
+        obs = self.get_input(states, act=np.random.randint(self.num_actions))
+        # print(self.action_prediction, self.hot_action(0), PREDICT_BINARY)
+        # if self.action_prediction == PREDICT_BINARY or self.action_prediction == PREDICT_VALUE:
+        #     print(obs.shape, self.hot_action(0))
+        #     obs = np.concatenate([self.hot_action(np.random.randint(4)), obs], axis=-1)
+        #     pytorch_model.wrap(obs, cuda=self.iscuda)
+        
         predicted_binaries = pytorch_model.unwrap(self.network(obs))
         return np.array(1), np.array(1)
 

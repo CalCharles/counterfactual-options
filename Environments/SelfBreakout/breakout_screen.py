@@ -127,7 +127,7 @@ class Screen(RawEnvironment):
             o.interaction_trace = list()
 
     def toString(self, extracted_state):
-        estring = ""
+        estring = "ITR:" + str(self.itr) + "\t"
         for i, obj in enumerate(self.objects):
             estring += obj.name + ":" + " ".join(map(str, extracted_state[obj.name])) + "\t" # TODO: attributes are limited to single floats
         estring += "Reward:" + str(self.reward) + "\t"

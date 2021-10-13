@@ -219,6 +219,7 @@ class EnvironmentModel():
                 flt = np.array(self.match_factored_flat(i, name)).astype(int)
                 feature_match_flat.append(np.array([fac[i], flt]))
             feature_match[name] = np.array(feature_match_flat)
+            print(name, flat_features, factored_features)
         return FeatureSelector(flat_features, factored_features, feature_match, names, add_relative=add_relative)
 
     def flat_to_factored(self, idx):
@@ -240,7 +241,8 @@ class EnvironmentModel():
             feature_match[name] = np.array([f, np.array(flat_eq)])
             flat_features += flat_eq
         flat_features.sort()
-        control_selector = FeatureSelector(factored_features, np.array(flat_features), feature_match, names)
+        print(flat_features)
+        control_selector = FeatureSelector(np.array(flat_features), factored_features, feature_match, names)
 
         facfea = pytorch_model.unwrap(torch.nonzero((factored_bin == 0).long())).flatten()
         name = entity_selector.names[0]
@@ -253,7 +255,7 @@ class EnvironmentModel():
             feature_match[name] = np.array([f, np.array(flat_eq)])
             flat_features += flat_eq
         flat_features.sort()
-        non_control_selector = FeatureSelector(factored_features, np.array(flat_features), feature_match, names)
+        non_control_selector = FeatureSelector(np.array(flat_features), factored_features, feature_match, names)
         return control_selector, non_control_selector
 
     def get_subset(self, entity_selector, flat_bin):
@@ -451,20 +453,21 @@ class FeatureSelector():
                     for i, t in zip(fac, flt):
                         idx = find_idx(i, fac2)
                         if idx != -1:
-
                             hsh = hash_names(n, on)
                             if hsh not in self.relative_indexes:
                                 self.relative_indexes[hsh] = list()
                                 self.relative_flat_indexes[hsh] = list()
                             if i not in self.relative_indexes[hsh]:
+                                print(hsh, t, flt2[idx])
                                 self.relative_indexes[hsh].append(i)
-                                self.relative_flat_indexes[hsh].append([t,flt2[idx]])
+                                self.relative_flat_indexes[hsh].append([t.squeeze(),flt2[idx]])
                                 self.len_relative += 1
                             if hsh not in self.name_order:
                                 self.name_order.append(hsh)
-        # print(self.relative_indexes, self.relative_flat_indexes)
+        print(self.relative_indexes, self.relative_flat_indexes)
+        print([(hsh, np.array(self.relative_flat_indexes[hsh], dtype=object).shape) for hsh in self.name_order])
         if len(list(self.relative_flat_indexes.keys())) > 0:
-            self.relative_flat_indexes = np.concatenate([np.array(self.relative_flat_indexes[hsh]) for hsh in self.name_order], axis=0)
+            self.relative_flat_indexes = np.concatenate([np.array(self.relative_flat_indexes[hsh], dtype=object) for hsh in self.name_order], axis=0)
         print(list(self.feature_match.keys()), self.names, self.relative_indexes, self.relative_flat_indexes)
 
         self.clean_factored_features()

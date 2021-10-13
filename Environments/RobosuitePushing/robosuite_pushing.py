@@ -208,7 +208,7 @@ class RoboPushingEnvironment(RawEnvironment):
         return self.env.render()
 
     def toString(self, extracted_state):
-        estring = ""
+        estring = "ITR:" + str(self.itr)
         for i, obj in enumerate(self.objects):
             # print(extracted_state[obj])
             if obj not in ["Reward", "Done"]:

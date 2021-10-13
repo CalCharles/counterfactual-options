@@ -102,6 +102,9 @@ class RawEnvironment():
         creates a string form of the current extracted state of the environment (typically a dictionary of object name to object state)
         '''
 
+    def get_itr(self):
+        return self.itr
+
     def set_save(self, itr, save_dir, recycle, save_raw, all_dir=""):
         self.save_path=save_dir
         print(save_dir)

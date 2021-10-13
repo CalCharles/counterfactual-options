@@ -81,22 +81,32 @@ def action_toString(action):
         return str(action)
     return ",".join(map(str, action))
 
-def read_action_dumps(pth, i=0, rng=-1, filename='action_dumps.txt'):
+def read_action_dumps(pth, i=0, rng=-1, filename='action_dumps.txt', indexed=False):
     action_dumps = list()
     i, total_len = get_start(pth, filename, i, rng, tab_count = True)
-    print(i, total_len)
     current_len = 0
+    idxes = list()
+    additional = list()
     for line in open(os.path.join(pth, filename), 'r'): # there should only be one line since actions are tab separated
         for action_str in line.split("\t"):
             current_len += 1
             if current_len< i:
                 continue
-            splt = action_str.split(',')
+            if indexed and len(action_str) > 0:
+                action_str = action_str.split(":")
+                idx_str, action_str = action_str[0], action_str[1] 
+                idx = int(idx_str)
+                idxes.append(idx)
+            extra_splt = action_str.split('|')
+            if len(extra_splt) > 1:
+                additional.append(list(map(int, extra_splt[1].split(','))))
+            splt = extra_splt[0]
+            splt = splt.split(',')
             if len(splt) > 1:
                 action_dumps.append([float(s.strip("\t\n")) for s in splt])
             elif len(action_str) > 0:
                 action_dumps.append(float(splt[0].strip("\t\n")))
-    return action_dumps
+    return action_dumps, idxes, additional
 
 def read_obj_dumps(pth, i= 0, rng=-1, filename='object_dumps.txt'):
     '''

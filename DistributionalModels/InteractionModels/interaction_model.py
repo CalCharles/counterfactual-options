@@ -69,6 +69,7 @@ class NeuralInteractionForwardModel(nn.Module):
         # set the passive model        
         norm_fn, num_inputs = kwargs['normalization_function'], kwargs['num_inputs']
         kwargs['normalization_function'], kwargs['num_inputs'] = kwargs['delta_normalization_function'], kwargs['num_outputs']
+        self.first_obj_dim = kwargs['first_obj_dim']
         fod = kwargs['first_obj_dim'] # there is no first object since the passive model only has one object
         kwargs['first_obj_dim'] = 0
         self.passive_model = forward_nets[kwargs['passive_class']](**kwargs)
@@ -393,9 +394,12 @@ class NeuralInteractionForwardModel(nn.Module):
             # for k, j in enumerate(idxes):
             #     print(trace[j], self.gamma(batchvals.values.state[k]), self.delta(batchvals.values.state_diff[k]))
 
+            # print("running forward model")
             prediction_params = self.forward_model(self.gamma(batchvals.values.state))
+            # print("running instance labels")
             if self.multi_instanced: interaction_likelihood = self.interaction_model.instance_labels(self.gamma(batchvals.values.state))
             else: interaction_likelihood = self.interaction_model(self.gamma(batchvals.values.state))
+            # print("completed fmil")
             passive_prediction_params = self.passive_model(self.delta(batchvals.values.state))
             # passive_prediction_params = self.passive_model(self.delta(batchvals.values.state))
             target = self.output_normalization_function(self.delta(self.get_targets(batchvals)))
@@ -484,8 +488,9 @@ class NeuralInteractionForwardModel(nn.Module):
                     # self.assess_error(test_rollout, passive_error_cutoff=train_args.passive_error_cutoff)
                 if self.multi_instanced: 
                     split_target = self.split_instances(target)
-                    inp = self.gamma(batchvals.values.state)
+                    inp = self.delta(batchvals.values.state)
                     inp = self.split_instances(inp)
+                    first_obj = self.gamma(batchvals.values.state)[...,:self.first_obj_dim]
                     active = self.split_instances(self.rv(prediction_params[0])).squeeze()
                     activeunnorm = self.split_instances(prediction_params[0]).squeeze()
                     activevar = self.split_instances(prediction_params[1]).squeeze()
@@ -516,6 +521,7 @@ class NeuralInteractionForwardModel(nn.Module):
                         # print("has", trace[idxes[a[0]].sum())
                         print("trace: ", pytorch_model.unwrap(trace[idxes[a[0]], a[1]]),
                         "inter: ", pytorch_model.unwrap(interaction_likelihood[a[0], a[1]]),
+                        "first: ", pytorch_model.unwrap(first_obj[a[0]]),
                         "inp: ", pytorch_model.unwrap(inp[a[0], a[1]]),
                         "target: ", pytorch_model.unwrap(split_target[a[0], a[1]]),
                         "active: ", pytorch_model.unwrap(active[a[0], a[1]]),

@@ -112,6 +112,7 @@ class PointwiseConcatNorm(PointwiseNorm):
         # norms, but with broadcasting for multiple instances flattened
         super().__init__(**kwargs)
         self.first_dim = kwargs['first_obj_dim']
+        # TODO: handle post_obj_dim with the norm
 
     def compute_input_norm(self, vals, device=None):
         self.device=device
@@ -158,11 +159,9 @@ class PointwiseConcatNorm(PointwiseNorm):
         self.first_mean, self.first_std, self.first_inv_std = pytorch_model.wrap(first_mean, cuda=self.iscuda, device=self.device), pytorch_model.wrap(first_std, cuda=self.iscuda, device=self.device), pytorch_model.wrap(first_inv_std, cuda=self.iscuda, device=self.device)
 
     def __call__(self, val):
-        # print(val, self.mean, self.inv_std)
         count = (val.shape[-1] - self.first_dim) // self.mean.shape[0]
         broadcast_mean = torch.cat([self.mean.clone() for _ in range(count)], dim=0) if count > 1 else self.mean
         broadcast_inv_std = torch.cat([self.inv_std.clone() for _ in range(count)], dim=0) if count > 1 else self.inv_std
-
         first_val = (val[...,:self.first_dim] - self.first_mean) * self.first_inv_std
         rem = (val[...,self.first_dim:] - broadcast_mean) * broadcast_inv_std
         return torch.cat([first_val, rem], dim=len(val.shape) - 1)

@@ -68,8 +68,15 @@ python test_option.py --dataset-dir data/breakout/interaction_apv/ --graph-dir d
 # note: alter feature_explorer.py ATM to speed up paddle-ball interaction
 python construct_hypothesis_model.py --env SelfBreakout --record-rollouts data/breakout/paddle/ --graph-dir data/breakout/paddle_graph/ --hidden-sizes 512 512 --batch-size 64 --pretrain-iters 100000 --interaction-iters 200000 --epsilon-schedule 1000 --num-iters 200000 --posttrain-iters 0 --log-interval 1000 --num-frames 300000 --interaction-binary -1 -13 -13 --train --gpu 2  --interaction-prediction .1 --train-pair Paddle Ball --save-dir data/breakout/interaction_pbI > logs/breakout/paddle_ball_interactionI.txt
 
+
 # Run "test" to fill in parameter values for the hypothesis model
 python construct_hypothesis_model.py --env SelfBreakout --record-rollouts data/breakout/paddle/ --graph-dir data/breakout/ball_graph/ --dataset-dir data/breakout/interaction_pbI --hidden-sizes 512 512 --batch-size 64 --epsilon-schedule 1000 --log-interval 1000 --num-frames 100000 --interaction-binary -1 -13 -13 --gpu 2 --save-dir data/breakout/interaction_pbIv > logs/breakout/paddle_ball_interactionIv.txt
+
+# train ball bounce interaction with relative state
+python construct_hypothesis_model.py --env SelfBreakout --record-rollouts /hdd/datasets/counterfactual_data/breakout/live_record/paddle --graph-dir data/breakout/paddle_graph/ --hidden-sizes 512 512 --batch-size 64 --pretrain-iters 100000 --interaction-iters 200000 --epsilon-schedule 1000 --num-iters 200000 --posttrain-iters 0 --log-interval 1000 --num-frames 300000 --interaction-binary -1 -13 -13 --train --gpu 2  --interaction-prediction .1 --train-pair  --observation-setting 1 --save-dir data/breakout/interaction_pbR > logs/breakout/paddle_ball_interactionR.txt
+
+# test ball bounce interaction with relative state
+python construct_hypothesis_model.py --env SelfBreakout --record-rollouts /hdd/datasets/counterfactual_data/breakout/live_record/paddle --graph-dir data/breakout/ball_graph/ --dataset-dir data/breakout/interaction_pbR --hidden-sizes 512 512 --batch-size 64 --epsilon-schedule 1000 --log-interval 1000 --num-frames 100000 --interaction-binary -1 -13 -13 --gpu 2 --save-dir data/breakout/interaction_pbRv > logs/breakout/paddle_ball_interactionRv.txt
 
 # train ball bouncing with SAC-HER velocity
 # 100, 200 reward

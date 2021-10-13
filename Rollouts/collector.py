@@ -189,12 +189,12 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             policy.hidden_state = state  # save state into buffer
             self.data.update(state_chain=state_chain, policy=policy)
 
-    def _save_mapped_action(self, mapped_act, param):
+    def _save_mapped_action(self, mapped_act, param, resampled, term):
         option_dumps = open(os.path.join(self.save_path, "option_dumps.txt"), 'a')
-        option_dumps.write(action_toString(mapped_act) + "\t")
+        option_dumps.write(str(self.environment_model.environment.get_itr() - 1) + ":" + action_toString(mapped_act) + "\t")
         option_dumps.close()
         param_dumps = open(os.path.join(self.save_path, "param_dumps.txt"), 'a')
-        param_dumps.write(action_toString(param) + "\t") # action_toString handles numpy vectors
+        param_dumps.write(str(self.environment_model.environment.get_itr() - 1) + ":" + action_toString(param) + "|" + str(int(resampled)) + "," + str(int(term)) + "\t") # action_toString handles numpy vectors
         param_dumps.close()
 
     def perform_reset(self):
@@ -270,6 +270,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         rews = 0
         saved_fulls = list()
         hit_count, miss_count = 0,0
+        term = False
         term_done = False # signifies if the termination was the result of a option terminal state
         term_end = False # if termination ends collection, should be True
 
@@ -284,7 +285,6 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random)
             self._policy_state_update(result)
             self.data.update(true_action=[action_chain[0]], act=[act], mapped_act=[action_chain[-1]], option_resample=[resampled])
-            if self.save_action: self._save_mapped_action(action_chain[-1], param)
 
             # step in env
             action_remap = self.data.true_action
@@ -305,6 +305,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             # get the dones, rewards, terminations and temporal extension terminations
             done, rewards, terminations, ext_terms, inter, time_cutoff = self.option.terminate_reward_chain(self.data.full_state[0], next_full_state, param, action_chain, mask, masks, environment_model=self.environment_model)
             done, rew, term, ext_term = done, rewards[-1], terminations[-1], ext_terms[-1]
+            if self.save_action: self._save_mapped_action(action_chain[-1], param, resampled, term)
 
             cutoff = (np.array([time_cutoff]) or (true_done and not term))  # treat true dones like time limits (TODO: this is not valid when learning to control true dones)
             if type(cutoff) != bool: cutoff = cutoff.squeeze()
