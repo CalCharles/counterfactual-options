@@ -98,10 +98,9 @@ class InteractionTermination(Termination):
 		self.interaction_model = kwargs["dataset_model"]
 		self.epsilon = kwargs["epsilon"]
 
-	def check(self, input_state, state, param, mask, true_done=0):
+	def check(self, inter, state, param, mask, true_done=0):
 		# NOTE: input state is from the current state, state, param are from the next state
-		interaction_pred = self.interaction_model(pytorch_model.wrap(input_state))
-		return interaction_pred > 1 - self.epsilon
+		return inter
 
 class CombinedTermination(Termination):
 	def __init__(self, **kwargs):
@@ -207,6 +206,11 @@ class InstancedTermination(Termination):
 		self.inter = self.terminator.inter
 		return output
 
+class ParameterizedInstancedTermination(Termination):
+	def check(self, input_state, state, param, mask, true_done=0):
+		instanced = self.dataset_model.split_instances(state)
+		return (instanced - param).sum(dim=-1).min()[0] <= self.epsilon
+
 class ProximityInstancedTermination(Termination):
 	def __init__(self, **kwargs): # TODO: for now, operates under fixed mask assumption
 		# self.mask = kwargs["mask"]
@@ -219,15 +223,17 @@ class ProximityInstancedTermination(Termination):
 		self.inter = 0 # this method performs interaction checking, but does not use it
 		self.max_distance_epsilon = max(kwargs["max_distance_epsilon"], 1)
 		self.epsilon = kwargs['epsilon']
+		self.use_interaction = False
 
 
 	def check(self, input_state, state, param, mask, true_done=0):
 		instanced = self.dataset_model.split_instances(state)
 		inverse_mask = invert_mask(mask)
 		batch_idx, inst_idx = compute_instance_indexes(instanced, param, inverse_mask, multi=self.max_distance_epsilon)
-		inter_bin = pytorch_model.unwrap(self.dataset_model.interaction_model.instance_labels(pytorch_model.wrap(input_state, cuda=self.dataset_model.iscuda)))
-		inter_bin[inter_bin < self.dataset_model.interaction_prediction] = 0
-		inter_bin[inter_bin >= self.dataset_model.interaction_prediction] = 1
+		if self.use_interaction:
+			inter_bin = pytorch_model.unwrap(self.dataset_model.interaction_model.instance_labels(pytorch_model.wrap(input_state, cuda=self.dataset_model.iscuda)))
+			inter_bin[inter_bin < self.dataset_model.interaction_prediction] = 0
+			inter_bin[inter_bin >= self.dataset_model.interaction_prediction] = 1
 		# inter_bin = inter_bin.nonzero()
 		batched = False
 		if len(instanced.shape) == 3:
@@ -289,6 +295,6 @@ class EnvFnTermination(Termination):
 	def check(self, input_state, state, param, mask, true_done=0):
 		return self.term_fn(input_state, state, param)
 
-terminal_forms = {'param': ParameterizedStateTermination, 'comb': CombinedTermination, 'tcomb': CombinedTrueTermination,
+terminal_forms = {'param': ParameterizedStateTermination, 'inter': InteractionTermination, 'comb': CombinedTermination, 'tcomb': CombinedTrueTermination,
  'inst': InstancedTermination, 'proxist': ProximityInstancedTermination, 'true': TrueTermination,
  					'tparam':TrueParamTermination, 'env': EnvFnTermination}

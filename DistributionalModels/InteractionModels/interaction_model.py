@@ -66,7 +66,7 @@ class NeuralInteractionForwardModel(nn.Module):
         kwargs['post_dim'] = 0 # no post-state
         self.forward_model = forward_nets[kwargs['forward_class']](**kwargs)
 
-        # set the passive model        
+        # set the passive model
         norm_fn, num_inputs = kwargs['normalization_function'], kwargs['num_inputs']
         kwargs['normalization_function'], kwargs['num_inputs'] = kwargs['delta_normalization_function'], kwargs['num_outputs']
         self.first_obj_dim = kwargs['first_obj_dim']
@@ -160,18 +160,24 @@ class NeuralInteractionForwardModel(nn.Module):
         return pytorch_model.wrap(self.bin_trace([source], tr), cuda=self.iscuda)
 
     def generate_interaction_trace(self, rollouts, names, target_name):
-        '''
+        ''' 
         a trace basically determines if an interaction occurred, based on the "traces"
         in the environment model that record true object interactions
         '''
-        traces = []
-        for state in rollouts.get_values("state"):
-            traces.append(self._set_traces(state, names, target_name))
+        print("env name", self.env_name, self.environment_model, self.environment_model.environment.name)
+        if self.env_name == "Breakout":
+            traces = []
+            for state in rollouts.get_values("state"):
+                traces.append(self._set_traces(state, names, target_name))
+        elif self.env_name == "RoboStick":
+            traces = list()
+            for val in rollouts.get_values("info"):
+                traces.append(val)
 
-            # locality = np.array([i - self.interaction_distance for i in range(int(self.interaction_distance * 2 + 1))])
-            # locality[self.interaction_distance+1:] = 0
-            # traces = np.convolve(traces, locality, 'same')
-            # traces = self.interaction_distance - traces
+                # locality = np.array([i - self.interaction_distance for i in range(int(self.interaction_distance * 2 + 1))])
+                # locality[self.interaction_distance+1:] = 0
+                # traces = np.convolve(traces, locality, 'same')
+                # traces = self.interaction_distance - traces
 
 
         return pytorch_model.wrap(traces, cuda=self.iscuda)
@@ -632,13 +638,13 @@ class NeuralInteractionForwardModel(nn.Module):
                             all_indices.append(pytorch_model.unwrap(ti))
                             if ti[1]+1 < interaction_likelihood[ti[0]].shape[0]: all_indices.append(np.array([ti[0], ti[1]+1]))
                             if ti[1]+2 < interaction_likelihood[ti[0]].shape[0]: all_indices.append(np.array([ti[0], ti[1]+2]))
-                            for i in range(3):
+                            for _ in range(3):
                                 all_indices.append(np.array([ti[0], np.random.randint(interaction_likelihood[ti[0]].shape[0])]))
                         for _ in range(20):
                             all_indices.append(np.array([np.random.randint(train_args.batch_size), np.random.randint(interaction_likelihood.shape[1])]))
                         obj_indices = np.array(all_indices)
                         # print (obj_indices)
-                        print(i, ": tl: ", trace_loss)
+                        print("Iters", i, ": tl: ", trace_loss)
                         # print(target.shape)
                         print(target[obj_indices[0][0]], interaction_likelihood[obj_indices[0][0]])
                         for a in obj_indices:
@@ -646,7 +652,7 @@ class NeuralInteractionForwardModel(nn.Module):
                             "inter: ", pytorch_model.unwrap(interaction_likelihood[a[0], a[1]]),
                             "target: ", pytorch_model.unwrap(target[a[0], a[1]]))
                     else:
-                        print(i, ": tl: ", trace_loss)
+                        print("Iters", i, ": tl: ", trace_loss)
                         print("\nstate:", pytorch_model.unwrap(inp)[obj_indices],
                             "\ntraining: ", pytorch_model.unwrap(interaction_likelihood[obj_indices]),
                             "\ntarget: ", pytorch_model.unwrap(target[obj_indices]))
@@ -933,8 +939,8 @@ class NeuralInteractionForwardModel(nn.Module):
 
     def assess_losses(self, test_rollout):
         forward_loss, passive_loss = list(), list()
-        for i in range(int(np.ceil(test_rollout.filled / 300))):
-            state, target = test_rollout.get_values("state")[i*300:(i+1)*300], self.get_targets(test_rollout)[i*300:(i+1)*300]
+        for i in range(int(np.ceil(test_rollout.filled / 100))):
+            state, target = test_rollout.get_values("state")[i*100:(i+1)*100], self.get_targets(test_rollout)[i*100:(i+1)*100]
             prediction_params = self.forward_model(self.gamma(state))
             interaction_likelihood = self.interaction_model(self.gamma(state))
             passive_prediction_params = self.passive_model(self.delta(state))
@@ -946,13 +952,13 @@ class NeuralInteractionForwardModel(nn.Module):
 
     def assess_error(self, test_rollout, passive_error_cutoff=2):
         print("assessing_error", test_rollout.filled)
-        if self.env_name != 'RobosuitePushing':
+        if self.env_name == "Breakout": # TODO: implement for stick pushing
             self.compute_interaction_stats(test_rollout, passive_error_cutoff=passive_error_cutoff)
         rv = self.output_normalization_function.reverse
         states = test_rollout.get_values("state")
         interaction, forward, passive = list(), list(), list()
-        for i in range(int(np.ceil(test_rollout.filled / 300))):
-            inter, f, p = self.hypothesize(states[i*300:(i+1)*300])
+        for i in range(int(np.ceil(test_rollout.filled / 100))):
+            inter, f, p = self.hypothesize(states[i*100:(i+1)*100])
             interaction.append(pytorch_model.unwrap(inter)), forward.append(pytorch_model.unwrap(f)), passive.append(pytorch_model.unwrap(p))
         interaction, forward, passive = np.concatenate(interaction, axis=0), np.concatenate(forward, axis=0), np.concatenate(passive, axis=0)
         targets = self.get_targets(test_rollout)
@@ -1065,7 +1071,7 @@ class NeuralInteractionForwardModel(nn.Module):
         # compare predictions with the actual next state to make sure there are differences
         print(int(np.ceil(len(states)/2000)), batch_pred, next_state_broadcast)
         state_check = (next_state_broadcast - batch_pred).abs()
-        print(state_check[:10])
+        print("state_check", state_check[:10])
         # should be able to predict at least one of the next states accurately
         match = state_check.min(dim=1)[0]
         match_keep = match.clone()

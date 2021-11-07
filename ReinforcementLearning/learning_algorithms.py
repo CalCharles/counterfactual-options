@@ -57,6 +57,7 @@ class HER(LearningOptimizer):
         self.use_interact = not args.true_environment and args.use_interact
         self.max_hindsight = args.max_hindsight
         self.replay_queue = deque(maxlen=args.max_hindsight)
+        self.multi_instanced = self.option.dataset_model.multi_instanced
 
         # stores single states for reward summing
         self.between_replay = [0]
@@ -91,65 +92,78 @@ class HER(LearningOptimizer):
              or inter_resample): # either end of episode or end of timer, might be good to have if interaction, this relies on termination == interaction in the appropriate place
             self.between_replay.append(self.between_replay_counter)
             mask = full_batch.mask[0]
-            if self.option.dataset_model.multi_instanced: # if multiinstanced, param should not be masked, and needs to be defined by the instance, not just the object state
+            multi_keep = True
+            if self.multi_instanced: # if multiinstanced, param should not be masked, and needs to be defined by the instance, not just the object state
                 dataset_model = self.option.dataset_model
-                instances = dataset_model.split_instances(self.state_extractor.get_inter(single_batch.full_state[0]))
-                interact_bin = dataset_model.interaction_model.instance_labels(self.state_extractor.get_inter(full_batch.full_state[0]))
-                idx = pytorch_model.unwrap(dataset_model.check_interaction(interact_bin).nonzero())
-                idx = idx[0][1]
-                param = self._get_mask_param(instances[idx], mask)
+                instances = dataset_model.split_instances(self.state_extractor.get_target(single_batch.full_state[0]))
+                if np.any(single_batch.inter): # TODO: hardcoded for breakout multi-instanced
+                    next_instances = dataset_model.split_instances(self.state_extractor.get_target(single_batch.next_full_state[0]))
+                    idx = np.argwhere(np.abs(next_instances - instances).sum(axis=-1) != 0)[0].squeeze()
+                    param = self._get_mask_param(next_instances[idx], mask)
+                    print(idx, next_instances.shape, next_instances[idx], instances[idx], param)
+                else:
+                    multi_keep = False
+                # WITH HYPOTHESIS MODEL
+                # interact_bin = dataset_model.interaction_model.instance_labels(self.state_extractor.get_inter(full_batch.full_state[0]))
+                # idx = pytorch_model.unwrap(dataset_model.check_interaction(interact_bin).nonzero())
+                # idx = idx[0][1]
+                # param = self._get_mask_param(instances[idx], mask)
             else:
                 param = self._get_mask_param(full_batch.next_target[0], mask)# self.option.get_state(full_batch["next_full_state"][0], setting=self.option.output_setting) * mask
-            rv_search = list()
-            total_change = 0
-            total_interaction = 0
-            for i in range(1, len(self.replay_queue) + 1): # go back in the replay queue, but stop if last_done is hit
-                batch = self.replay_queue[-i]
-                her_batch = copy.deepcopy(batch)
-                inter_state = batch.inter_state[0]
-                total_change += np.linalg.norm(param - self._get_mask_param(her_batch.next_target[0], mask), ord=1) 
-                her_batch.update(param=[param.copy()], obs = self.state_extractor.assign_param(batch.full_state[0], batch.obs, param, mask),
-                    obs_next = self.state_extractor.assign_param(batch.next_full_state[0], batch.obs_next, param, mask), mask=[mask])
-                true_done = batch.true_done
-                true_reward = batch.true_reward
+            if multi_keep: # multi_keep checks if there is a valid parameter, if there is not then we can't run HER
+                rv_search = list()
+                total_change = 0
+                total_interaction = 0
+                for i in range(1, len(self.replay_queue) + 1): # go back in the replay queue, but stop if last_done is hit
+                    batch = self.replay_queue[-i]
+                    her_batch = copy.deepcopy(batch)
+                    inter_state = batch.inter_state[0]
+                    if self.multi_instanced: 
+                        split_target = self.option.dataset_model.split_instances(her_batch.next_target[0])
+                        total_change += np.linalg.norm(param - self._get_mask_param(split_target, mask), ord=1)
+                    else:  total_change += np.linalg.norm(param - self._get_mask_param(her_batch.next_target[0], mask), ord=1)
+                    her_batch.update(param=[param.copy()], obs = self.state_extractor.assign_param(batch.full_state[0], batch.obs, param, mask),
+                        obs_next = self.state_extractor.assign_param(batch.next_full_state[0], batch.obs_next, param, mask), mask=[mask])
+                    true_done = batch.true_done
+                    true_reward = batch.true_reward
 
-                term, rew, inter, time_cutoff = self.option.terminate_reward.check(batch.full_state[0], batch.next_full_state[0], param, mask, inter_state=inter_state, use_timer=False, true_inter=batch.inter.squeeze())
-                if self.sum_rewards:
-                    rew = 0
-                    between_pair = (self.between_replay[-i-1], self.between_replay[-i])
-                    # print(between_pair)
-                    for j in range(*between_pair):
-                        old_batch = self.single_batch_queue[j]
-                        # only use the last termination, not if any intermediate terminations occurred
-                        _, ss_rew, _, _ = self.option.terminate_reward.check(old_batch.full_state[0], old_batch.next_full_state[0], param, mask, inter_state=inter_state, use_timer=False, true_inter=old_batch.inter.squeeze())
-                        rew += ss_rew
-                        # print(rew, ss_rew, j, old_batch.full_state["factored_state"]["Block"], old_batch.target, old_batch.next_target, old_batch.mapped_act, param)
-                total_interaction += float(self._check_interaction(inter.squeeze()))
-                timer, self.done_model.timer = self.done_model.timer, 0
-                done = self.done_model.check(term, true_done)
+                    term, rew, inter, time_cutoff = self.option.terminate_reward.check(batch.full_state[0], batch.next_full_state[0], param, mask, inter_state=inter_state, use_timer=False, true_inter=batch.inter.squeeze())
+                    if self.sum_rewards:
+                        rew = 0
+                        between_pair = (self.between_replay[-i-1], self.between_replay[-i])
+                        # print(between_pair)
+                        for j in range(*between_pair):
+                            old_batch = self.single_batch_queue[j]
+                            # only use the last termination, not if any intermediate terminations occurred
+                            _, ss_rew, _, _ = self.option.terminate_reward.check(old_batch.full_state[0], old_batch.next_full_state[0], param, mask, inter_state=inter_state, use_timer=False, true_inter=old_batch.inter.squeeze())
+                            rew += ss_rew
+                            # print(rew, ss_rew, j, old_batch.full_state["factored_state"]["Block"], old_batch.target, old_batch.next_target, old_batch.mapped_act, param)
+                    total_interaction += float(self._check_interaction(inter.squeeze()))
+                    timer, self.done_model.timer = self.done_model.timer, 0
+                    done = self.done_model.check(term, true_done)
 
-                her_batch.info["TimeLimit.truncated"] = [her_batch.info["TimeLimit.truncated"].squeeze() and not done] if "TimeLimit.truncated" in her_batch.info else [False] # ensure that truncated is NOT true when it conincides with termination
-                self.done_model.timer = timer
-                if type(term) == np.ndarray: term = term.squeeze()
-                if type(rew) == np.ndarray: rew = rew.squeeze()
-                # print(term, rew, param, batch.next_target)
-                her_batch.update(done=[done], terminate=[term], rew=[rew])
-                rv_search.append(her_batch)
+                    her_batch.info["TimeLimit.truncated"] = [her_batch.info["TimeLimit.truncated"].squeeze() and not done] if "TimeLimit.truncated" in her_batch.info else [False] # ensure that truncated is NOT true when it conincides with termination
+                    self.done_model.timer = timer
+                    if type(term) == np.ndarray: term = term.squeeze()
+                    if type(rew) == np.ndarray: rew = rew.squeeze()
+                    # print(term, rew, param, batch.next_target)
+                    her_batch.update(done=[done], terminate=[term], rew=[rew])
+                    rv_search.append(her_batch)
 
-            early_stopping_counter = self.early_stopping
-            if (self.only_interaction == 1 and total_interaction > 0.5) or (self.only_interaction == 2 and total_change > 0.001) or (self.only_interaction == 0): # only keep cases where an interaction occurred in the trajectory TODO: interaction model unreliable, use differences in state instead
-                # print("adding change", term_resample, timer_resample, inter_resample, self.sample_timer, total_interaction, param, self._get_mask_param(her_batch.next_target[0], mask), len(rv_search))
-                for i in range(1, len(rv_search)+1):
-                    her_batch = rv_search[-i]
-                    # print("her", len(rv_search), her_batch.act, her_batch.inter_state, her_batch.target, her_batch.next_target, her_batch.rew)
-                    if self.early_stopping > 0 and np.any(her_batch.terminate):
-                        early_stopping_counter -= 1
-                        if early_stopping_counter == 0:
-                            her_batch.update(done=[i < len(rv_search)]) # force it to be done to prevent fringing effects
-                    
-                    self.at, ep_rew, ep_len, ep_idx = self.replay_buffer.add(her_batch, buffer_ids=[0])
-                    if early_stopping_counter == 0 and self.early_stopping > 0:
-                        break
+                early_stopping_counter = self.early_stopping
+                if (self.only_interaction == 1 and total_interaction > 0.5) or (self.only_interaction == 2 and total_change > 0.001) or (self.only_interaction == 0): # only keep cases where an interaction occurred in the trajectory TODO: interaction model unreliable, use differences in state instead
+                    # print("adding change", term_resample, timer_resample, inter_resample, self.sample_timer, total_interaction, param, self._get_mask_param(her_batch.next_target[0], mask), len(rv_search))
+                    for i in range(1, len(rv_search)+1):
+                        her_batch = rv_search[-i]
+                        # print("her", len(rv_search), her_batch.act, her_batch.inter_state, her_batch.target, her_batch.next_target, her_batch.rew)
+                        if self.early_stopping > 0 and np.any(her_batch.terminate):
+                            early_stopping_counter -= 1
+                            if early_stopping_counter == 0:
+                                her_batch.update(done=[i < len(rv_search)]) # force it to be done to prevent fringing effects
+                        
+                        self.at, ep_rew, ep_len, ep_idx = self.replay_buffer.add(her_batch, buffer_ids=[0])
+                        if early_stopping_counter == 0 and self.early_stopping > 0:
+                            break
             self.sample_timer = 0
             del self.replay_queue
             self.replay_queue = deque(maxlen=self.max_hindsight)

@@ -171,6 +171,18 @@ class InstancedReward(Reward):
 		indexes = compute_instance_indexes(instanced, param, inverse_mask, multi=-1)
 		return self.rewarder.get_reward(inter, instanced[indexes], param, mask, true_reward=true_reward)
 
+class ParameterizedInstancedReward(Reward):
+	def __init__(self, **kwargs): # TODO: for now, operates under fixed mask assumption
+		self.dataset_model = kwargs["dataset_model"]
+		self.reward_constant = kwargs["reward_constant"]
+		self.plmbda = kwargs["parameterized_lambda"]
+		self.epsilon_close = kwargs["epsilon_close"]
+
+	def get_reward(self, inter, state, param, mask, true_done=0, info=None):
+		instanced = self.dataset_model.split_instances(state)
+		# print(instanced.shape, param, np.abs(instanced - param).sum(axis=-1), (np.abs(instanced - param).sum(axis=-1).min(axis=-1) <= self.epsilon_close).astype(float) * inter * self.plmbda + self.reward_constant)
+		return (np.abs(instanced - param).sum(axis=-1).min(axis=-1) <= self.epsilon_close).astype(float) * inter * self.plmbda + self.reward_constant
+
 class ProximityInstancedReward(Reward):
 	def __init__(self, **kwargs): # TODO: for now, operates under fixed mask assumption
 		# self.mask = kwargs["mask"]
@@ -261,4 +273,4 @@ class EnvFnReward(Reward):
 
 
 reward_forms = {'bin': BinaryParameterizedReward, 'param': ConstantParameterizedReward, 'negparam': ConstantNegativePositiveParameterizedReward, 'int': InteractionReward, 'comb': CombinedReward, 'inst': InstancedReward,
-				'true': TrueReward, 'env': EnvFnReward, 'tcomb': TrueNegativeCombinedReward, 'proxist': ProximityInstancedReward, 'tconst': TrueConstantReward}
+				'true': TrueReward, 'env': EnvFnReward, 'tcomb': TrueNegativeCombinedReward, 'proxist': ProximityInstancedReward, 'paramist': ParameterizedInstancedReward, 'tconst': TrueConstantReward}

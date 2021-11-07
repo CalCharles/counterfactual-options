@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from Networks.network import Network, BasicMLPNetwork, PointNetwork, PairNetwork, BasicResNetwork, pytorch_model
+from Networks.network import Network, BasicMLPNetwork, PointNetwork, PairNetwork, PairConvNetwork, BasicResNetwork, TransformerPairNetwork, MultiheadedTransformerPairNetwork, pytorch_model
 from Networks.basis_expansion import MultiBasisExpansion
 
 class DiagGaussianForwardNetwork(Network):
@@ -60,18 +60,13 @@ class DiagGaussianForwardPairNetwork(Network):
         x = self.normalization(x)
         return torch.tanh(self.mean(x)), torch.sigmoid(self.std(x)) + self.base_variance
 
-class BinaryPairNetwork(Network):
+class BinaryNetwork(Network):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         kwargs["aggregate_final"] = False # don't aggregate the last layer, just convert the dim
         kwargs["output_dim"] = 1 # output the state of the object
-        self.binaries = PairNetwork(**kwargs) # literally only these two lines are different so there should be a way to compress this...
         self.normalization = kwargs['normalization_function']
-        self.model = [self.binaries]
         self.base_variance = kwargs['base_variance']
-
-        self.train()
-        self.reset_parameters()
 
     def cpu(self):
         super().cpu()
@@ -81,18 +76,57 @@ class BinaryPairNetwork(Network):
         super().cuda()
         self.normalization.cuda()
 
-
     def forward(self, x):
         x = pytorch_model.wrap(x, cuda=self.iscuda)
         x = self.normalization(x)
-        return torch.sigmoid(self.binaries(x))
+        x = self.binaries(x)
+        x = torch.sigmoid(x)
+        print(x.sum(), x[x > .5].sum())
+        return x
+
+class BinaryPairNetwork(BinaryNetwork):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.binaries = PairNetwork(**kwargs) # only these two lines are different so there should be a way to compress this...
+        self.model = [self.binaries]
+        self.train()
+        self.reset_parameters()
+
+class BinaryConvNetwork(BinaryNetwork):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        kwargs["output_dim"] = kwargs["num_objects"] # output the binary state of the objects
+        self.binaries = PairConvNetwork(**kwargs) # only these two lines are different so there should be a way to compress this...
+        self.model = [self.binaries]
+        self.train()
+        self.reset_parameters()
+
+class BinaryTransformerNetwork(BinaryNetwork):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.binaries = TransformerPairNetwork(**kwargs) # only these two lines are different so there should be a way to compress this...
+        self.model = [self.binaries]
+        self.train()
+        self.reset_parameters()
+
+    def forward(self, x):
+        x = super().forward(x)
+        return x[...,0]
+
+class BinaryMHTransformerNetwork(BinaryNetwork):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.binaries = MultiheadedTransformerPairNetwork(**kwargs) # only these two lines are different so there should be a way to compress this...
+        self.model = [self.binaries]
+        self.train()
+        self.reset_parameters()
 
 class OutputPairNetwork(Network):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         kwargs["aggregate_final"] = False # don't aggregate the last layer, just convert the dim
         kwargs["output_dim"] = kwargs["num_outputs"] # output the state of the object
-        self.binaries = PairNetwork(**kwargs) # literally only these two lines are different so there should be a way to compress this...
+        self.binaries = PairNetwork(**kwargs) # only these two lines are different so there should be a way to compress this...
         self.normalization = kwargs['normalization_function']
         self.model = [self.binaries]
         self.base_variance = kwargs['base_variance']
@@ -187,4 +221,5 @@ class FlatDisjointForwardNetwork(Network):
 
 
 forward_nets = {"basic": DiagGaussianForwardNetwork, "pair": DiagGaussianForwardPairNetwork, 'flat': FlatForwardNetwork,
-                 'bin': BinaryPairNetwork, 'out': OutputPairNetwork, 'basis': FlatBasisForwardNetwork}
+                 'binpair': BinaryPairNetwork, 'binconv': BinaryConvNetwork, 'bintrans': BinaryTransformerNetwork, 
+                 'binmht': BinaryMHTransformerNetwork, 'out': OutputPairNetwork, 'basis': FlatBasisForwardNetwork}

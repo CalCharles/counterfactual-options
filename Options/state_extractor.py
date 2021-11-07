@@ -30,6 +30,20 @@ robopush_relative_norm = (np.array([0,0,0]), np.array([.2,.26,.1]))
 robopush_gripper_block_norm = (np.array([0,0,0.03]), np.array([.2,.26,.0425]))
 robopush_block_target_relative_norm = (np.array([0,0,.023]), np.array([.2,.26,.1]))
 
+
+robostick_action_norm = (np.array([0,0,0,0]), np.array([1,1,1,1]))
+robostick_gripper_norm = (np.array([-0.2, 0,.9,0]), np.array([.1,.15,.1, 0.05]))
+robostick_stick_norm = (np.array([-0.1,0.0,.824]), np.array([.2,.15,.1]))
+robostick_block_norm = (np.array([-0.1,0.0,.802]), np.array([.1,.15,.1]))
+robostick_target_norm = (np.array([0.0,0.0,.802]), np.array([.07,.15,.1]))
+robostick_gripper_relative_norm = (np.array([0,0,0,0]), np.array([.2,.3,.2, 0.05]))
+robostick_relative_norm = (np.array([0,0,0]), np.array([.2,.15,.1]))
+robostick_gripper_stick_norm = (np.array([0,0,0.00]), np.array([.2,.15,.07]))
+robostick_stick_block_norm = (np.array([0,0,0.03]), np.array([.2,.15,.07]))
+robostick_block_target_relative_norm = (np.array([0,0,.023]), np.array([.2,.15,.1]))
+
+
+
 def hardcode_norm_inter(anorm, v1norm, v2norm, v3norm, hardcoded_normalization, num_instance=0):
     if hardcoded_normalization[1] == '1':
         mean = np.concatenate([anorm[0], v1norm[0]])
@@ -217,6 +231,8 @@ class StateExtractor():
                 return (unnorm_target - mean) / var * self.scale
             elif self.hardcoded_normalization[0] == 'robopush':
                 mean, var = hardcode_norm_target(self.hardcoded_normalization, robopush_gripper_norm, robopush_state_norm, robopush_target_norm)  
+            elif self.hardcoded_normalization[0] == 'robostick':
+                mean, var = hardcode_norm_target(self.hardcoded_normalization, robostick_gripper_norm, robostick_stick_norm, robostick_block_norm) # TODO:add target norm 
             return (unnorm_target - mean) / var * self.scale
         return unnorm_target
 
@@ -228,6 +244,8 @@ class StateExtractor():
                 return (unnorm_target - mean) / var * self.scale
             elif self.hardcoded_normalization[0] == 'robopush':
                 mean, var = hardcode_norm_option(self.hardcoded_normalization, robopush_action_norm, robopush_gripper_norm, robopush_state_norm)  
+            elif self.hardcoded_normalization[0] == 'robostick':
+                mean, var = hardcode_norm_option(self.hardcoded_normalization, robostick_action_norm, robostick_gripper_norm, robostick_stick_norm)  
             return (unnorm_target - mean) / var * self.scale
         return unnorm_target
 
@@ -243,6 +261,8 @@ class StateExtractor():
                 return (inter_state - mean) / var * self.scale
             elif self.hardcoded_normalization[0] == 'robopush':
                 mean, var = hardcode_norm_inter(robopush_action_norm, robopush_gripper_norm, robopush_state_norm, robopush_obstacle_norm, self.hardcoded_normalization, num_instance=self.num_instance)  
+            elif self.hardcoded_normalization[0] == 'robostick':
+                mean, var = hardcode_norm_inter(robostick_action_norm, robostick_gripper_norm, robostick_stick_norm, robostick_block_norm, self.hardcoded_normalization, num_instance=self.num_instance)  
             return (inter_state - mean) / var * self.scale
         return inter_state
 
@@ -254,10 +274,11 @@ class StateExtractor():
         if normalize and len(self.hardcoded_normalization) > 0:
             if self.hardcoded_normalization[0] == 'breakout':
                 mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, breakout_paddle_norm, breakout_state_norm, breakout_block_norm)
-                param = (param - mean) / var * self.scale
             if self.hardcoded_normalization[0] == 'robopush':
                 mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_gripper_norm, robopush_state_norm, robopush_target_norm)
-                param = (param - mean) / var * self.scale
+            if self.hardcoded_normalization[0] == 'robostick':
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robostick_gripper_norm, robostick_stick_norm, robostick_block_norm)
+            param = (param - mean) / var * self.scale
 
         if len(shape) == 0:
             return param
@@ -276,6 +297,9 @@ class StateExtractor():
             if self.hardcoded_normalization[0] == 'robopush':
                 mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_relative_norm, robopush_relative_norm, robopush_block_target_relative_norm)
                 return (self.get_mask_param(target, mask) - param - mean) / var * self.scale
+            if self.hardcoded_normalization[0] == 'robostick':
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robostick_gripper_relative_norm, robostick_relative_norm, robostick_block_target_relative_norm)
+                return (self.get_mask_param(target, mask) - param - mean) / var * self.scale
         else:
             return self.get_mask_param(target, mask) - param
 
@@ -290,6 +314,9 @@ class StateExtractor():
                 rel_state = (rel_state - mean) / var
             elif self.hardcoded_normalization[0] == 'robopush':
                 mean, var = hardcode_norm_relative(self.hardcoded_normalization, robopush_relative_norm, robopush_gripper_block_norm, robopush_block_target_relative_norm, num_instance=self.num_instance)
+                rel_state = (rel_state - mean) / var
+            elif self.hardcoded_normalization[0] == 'robostick':
+                mean, var = hardcode_norm_relative(self.hardcoded_normalization, robostick_relative_norm, robostick_gripper_stick_norm, robostick_stick_block_relative_norm, num_instance=self.num_instance)
                 rel_state = (rel_state - mean) / var
         return rel_state
 
@@ -323,6 +350,9 @@ class StateExtractor():
                 target = (target - mean) / var * self.scale
             if self.hardcoded_normalization[0] == 'robopush':
                 mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robopush_gripper_norm, robopush_state_norm, robopush_target_norm)
+                target = (target - mean) / var * self.scale
+            if self.hardcoded_normalization[0] == 'robostick':
+                mean, var = hardcode_norm_param(self.get_mask_param, self.hardcoded_normalization, mask, robostick_gripper_norm, robostick_stick_norm, robostick_block_norm)
                 target = (target - mean) / var * self.scale
             diff = param_norm - target
             pre_rel = self.pre_param + self.param_shape[0]

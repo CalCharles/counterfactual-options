@@ -162,9 +162,14 @@ class Rollouts():
 
     def cuda(self):
         self.iscuda = True
+        # for n in self.names:
+        #     self.values[n] = self.values[n].detach().cuda()
+        return self
+
+    def set_cuda(self):
         for n in self.names:
             self.values[n] = self.values[n].detach().cuda()
-        return self
+
 
     def cpu(self):
         self.iscuda = False
@@ -221,6 +226,7 @@ class Rollouts():
             other = other.unsqueeze(1)
         if space > 0:
             self.values[name][i:i+space] = other[j:j+space]
+        other = other.cpu()
         wrap = a - (self.length - i)
         if self.wrap and wrap > 0 and self.filled == self.length: # only allows single wrap
             self.values[name][:wrap] = other[j+space:j+space+wrap]
@@ -318,8 +324,13 @@ class Rollouts():
         return {n: v[i] for n,v in self.values.items()}
 
     def get_values(self, name):
+        # iscuda gets assigned here
         if self.filled == self.length:
+            if self.iscuda:
+                return torch.cat([self.values[name][self.at:], self.values[name][:self.at]], dim=0).cuda()
             return torch.cat([self.values[name][self.at:], self.values[name][:self.at]], dim=0)
+        if self.iscuda:
+            return self.values[name][:self.filled].cuda()
         return self.values[name][:self.filled]
 
     def get_batch(self, n, weights=None, ordered=False, idxes=[], existing=None):
@@ -332,7 +343,10 @@ class Rollouts():
         else:
             idxes = np.random.choice(np.arange(self.filled), size=n, p=weights)
         # print(idxes, self.values.action[:100])
-        return idxes, self.split_indexes(idxes, existing=existing)
+        # only batches have cuda values inside
+        batch = self.split_indexes(idxes, existing=existing)
+        if self.iscuda: batch.set_cuda()
+        return idxes, batch
 
 
 def merge_rollouts(rols, set_dones=False):

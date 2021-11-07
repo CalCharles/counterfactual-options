@@ -58,9 +58,11 @@ if __name__ == '__main__':
                 rollouts.append(**insert_dict)
             i += 1
         if args.save_intermediate:
-            save_to_pickle("data/temp/rollouts.pkl", rollouts)
+            # save_to_pickle("data/temp/rollouts.pkl", rollouts)
+            save_to_pickle("/hdd/datasets/counterfactual_data/temp/rollouts.pkl", rollouts)
     else:
-        rollouts = load_from_pickle("data/temp/rollouts.pkl")
+        # rollouts = load_from_pickle("data/temp/rollouts.pkl")
+        rollouts = load_from_pickle("/hdd/datasets/counterfactual_data/temp/rollouts.pkl")
         if args.cuda:
             rollouts.cuda()
 

@@ -8,6 +8,7 @@ class TerminateReward():
         self.term = args.termination
         self.state_extractor = args.state_extractor
         self.dataset_model = args.dataset_model
+        self.multi_instanced = self.dataset_model.multi_instanced
         self.true_interaction = args.true_interaction
         # self.init_term = args.init_term # whether to be terminated on the first state after a reset, false except for primitive terminate reward
 
@@ -60,9 +61,14 @@ class TerminateReward():
         # compute the interaction value
         if not self.true_interaction:
             inter, pred, var = self.dataset_model.hypothesize(inter_state)
+            # if self.multi_instanced:
+            #     inst_inter = self.dataset_model.hypothesize_multi(inter_state)
+            # else:
+            #     inst_inter = np.array([inter])
             inter = pytorch_model.unwrap(inter)
         else:
             inter = true_inter
+            inst_inter = np.array([inter])
 
         # compute the termination and reward values
         term = self.term.check(inter, target_state, param, mask, true_done)

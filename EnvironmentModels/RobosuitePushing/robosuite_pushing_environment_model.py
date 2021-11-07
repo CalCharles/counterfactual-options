@@ -22,7 +22,7 @@ class RobosuitePushingEnvironmentModel(EnvironmentModel):
         #     self.enumeration["Stick"] = [2,3]
         #     self.enumeration["Block"], self.enumeration["Target"], self.enumeration["Done"], self.enumeration["Reward"] = [3,4], [4,5], [5,6], [6,7]
         self.state_size = sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])
-        self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [3], "done": [1]}
+        self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [3], "done": [1], "info": [1]}
         self.param_size = self.state_size
         self.set_indexes()
 
@@ -41,6 +41,10 @@ class RobosuitePushingEnvironmentModel(EnvironmentModel):
     def get_action(self, full_state):
         factored_state = full_state['factored_state']
         return factored_state['Action']
+
+    def get_info(self, full_state):
+        factored_state = full_state['factored_state']
+        return factored_state['Done']
 
 
     def get_factored_state(self, instanced = False): # "instanced" indicates if a single type can have multiple instances (true), or if all of the same type is grouped into a single vector

@@ -1,6 +1,8 @@
 import numpy as np
 import torch
+import copy
 from EnvironmentModels.environment_model import FeatureSelector, ControllableFeature
+from Environments.SelfBreakout.breakout_objects import intersection
 from DistributionalModels.InteractionModels.state_management import StateSet
 from Networks.network import pytorch_model
 
@@ -16,6 +18,7 @@ class DummyModel():
         self.interaction_prediction = None
         self.predict_dynamics = False
         self.iscuda = False
+        self.multi_instanced = False
 
     def cuda(self):
         self.iscuda = True
@@ -45,6 +48,7 @@ class DummyBlockDatasetModel():
         self.name = "Ball->Block"
         self.control_min, self.control_max = 0, 1
         self.iscuda = False
+        self.multi_instanced = False
 
     def cuda(self):
         self.iscuda = True
@@ -56,6 +60,58 @@ class DummyBlockDatasetModel():
         if abs(state[0] - state[5]) < 9 and abs(state[1] - state[6] < 6): 
             return np.array(1), np.array(0), np.array(0)
         return np.array(0), np.array(0), np.array(0)
+
+
+def intersection(a, b, awh, bwh):
+    return (abs(a[1] - b[1]) * 2 < (awh[0] + bwh[0])) and (abs(a[0] - b[0]) * 2 < (awh[1] + bwh[1]))
+
+
+class DummyMultiBlockDatasetModel():
+    def __init__(self, environment_model, multi_instanced = True):
+        self.interaction_prediction = .3
+        self.interaction_minimum = .9
+        self.multi_instanced = multi_instanced
+        self.gamma = environment_model.create_entity_selector(["Ball", "Block"])
+        self.delta = environment_model.create_entity_selector(["Block"])
+        self.num_blocks = environment_model.environment.num_blocks
+        fs = FeatureSelector([19+ i * 5 for i in range(environment_model.environment.num_blocks)], {"Block": 4}, {"Block": np.array([[4, 19 + i * 5] for i in range(environment_model.environment.num_blocks)])}, ["Block"])
+        rng = np.array([0,1])
+        self.cfselectors = [ControllableFeature(fs, rng, 1, self)]
+        self.sample_able = StateSet([np.array([0,0,0,0,0])])
+        self.selection_binary = pytorch_model.wrap(np.array([0,0,0,0,1]))
+        self.name = "Ball->Block"
+        self.block_width = environment_model.environment.block_width
+        self.block_height = environment_model.environment.block_height
+        self.ball_width = environment_model.environment.ball.height
+        self.ball_height = environment_model.environment.ball.height
+        self.control_min, self.control_max = 0, 1
+        self.iscuda = False
+        self.multi_instanced = True
+
+    def cuda(self):
+        self.iscuda = True
+
+    def cpu(self):
+        self.iscuda = False
+
+    def split_instances(self, state):
+        cat_state = [state[...,i*5:(i+1)*5] for i in range(self.num_blocks)]
+        if len(state.shape) == 1:
+            return np.stack(cat_state, axis=0) 
+        return np.concatenate(cat_state, axis=-2)
+
+    def hypothesize(self, state): # gives an "interaction" when the Ball state is within a certain margin of the block
+        ball_pos = state[:2]
+        ball_next_pos = ball_pos + state[2:4]
+        for i in range(self.num_blocks):
+            block_pos = state[5 + i * 5: 5 + i * 5 + 2]
+            block_attr = state[9 + i*5]
+            # print(ball_next_pos, block_pos, intersection(ball_next_pos, block_pos, (self.ball_width, self.ball_height), (self.block_width, self.block_height)), block_attr)
+            if intersection(ball_next_pos, block_pos, (self.ball_width, self.ball_height), (self.block_width, self.block_height)) and block_attr > 0:
+                return np.array(1), np.array(0), np.array(0)
+        return np.array(0), np.array(0), np.array(0)
+
+
 
 class DummyNegativeRewardDatasetModel():
     def __init__(self, environment_model, multi_instanced = False):
@@ -75,6 +131,7 @@ class DummyNegativeRewardDatasetModel():
         self.name = "Block+Obstacle->Target" # name needs this form for network initializaiton
         self.control_min, self.control_max = np.array([-.25, -.15]), np.array([.05, .15])
         self.iscuda = False
+        self.multi_instanced = False
 
     def cuda(self):
         self.iscuda = True

@@ -79,7 +79,7 @@ class TemporalAggregator():
             np.any(data.done)
             or np.any(data.terminate)):
             self.keep_next = True
-            # print("keeping", self.temporal_skip, self.current_data.obs, self.current_data.obs_next)
+            print("keeping", self.temporal_skip, np.any(data.ext_term),np.any(data.terminate), self.current_data.obs.squeeze()[:5], self.current_data.obs_next.squeeze()[:5])
             if not self.temporal_skip:
                 added = True
                 # print(next_data.act)
@@ -194,6 +194,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         option_dumps.write(str(self.environment_model.environment.get_itr() - 1) + ":" + action_toString(mapped_act) + "\t")
         option_dumps.close()
         param_dumps = open(os.path.join(self.save_path, "param_dumps.txt"), 'a')
+        # print("param itr", self.environment_model.environment.get_itr(), action_toString(param), term)
         param_dumps.write(str(self.environment_model.environment.get_itr() - 1) + ":" + action_toString(param) + "|" + str(int(resampled)) + "," + str(int(term)) + "\t") # action_toString handles numpy vectors
         param_dumps.close()
 
@@ -317,13 +318,16 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             # print("rew sum", rews, rew) # debugging
             if term: 
                 reward_check =  (done and rew >= 0)
-                hit = ((np.linalg.norm((param-next_target) * mask) <= self.option.terminate_reward.epsilon_close and not true_done)
-                            or reward_check)
+                if self.option.dataset_model.multi_instanced:
+                    nt = self.option.dataset_model.split_instances(next_target)
+                    hit = ((np.linalg.norm((param-nt), axis=-1).min() <= self.option.terminate_reward.epsilon_close and not true_done)
+                                or reward_check)
+                else:
+                    hit = ((np.linalg.norm((param-next_target) * mask) <= self.option.terminate_reward.epsilon_close and not true_done)
+                                or reward_check)
                 # print(reward_check, param, next_target, mask)
                 hit_count += int(hit)
                 miss_count += int(not hit)
-            if term: 
-                print("term", term, true_done, done, inter, not time_cutoff, hit,hit_count, miss_count, rew, param, self.data.mapped_act.squeeze(), act, next_target, inter_state, obs)
             # print(rew, target, self.data.mapped_act.squeeze(), act, param)
 
             # update the current values
@@ -353,6 +357,11 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
 
             next_data, skipped, added, self.at = self._aggregate(self.data, self.buffer, full_ptr, ready_env_ids)
             if not self.test and self.policy_collect is not None: self.policy_collect(next_data, self.data, skipped, added)
+            if term: 
+                print("term", term, true_done, done, inter, not time_cutoff, hit,hit_count, miss_count, self.temporal_aggregator.time_counter, rew, 
+                    pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()), 
+                    param, self.data.mapped_act.squeeze(), act, next_target, 
+                    inter_state, obs)
             # debugging and visualization
             # if self.test: print(self.data.target.squeeze(), self.data.next_target.squeeze(), self.data.param.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # print(self.data.mapped_act, self.data.inter_state, self.data.param, self.data.obs)
@@ -364,7 +373,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 if visualize_param != "nosave":
                     saveframe(new_frame, pth=visualize_param, count=self.counter, name="param_frame")
                     self.counter += 1
-                printframe(new_frame, waittime=100)
+                printframe(new_frame, waittime=10)
 
             # collect statistics
             step_count += len(ready_env_ids)

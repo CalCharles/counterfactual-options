@@ -64,6 +64,7 @@ class FeatureExplorer():
                     # HACKED LINE TO SPEED UP TRAINING
                     for name in target_names:
                         if name != controllable_entity and name not in delta_tested and (controllable_entity, name) not in self.graph.edges:
+                            print(cfsdict)
                             model, test, gamma_new, delta_new = self.train(cfs, cfsdict[cfs], additional_feature, rollouts, train_args, name)
                             comb_passed, combined = self.pass_criteria(train_args, model, test, train_args.model_error_significance)
                             gamma_comb = gamma_new

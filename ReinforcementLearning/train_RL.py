@@ -16,8 +16,11 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     if random:
         trials = args.pretest_trials
     #     trials = args.test_trials * 10
+    if args.object == "Block" and args.env == "SelfBreakout":
+        orig_env_model = test_collector.option.sampler.current_environment_model
+        test_collector.option.sampler.current_environment_model = test_collector.environment_model
     for j in range(trials):
-        result = test_collector.collect(n_episode=1, n_term=1, n_step=args.max_steps, random=random)
+        result = test_collector.collect(n_episode=1, n_term=1, n_step=args.max_steps, random=random, visualize_param=args.visualize_param)
         test_perf.append(result["rews"].mean())
         suc.append(float(result["terminate"]))
         hit_miss.append(result['n/h'])
@@ -31,6 +34,8 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
         hmt = np.sum(np.array(list(hit_miss_train)), axis=0)
         hmt = hmt[0] / (hmt[0] + hmt[1])
     print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}", f"Hit Miss train: {hmt}")
+    if args.object == "Block" and args.env == "SelfBreakout":
+        test_collector.option.sampler.current_environment_model = orig_env_model
     return mean_perf, mean_suc, mean_hit 
 
 def full_save(args, option, graph):
@@ -46,7 +51,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
 
     
     # collect initial random actions 
-    train_collector.collect(n_step=args.pretrain_iters, random=True) # param doesn't matter with random actions
+    train_collector.collect(n_step=args.pretrain_iters, random=True, visualize_param=args.visualize_param) # param doesn't matter with random actions
     if args.input_norm: option.policy.compute_input_norm(train_collector.buffer)
 
     # collect initial test trials

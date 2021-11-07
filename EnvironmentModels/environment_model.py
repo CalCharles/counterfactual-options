@@ -197,9 +197,10 @@ class EnvironmentModel():
         next_state = torch.tensor(self.flatten_factored_state(next_factored_state, instanced=instanced)).float()
         # skip = self.get_done({"factored_state": next_factored_state})
         skip = self.get_done({"factored_state": factored_state})
+        info = self.get_info({"factored_state": factored_state})
 
-        # print(skip, self.get_done({"factored_state": factored_state}))
-        insert_dict = {'state': state, 'next_state': next_state, 'state_diff': next_state-state, 'done': self.get_done({"factored_state": factored_state}), 'action': self.get_action({"factored_state": factored_state})}
+        # print(skip, self.get_done({"factored_state": factored_stdate}))
+        insert_dict = {'state': state, 'next_state': next_state, 'state_diff': next_state-state, 'done': self.get_done({"factored_state": factored_state}), 'action': self.get_action({"factored_state": factored_state}), 'info': info}
         return insert_dict, state, skip
 
     def match_factored_flat(self, f, name):
@@ -245,17 +246,20 @@ class EnvironmentModel():
         control_selector = FeatureSelector(np.array(flat_features), factored_features, feature_match, names)
 
         facfea = pytorch_model.unwrap(torch.nonzero((factored_bin == 0).long())).flatten()
-        name = entity_selector.names[0]
-        factored_features = {name: facfea}
-        feature_match = dict()
-        flat_features = list()
-        names = [name]
-        for f in facfea:
-            flat_eq = self.match_factored_flat(f, name)
-            feature_match[name] = np.array([f, np.array(flat_eq)])
-            flat_features += flat_eq
-        flat_features.sort()
-        non_control_selector = FeatureSelector(np.array(flat_features), factored_features, feature_match, names)
+        print(facfea)
+        non_control_selector = None
+        if len(facfea) > 0:
+            name = entity_selector.names[0]
+            factored_features = {name: facfea}
+            feature_match = dict()
+            flat_features = list()
+            names = [name]
+            for f in facfea:
+                flat_eq = self.match_factored_flat(f, name)
+                feature_match[name] = np.array([f, np.array(flat_eq)])
+                flat_features += flat_eq
+            flat_features.sort()
+            non_control_selector = FeatureSelector(np.array(flat_features), factored_features, feature_match, names)
         return control_selector, non_control_selector
 
     def get_subset(self, entity_selector, flat_bin):
@@ -460,14 +464,15 @@ class FeatureSelector():
                             if i not in self.relative_indexes[hsh]:
                                 print(hsh, t, flt2[idx])
                                 self.relative_indexes[hsh].append(i)
-                                self.relative_flat_indexes[hsh].append([t.squeeze(),flt2[idx]])
+                                for flt2t in flt2[idx]:
+                                    self.relative_flat_indexes[hsh].append([t.squeeze(),flt2t])
                                 self.len_relative += 1
                             if hsh not in self.name_order:
                                 self.name_order.append(hsh)
         print(self.relative_indexes, self.relative_flat_indexes)
-        print([(hsh, np.array(self.relative_flat_indexes[hsh], dtype=object).shape) for hsh in self.name_order])
+        print([(hsh, np.array(self.relative_flat_indexes[hsh]).shape) for hsh in self.name_order])
         if len(list(self.relative_flat_indexes.keys())) > 0:
-            self.relative_flat_indexes = np.concatenate([np.array(self.relative_flat_indexes[hsh], dtype=object) for hsh in self.name_order], axis=0)
+            self.relative_flat_indexes = np.concatenate([np.array(self.relative_flat_indexes[hsh]) for hsh in self.name_order], axis=0)
         print(list(self.feature_match.keys()), self.names, self.relative_indexes, self.relative_flat_indexes)
 
         self.clean_factored_features()
@@ -626,7 +631,7 @@ class ModelRollouts(Rollouts):
         shapes dict should have the shape information for all the types inside
         '''
         super().__init__(length, shapes_dict)
-        self.names = ["state", "state_diff", "next_state", "action", "done"]
+        self.names = ["state", "state_diff", "next_state", "action", "done", "info"]
         if "all_state_next" in list(shapes_dict.keys()):
             self.names.append("all_state_next")
         # print(self.shapes)

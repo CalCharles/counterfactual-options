@@ -71,9 +71,11 @@ class Ball(animateObject):
         self.needs_ball_reset = False
 
         # indicators for if the ball hit a particular object
+        self.flipped = False
         self.bottom_wall = False
         self.top_wall = False
         self.block = False
+        self.block_id = None
 
         # MODE 1 # only odd lengths valid, prefer 7,11,15, etc. 
         self.paddle_interact = dict()
@@ -98,7 +100,7 @@ class Ball(animateObject):
         # self.nohit_delay = 0
 
     def clear_hits(self):
-        self.bottom_wall, self.top_wall, self.block = False, False, False
+        self.bottom_wall, self.top_wall, self.block, self.flipped = False, False, False, False
 
     def reset_pos(self, target_mode=False):
         self.vel = np.array([np.random.randint(1,2), np.random.choice([-1,1])])
@@ -151,15 +153,19 @@ class Ball(animateObject):
                 self.apply_move = False
                 self.reset_pos()
                 self.losses += 1
-            elif other.name.find("Block") != -1 and other.attribute == 1:
+            elif other.name.find("Block") != -1 and other.attribute != 0:
                 self.block = True
+                self.block_id = other
                 rel_x = self.pos[1] - other.pos[1]
                 rel_y = self.pos[0] - other.pos[0]
-                # print(rel_x, rel_y, self.vel, other.name, intersection(self, other))
+                # print(rel_x, rel_y, self.vel, self.pos[0], other.pos[0], other.name, intersection(self, other))
                 other.attribute = 0
                 next_vel = self.vel
-                if rel_y == -2 or rel_y == -3 or rel_y == 3 or rel_y == 2:
+                # if (rel_y == -2 or rel_y == -3 or rel_y == 3 or rel_y == 2) and not self.flipped:
+                # if rel_y == -2 or rel_y == -3 or rel_y == 3 or rel_y == 2:
+                if rel_y <= -1 or 1 <= rel_y:
                     next_vel[0] = - self.vel[0]
+                    self.flipped = True
                 # else:
                 #     if rel_x == -2 or rel_x == 4 or (rel_x == 3 and rel_y != -2):
                 #         next_vel[1] = - self.vel[1]
@@ -221,10 +227,10 @@ class Wall(Object):
         self.name = side + "Wall"
 
 class Block(Object):
-    def __init__(self, pos, attribute, index, index2d, size=1):
+    def __init__(self, pos, attribute, index, index2d, width= 3, height=2,size=1):
         super(Block, self).__init__(pos, attribute)
-        self.width = 3 * size
-        self.height = 2 * size
+        self.width = width * size
+        self.height = height * size
         if index >= 0:
             self.name = "Block" + str(index)
         else:

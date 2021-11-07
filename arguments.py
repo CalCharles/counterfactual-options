@@ -29,6 +29,8 @@ def get_args():
                     help='collector will call reset whenever a "done" occurs unless this is true')
     parser.add_argument('--target-mode', action='store_true', default=False,
                     help='in breakout, induces a domain where there is a single block to target')
+    parser.add_argument('--block-shape', type=int, nargs=4, default=(5, 20, 4, 0),
+                        help='shape of the blocks, number of blocks high, number of blocks wide, max block height, no_breakout(flag) (default: (5,20,4,0))')
     # # optimization hyperparameters
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='learning rate, not used if actor and critic learning rate used for algo (default: 1e-6)')
@@ -148,6 +150,9 @@ def get_args():
                         help='use already existing values if 0, false if 1, true if 2')
     parser.add_argument('--no-combine-param-mask', action='store_true', default=False,
                         help='if true, do NOT multiply the param with the mask')
+    parser.add_argument('--check-on-binary', action='store_true', default=False,
+                    help='if true, uses the last bin (when there is a bin) for the input state')
+
     # done check parameters
     parser.add_argument('--use-termination', action = 'store_true', default=False,
                     help='returns done when the option terminates')

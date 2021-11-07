@@ -7,18 +7,24 @@ class BreakoutEnvironmentModel(EnvironmentModel):
         super().__init__(breakout_environment)
         self.object_names = ["Action", "Paddle", "Ball", "Block", 'Done', "Reward"] # TODO: Reward missing from the objects
         self.object_sizes = {"Action": 5, "Paddle": 5, "Ball": 5, "Block": 5, 'Done': 1, "Reward": 1}
+        num_blocks = breakout_environment.num_blocks
         if breakout_environment.target_mode:
             self.object_num = {"Action": 1, "Paddle": 1, "Ball": 1, "Block": 1, 'Done': 1, "Reward": 1}
             self.state_size = sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])
             self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [1], "done": [1]}
             self.enumeration = {"Action": [0,1], "Paddle": [1,2], "Ball": [2,3], "Block": [3,4], 'Done':[4,5], "Reward":[5,6]}
         else:
-            self.object_num = {"Action": 1, "Paddle": 1, "Ball": 1, "Block": 100, 'Done': 1, "Reward": 1}
+            self.object_num = {"Action": 1, "Paddle": 1, "Ball": 1, "Block": num_blocks, 'Done': 1, "Reward": 1}
             self.state_size = sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])
-            self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [1], "done": [1]}
-            self.enumeration = {"Action": [0,1], "Paddle": [1,2], "Ball": [2,3], "Block": [3,103], 'Done':[103,104], "Reward":[104,105]}
+            self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [1], "done": [1], "info": [1]}
+            self.enumeration = {"Action": [0,1], "Paddle": [1,2], "Ball": [2,3], "Block": [3,3+num_blocks], 'Done':[103,104], "Reward":[104,105]}
         self.param_size = self.state_size
         self.set_indexes()
+
+    def get_info(self, full_state):
+        factored_state = full_state['factored_state']
+        return factored_state['Done']
+
 
     def get_interaction_trace(self, name):
         trace = []

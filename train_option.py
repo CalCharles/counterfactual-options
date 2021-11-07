@@ -19,7 +19,7 @@ from Options.action_map import PrimitiveActionMap, ActionMap
 from Options.state_extractor import StateExtractor
 from Options.terminate_reward import TerminateReward
 from Options.temporal_extension_manager import TemporalExtensionManager
-from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel, DummyNegativeRewardDatasetModel
+from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel, DummyNegativeRewardDatasetModel, DummyMultiBlockDatasetModel
 from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model, interaction_models
 from DistributionalModels.InteractionModels.samplers import samplers
 from Rollouts.collector import OptionCollector
@@ -37,7 +37,7 @@ if __name__ == '__main__':
     print(type(args))
 
     # manage environment
-    test_environment, test_environment_model, args = initialize_environment(args)
+    test_environment, test_environment_model, args = initialize_environment(args, render="Test" if len(args.record_rollouts) > 0 else "")
     environment, environment_model, args = initialize_environment(args)
     if args.true_environment:
         args.parameterized = args.env == "Nav2D"
@@ -68,6 +68,9 @@ if __name__ == '__main__':
         if args.target_mode:
             dataset_model = DummyBlockDatasetModel(environment_model)
             dataset_model.environment_model = environment_model
+        else:
+            dataset_model = DummyMultiBlockDatasetModel(environment_model)
+            dataset_model.environment_model = environment_model            
         dataset_model.sample_able.vals = np.array([dataset_model.sample_able.vals[0]]) # for some reason, there are some interaction values that are wrong
         discretize_actions = {0: np.array([-1,-1]), 1: np.array([-2,-1]), 2: np.array([-2,1]), 3: np.array([-1,1])}
     if args.object == "Reward" and args.env == "RoboPushing":
