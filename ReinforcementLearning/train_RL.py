@@ -7,7 +7,7 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     '''
     collect trials with the test collector
     the environment is reset before starting these trials
-    most of the inputs are used for printing out the results of these trials 
+    most of the inputs are used for printing out the results of these trials
     '''
     test_collector.reset()
     trials = args.test_trials
@@ -18,11 +18,10 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     for j in range(trials):
         result = test_collector.collect(n_episode=1, n_term=1, n_step=args.max_steps, random=random)
 
-        print(result['rews'])
+        print('Reward', result['rews'])
         if type(result['rews']) == int:
             test_perf.append(result['rews'])
         elif args.true_environment:
-            print('what switch')
             test_perf.append(result["rews"].sum())
         else:
             test_perf.append(result["rews"].mean())
@@ -54,8 +53,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     '''
     test_perf, suc = deque(maxlen=2000), deque(maxlen=2000)
 
-    
-    # collect initial random actions 
+    # collect initial random actions
     train_collector.collect(n_step=args.pretrain_iters, random=True) # param doesn't matter with random actions
     if args.input_norm: option.policy.compute_input_norm(train_collector.buffer)
 

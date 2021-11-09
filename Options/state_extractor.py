@@ -100,6 +100,7 @@ class StateExtractor():
         self.combine_param_mask = not args.no_combine_param_mask
         self.hardcoded_normalization = args.hardcode_norm
         self.scale = float(self.hardcoded_normalization[2]) if len(self.hardcoded_normalization) > 0 else 1
+        self.use_breakout_pair_obs = args.use_breakout_pair_observations
 
         self.obs_setting = args.observation_setting
         self.update(full_state)
@@ -155,24 +156,27 @@ class StateExtractor():
         factored_state = full_state['factored_state']
         return factored_state["Reward"][-1]
 
-    def get_state(self, full_state, setting, param=None, mask=None, normalize = False, use_pair=False): # param is expected 
+    def get_state(self, full_state, setting, param=None, mask=None, normalize = False, use_pair=False): # param is expected
         # form is an enumerator, 0 is flattened state, 1 is gamma/delta state, 2 is diff using last_factor
         # inp indicates if gamma or delta or gamma+param (if param is not None)
         # full_state is a batch or dict containing raw_state, factored_state
         # raw state may be a batch: [env_num, batch_num, raw state shape]
         # factored_state may also be a batch/dict: {name: [env_num, batch_num, factored_shape]}
         inter, target, flat, use_param, param_relative, relative, action, option, diff, raw = setting
-        factored_state = full_state["factored_state"]
         return self._combine_state(full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, raw, param=param, mask=mask, normalize=normalize, use_pair=use_pair)
 
     def _combine_state(self, full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, raw, param=None, mask=None, normalize=False, use_pair=False):
         # combines the possible components of state:
         # param relative
-        factored_state = array_state(full_state['factored_state']) if self.use_parametrized else full_state
+        factored_state = array_state(full_state['factored_state'])
+        if self.use_breakout_pair_obs:
+            factored_state['Delta'] = factored_state['Ball'] - factored_state['Paddle']
+
         k = list(factored_state.keys())[0]
         shape = factored_state[k].shape[:-1]
 
         state_comb = list()
+
         if option: state_comb.append(self._option_featurizer(factored_state))
         if inter: state_comb.append(self._get_inter(factored_state, normalize=normalize, use_pair = use_pair))
         if target: state_comb.append(self._delta_featurizer(factored_state))
@@ -203,7 +207,7 @@ class StateExtractor():
                 mean, var = hardcode_norm_target(breakout_action_norm, breakout_paddle_norm, breakout_state_norm, self.hardcoded_normalization)
                 return (unnorm_target - mean) / var * self.scale
             elif self.hardcoded_normalization[0] == 'robopush':
-                mean, var = hardcode_norm_target(robopush_action_norm, robopush_gripper_norm, robopush_state_norm, self.hardcoded_normalization)  
+                mean, var = hardcode_norm_target(robopush_action_norm, robopush_gripper_norm, robopush_state_norm, self.hardcoded_normalization)
             return (unnorm_target - mean) / var * self.scale
         return unnorm_target
 
@@ -214,7 +218,7 @@ class StateExtractor():
                 mean, var = hardcode_norm_option(breakout_action_norm, breakout_paddle_norm, breakout_state_norm, self.hardcoded_normalization)
                 return (unnorm_target - mean) / var * self.scale
             elif self.hardcoded_normalization[0] == 'robopush':
-                mean, var = hardcode_norm_option(robopush_action_norm, robopush_gripper_norm, robopush_state_norm, self.hardcoded_normalization)  
+                mean, var = hardcode_norm_option(robopush_action_norm, robopush_gripper_norm, robopush_state_norm, self.hardcoded_normalization)
             return (unnorm_target - mean) / var * self.scale
         return unnorm_target
 

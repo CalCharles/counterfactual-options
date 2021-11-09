@@ -40,7 +40,7 @@ class EnvironmentModel():
         return self.environment.get_state()
 
     def get_object(self, state):
-        return state["raw_state"]
+        return self.flatten_factored_state(state, instanced = True)
 
     def get_raw_state(self, state): # get the raw form of the state, assumed to be frame, define in subclass if otherwise
         if type(state) == dict:
@@ -69,6 +69,7 @@ class EnvironmentModel():
     def append_shapes(self, addv):
         if type(addv) != np.ndarray:
             addv = np.array(addv)
+
         addv=addv.squeeze() # TODO: highly problamatic line but I don't know how to fix it
         # print(addv.shape, addv.tolist())
         if len(addv.shape) == 0:
@@ -104,7 +105,12 @@ class EnvironmentModel():
                             flattened_state += self.append_shapes(factored_state[n+str(i)])
                     else:
                         flattened_state += self.append_shapes(factored_state[n])
+
+
                 flattened_state = np.array(flattened_state)
+
+                if len(factored_state[names[0]].shape) == 2 and len(flattened_state.shape) == 1:
+                    flattened_state = np.expand_dims(flattened_state, axis=0)
         else:
             if type(factored_state) == list:
                 flattened_state = np.array([np.concatenate([factored_state[i][f] for f in names], axis=1) for i in range(factored_state)])
@@ -115,7 +121,7 @@ class EnvironmentModel():
 
 
     def unflatten_state(self, flattened_state, vec=False, instanced=False, names=None):
-        ''' 
+        '''
         generates a list of factored states from an nxdim state. Overloaded to accept length dim vector as well 
         This is in the environment model because the order shoud follow the order of the object names
         '''

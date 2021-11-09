@@ -5,9 +5,17 @@ from EnvironmentModels.environment_model import EnvironmentModel
 class BreakoutEnvironmentModel(EnvironmentModel):
     def __init__(self, breakout_environment):
         super().__init__(breakout_environment)
+
+        self.using_target_mode = breakout_environment.target_mode
+
         self.object_names = ["Action", "Paddle", "Ball", "Block", 'Done', "Reward"] # TODO: Reward missing from the objects
         self.object_sizes = {"Action": 5, "Paddle": 5, "Ball": 5, "Block": 5, 'Done': 1, "Reward": 1}
-        self.object_num = {"Action": 1, "Paddle": 1, "Ball": 1, "Block": 100, 'Done': 1, "Reward": 1}
+
+        if self.using_target_mode:
+            self.object_num = {"Action": 1, "Paddle": 1, "Ball": 1, "Block": 1, 'Done': 1, "Reward": 1}
+        else:
+            self.object_num = {"Action": 1, "Paddle": 1, "Ball": 1, "Block": 100, 'Done': 1, "Reward": 1}
+
         self.state_size = sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])
         self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [1], "done": [1]}
         self.enumeration = {"Action": [0,1], "Paddle": [1,2], "Ball": [2,3], "Block": [3,103], 'Done':[103,104], "Reward":[104,105]}
@@ -29,6 +37,7 @@ class BreakoutEnvironmentModel(EnvironmentModel):
 
     def get_factored_state(self, instanced = False): # "instanced" indicates if a single type can have multiple instances (true), or if all of the same type is grouped into a single vector
         factored_state = {n: [] for n in self.object_names}
+
         if not instanced:
             for o in self.environment.objects:
                 for n in self.object_names:
@@ -41,6 +50,8 @@ class BreakoutEnvironmentModel(EnvironmentModel):
             factored_state = {o.name: np.array(o.pos.tolist() + o.vel.tolist() + [o.attribute]) for o in self.environment.objects}
         factored_state["Done"] = np.array([float(self.environment.done)])
         factored_state["Reward"] = np.array([float(self.environment.reward)])
+
+        print(factored_state)
         return factored_state
 
     def get_raw_state(self, state):

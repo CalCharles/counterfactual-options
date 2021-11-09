@@ -145,6 +145,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self._reset_state(0)
         self.option.reset(full_state)
         param, mask = self._reset_data(full_state)
+
         self.data.update(obs=[self.state_extractor.get_obs(full_state, param, mask)]) # self.option.get_state(obs, setting=self.option.input_setting, param=self.param if self.param is not None else None)
         self.temporal_aggregator.reset(self.data)
 
@@ -157,8 +158,12 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.data.update(full_state=[full_state])
         param, mask, _ = self.get_param(full_state, True) if self.get_param is not None else (np.ones(1), np.ones(1), None)
 
-        self.data.update(target=self.state_extractor.get_target(self.data.full_state),
+        if self.use_parametrized:
+            self.data.update(target=self.state_extractor.get_target(self.data.full_state),
             obs=[self.state_extractor.get_obs(self.data.full_state, param, mask)])
+        else:
+            self.data.update(obs=[self.state_extractor.get_obs(self.data.full_state, param, mask)])
+
         self.data.update(param=[param], mask = [mask], option_resample=[[True]])
         term_chain = self.option.reset(full_state)
 
@@ -266,11 +271,15 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             param, mask, new_param = self.adjust_param() if self.use_parametrized else None, None, None
             if self.test and new_param: print("new param", param)
             state_chain = self.data.state_chain if hasattr(self.data, "state_chain") else None
+            term_chain = self.data.terminations if hasattr(self.data, "terminations") else None
+
+            ext_terms = self.data.ext_terms if hasattr(self.data, "ext_terms") else None
+
             if no_grad:
                 with torch.no_grad():  # faster than retain_grad version
-                    act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random)
+                    act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, term_chain, ext_terms, random=random)
             else:
-                act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random)
+                act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, term_chain, ext_terms, random=random)
 
 
             if result != None:
@@ -290,11 +299,15 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
 
             true_done, true_reward = done, rew
             # if self.option: # seems pointless to support no-option code
+
             obs = self.state_extractor.get_obs(self.data.full_state[0], param, mask) # one environment reliance
             obs_next = self.state_extractor.get_obs(next_full_state, param, mask) # one environment reliance
             target = self.state_extractor.get_target(self.data.full_state[0])
             next_target = self.state_extractor.get_target(next_full_state)
-            inter_state = self.state_extractor.get_inter(self.data.full_state[0])
+            if self.use_parametrized:
+                inter_state = self.state_extractor.get_inter(self.data.full_state[0])
+            else:
+                inter_state = None
 
             # update the target, next target, obs, next_obs pair
             if not self.use_parametrized and not random:
@@ -316,7 +329,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 info[0]["TimeLimit.truncated"] = False
 
 
-            if term: print("term", term, true_done, done, inter, not time_cutoff, rew, param, next_target, inter_state)
+            if term: print("term", term, true_done, done, inter, not time_cutoff, rew)
+
             self.option.update(self.buffer, done, self.data.full_state[0], act, action_chain, terminations, param, masks, not self.test)
 
             # update hit-miss values

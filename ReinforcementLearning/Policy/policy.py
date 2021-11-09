@@ -8,7 +8,7 @@ import torch.optim as optim
 import copy, os, cv2
 from file_management import default_value_arg
 from Networks.network import Network, pytorch_model
-from Networks.tianshou_networks import networks
+from Networks.tianshou_networks import networks, RainbowNetwork
 from tianshou.utils.net.continuous import Actor, Critic, ActorProb
 cActor, cCritic = Actor, Critic
 from tianshou.utils.net.discrete import Actor, Critic
@@ -114,6 +114,7 @@ class TSPolicy(nn.Module):
             Actor, Critic = cActor, cCritic
         actor, critic, critic2 = None, None, None
         actor_optim, critic_optim, critic2_optim = None, None, None
+        print(args.policy_type)
         PolicyType = networks[args.policy_type]
         device = 'cpu' if not args.cuda else 'cuda:' + str(args.gpu)
         if self.algo_name in _actor_critic:
@@ -156,6 +157,10 @@ class TSPolicy(nn.Module):
         elif self.algo_name in ['dqn']:
             critic = PolicyType(num_inputs=input_shape, num_outputs=action_shape, **args)
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
+        elif self.algo_name in ['rainbow']:
+            num_atoms = 51
+            critic = RainbowNetwork(num_inputs=input_shape, num_outputs=[action_shape, num_atoms], num_atoms=num_atoms, **args)
+            critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
         elif self.algo_name in ['ppo']:
             if discrete_actions:
                 hsizes = args.hidden_sizes
@@ -185,9 +190,12 @@ class TSPolicy(nn.Module):
         args = ObjDict(kwargs)
         noise = GaussianNoise(sigma=args.epsilon) if args.epsilon > 0 else None
         if self.algo_name == "dqn":
-            policy = ts.policy.DQNPolicy(args.critic, args.critic_optim, discount_factor=args.discount_factor, estimation_step=args.lookahead, target_update_freq=int(args.tau))
+            policy = ts.policy.DQNPolicy(args.critic, args.critic_optim, discount_factor=args.discount_factor, estimation_step=args.lookahead, target_update_freq=int(args.tau + 1))
             policy.set_eps(args.epsilon)
-        elif self.algo_name == "ppo": 
+        elif self.algo_name == "rainbow":
+            policy = ts.policy.RainbowPolicy(args.critic, args.critic_optim, discount_factor=args.discount_factor, num_atoms=51, estimation_step=args.lookahead, target_update_freq=int(args.tau + 1))
+            policy.set_eps(args.epsilon)
+        elif self.algo_name == "ppo":
             if args.discrete_actions:
                 policy = ts.policy.PPOPolicy(args.actor, args.critic, args.actor_optim, torch.distributions.Categorical, discount_factor=args.discount_factor, max_grad_norm=None,
                                     eps_clip=0.2, vf_coef=0.5, ent_coef=0.01, gae_lambda=0.95, # parameters hardcoded to defaults
@@ -201,7 +209,7 @@ class TSPolicy(nn.Module):
                     args.actor, args.critic, args.actor_optim, dist, discount_factor=args.discount_factor, max_grad_norm=None, eps_clip=0.2, vf_coef=0.5, 
                     ent_coef=0.01, reward_normalization=args.reward_normalization, advantage_normalization=1, recompute_advantage=0, 
                     value_clip=False, gae_lambda=0.95, action_space=args.action_space)
-        elif self.algo_name == "ddpg": 
+        elif self.algo_name == "ddpg":
             policy = ts.policy.DDPGPolicy(args.actor, args.actor_optim, args.critic, args.critic_optim,
                                                                             tau=args.tau, gamma=args.gamma,
                                                                             exploration_noise=args.exploration_noise,
@@ -245,7 +253,7 @@ class TSPolicy(nn.Module):
             Q_val = self.algo_policy.critic1(comp, batch.act)
         if self.algo_name in ['ddpg']:
             Q_val = self.algo_policy.critic(comp, batch.act)
-        if self.algo_name in ['dqn']:
+        if self.algo_name in ['dqn', 'rainbow']:
             Q_val = self.algo_policy(batch, input="obs_next" if nxt else "obs").logits
         return Q_val
 
@@ -318,12 +326,13 @@ class TSPolicy(nn.Module):
 
     def forward(self, batch: Batch, state: Optional[Union[dict, Batch, np.ndarray]] = None, input: str = "obs", **kwargs: Any):
         '''
-        Matches the call for the forward of another algorithm method. Calls 
+        Matches the call for the forward of another algorithm method. Calls
         '''
+
         # not cloning batch could result in issues
         batch = copy.deepcopy(batch) # make sure input norm does not alter the input batch
         # self.apply_input_norm(batch)
-        vals= self.algo_policy(batch, state = state, input=input, **kwargs)
+        vals = self.algo_policy(batch, state = state, input=input, **kwargs)
         return vals
 
     def compute_input_norm(self, buffer):
@@ -341,13 +350,13 @@ class TSPolicy(nn.Module):
                 # print("computing input norm", self.input_mean, self.input_var)
                 if self.algo_name in _actor_critic + ['ppo']:
                     self.algo_policy.actor.preprocess.update_norm(self.input_mean, self.input_var)
-                if self.algo_name in ['sac']: 
+                if self.algo_name in ['sac']:
                     self.algo_policy.critic1.preprocess.update_norm(self.input_mean, self.input_var)
                     self.algo_policy.critic1_old.preprocess.update_norm(self.input_mean, self.input_var)
                 if self.algo_name in ['ppo', 'ddpg']:
                     self.algo_policy.critic.preprocess.update_norm(self.input_mean, self.input_var)
                     self.algo_policy.critic_old.preprocess.update_norm(self.input_mean, self.input_var)
-                if self.algo_name in ['dqn']:
+                if self.algo_name in ['dqn', 'rainbow']:
                     self.algo_policy.model.update_norm(self.input_mean, self.input_var)
                     self.algo_policy.model_old.update_norm(self.input_mean, self.input_var)
                 if self.algo_name in _double_critic:
@@ -363,7 +372,7 @@ class TSPolicy(nn.Module):
     def update_time(self):
         self.epsilon_timer += 1
         if self.epsilon_schedule > 0 and self.epsilon_timer % self.epsilon_schedule == 0: # only updates every epsilon_schedule time steps
-            self.epsilon = self.epsilon_base + (1-self.epsilon_base) * np.exp(-max(0, self.epsilon_timer - self.pretrain_iters)/self.epsilon_schedule) 
+            self.epsilon = self.epsilon_base + (1-self.epsilon_base) * np.exp(-max(0, self.epsilon_timer - self.pretrain_iters)/self.epsilon_schedule)
             self.set_eps(self.epsilon)
 
     def update_norm(self, buffer):
@@ -399,7 +408,7 @@ class TSPolicy(nn.Module):
                 # sample from the HER buffer and assign returns
                 her_batch, her_indice = her_buffer.sample(sample_size)
                 batch = self.algo_policy.process_fn(her_batch, her_buffer, her_indice)
-                
+
                 num_her = int(sample_size * self.learning_algorithm.select_positive) # always samples the same ratio from HER and main
                 # print([(k, batch[k].shape, main_batch[k].shape) for k in batch.keys()])
                 batch[:num_her].cat_([main_batch[:sample_size-num_her]])

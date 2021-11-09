@@ -191,7 +191,7 @@ class Network(nn.Module):
         '''
         return
 
-class BasicMLPNetwork(Network):    
+class BasicMLPNetwork(Network):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.hs = kwargs['hidden_sizes']
@@ -218,7 +218,7 @@ class BasicMLPNetwork(Network):
         x = self.model(x)
         return x
 
-class BasicConvNetwork(Network):    
+class BasicConvNetwork(Network):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.hs = kwargs['hidden_sizes']
@@ -296,7 +296,7 @@ class PairNetwork(Network):
         self.first_obj_dim = kwargs["first_obj_dim"]
         if kwargs["first_obj_dim"] > 0: # only supports one to many concatenation, not many to many
             kwargs["object_dim"] += self.first_obj_dim
-        if kwargs["aggregate_final"]: 
+        if kwargs["aggregate_final"]:
             self.output_dim = self.hs[-1]
             kwargs["include_last"] = False
         else:

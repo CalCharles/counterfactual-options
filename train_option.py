@@ -112,6 +112,7 @@ if __name__ == '__main__':
 
     full_state = environment.reset()
     args.dataset_model = dataset_model
+    print(args.dataset_model)
     args.environment_model = environment_model
     args.action_feature_selector = next_option.dataset_model.feature_selector if next_option is not None and next_option.name != "Action" else environment_model.construct_action_selector()
     if sampler is None:
@@ -177,7 +178,7 @@ if __name__ == '__main__':
         action_space = environment.action_space
         paction_space = environment.action_space
         if args.policy_type in ['basic', 'point']:
-            num_inputs = int(np.prod(environment.observation_space.shape))
+            num_inputs = int(np.prod(state_extractor.obs_shape))
         else:
             num_inputs = environment.observation_space.shape
 

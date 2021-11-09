@@ -59,18 +59,31 @@ class BasicNetwork(TSNet):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         state_shape = kwargs["num_inputs"]
-
-
-        print(self.output_dim)
         kwargs["num_outputs"] = self.output_dim
         self.model = BasicMLPNetwork(**kwargs)
         # nn.Sequential(
         #     *([nn.Linear(np.prod(state_shape), kwargs["hidden_sizes"][0]), nn.ReLU(inplace=True)] + 
-        #       sum([[nn.Linear(kwargs["hidden_sizes"][i-1], kwargs["hidden_sizes"][i]), nn.ReLU(inplace=True)] for i in range(len(kwargs["hidden_sizes"]))], list()) + 
+        #       sum([[nn.Linear(kwargs["hidden_sizes"][i-1], kwargs["hidden_sizes"][i]), nn.ReLU(inplace=True)] for i in range(len(kwargs["hidden_sizes"]))], list()) +
         #     [nn.Linear(kwargs["hidden_sizes"][-1], self.output_dim)])
         # )
         if self.iscuda:
             self.cuda()
+
+class RainbowNetwork(TSNet):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        state_shape = kwargs["num_inputs"]
+        kwargs["num_outputs"] = self.output_dim
+        self.model = BasicMLPNetwork(**kwargs)
+        self.num_atoms = kwargs["num_atoms"]
+        self.input_shape = self.output_dim // self.num_atoms
+
+    def forward(self, obs, state=None, info={}):
+        batch_size= obs.shape[0]
+        logits, state = super().forward(obs, state=state, info={})
+        # print(batch_size, self.input_shape, self.num_atoms)
+        logits = F.softmax(torch.reshape(logits, (batch_size, self.input_shape, self.num_atoms)), dim=2)
+        return logits, state
 
 class PointPolicyNetwork(TSNet):
     def __init__(self, **kwargs):
@@ -187,4 +200,4 @@ class GridWorldNetwork(TSNet):
         # return super().forward(instate, state=state, info={})
         return x, state
 
-networks = {'basic': BasicNetwork, 'pixel': PixelNetwork, 'grid': GridWorldNetwork, 'point': PointPolicyNetwork}
+networks = {'basic': BasicNetwork, 'pixel': PixelNetwork, 'grid': GridWorldNetwork, 'point': PointPolicyNetwork, 'rainbow' : RainbowNetwork }

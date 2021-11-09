@@ -15,7 +15,7 @@ def adjacent(i,j):
 ball_vels = [np.array([-1.,-1.]).astype(np.int), np.array([-2.,-1.]).astype(np.int), np.array([-2.,1.]).astype(np.int), np.array([-1.,1.]).astype(np.int)]
 
 class Screen(RawEnvironment):
-    def __init__(self, frameskip = 1, drop_stopping=True, target_mode = False, angle_mode=False):
+    def __init__(self, frameskip = 1, drop_stopping=True, target_mode = False, angle_mode=False,  use_paired_observations=False):
         super(Screen, self).__init__()
         self.num_actions = 4
         self.action_space = spaces.Discrete(self.num_actions)
@@ -23,6 +23,7 @@ class Screen(RawEnvironment):
 
         self.drop_stopping = drop_stopping
         self.target_mode = target_mode
+        self.paired_observations = use_paired_observations
         if self.target_mode:
             self.num_blocks = 1
         else:
