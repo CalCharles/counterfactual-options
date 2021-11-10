@@ -337,7 +337,6 @@ class TSPolicy(nn.Module):
 
     def compute_input_norm(self, buffer):
         if len(buffer) > 0:
-            error
             avail = buffer.sample(0)[0]
             # print("trying compute", len(buffer), avail.obs.shape)
             # print(len(avail))
