@@ -57,38 +57,50 @@ class BreakoutEnvironmentModel(EnvironmentModel):
     def get_raw_state(self, state):
         return state['raw_state']
 
-    # def flatten_factored_state(self, factored_state, instanced=False, names=None):
-    #     if names is None:
-    #         names = self.object_names
-    #     if type(factored_state) == np.ndarray or type(factored_state) == torch.Tensor: # already flattened
-    #         return factored_state
-    #     if instanced:
-    #         if type(factored_state) == list:
-    #             flattened_state = list()
-    #             for f in factored_state:
-    #                 flat = list()
-    #                 for n in names:
-    #                     if self.object_num[n] > 1:
-    #                         for i in range(self.object_num[n]):
-    #                             flat += f[n+str(i)]
-    #                 flattened_state += flat
-    #             flattened_state = np.array(flattened_state)
-    #         else:
-    #             flattened_state = list()
-    #             for n in names:
-    #                 if self.object_num[n] > 1:
-    #                     for i in range(self.object_num[n]):
-    #                         flattened_state += factored_state[n+str(i)]
-    #                 else:
-    #                     flattened_state += factored_state[n]
+    def flatten_factored_state(self, factored_state, instanced=False, names=None):
+        '''
+        generates an nxdim state from a list of factored states. Overloaded to accept single factored states as well 
+        This is in the environment model because the order shoud follow the order of the object names
+        if the input state is not flattened, return
+        '''
+        if names is None:
+            names = self.object_names
+        if type(factored_state) == np.ndarray or type(factored_state) == torch.Tensor: # already flattened
+            return factored_state
+        if instanced:
+            if type(factored_state) == list:
+                flattened_state = list()
+                for f in factored_state:
+                    flat = list()
+                    for n in names:
+                        if self.object_num[n] > 1:
+                            for i in range(self.object_num[n]):
+                                flat += self.append_shapes(f[n+str(i)])
+                    flattened_state += flat
+                flattened_state = np.array(flattened_state)
+            else:
+                flattened_state = list()
+                for n in names:
+                    if self.object_num[n] <= 1:
+                        flattened_state += self.append_shapes(factored_state[n])
+                    # Uncommenting to avoid sticking blocks in factored state, which don't change positions much
+                    # else:
+                        # for i in range(self.object_num[n]):
+                        #    flattened_state += self.append_shapes(factored_state[n+str(i)])
 
-    #             flattened_state = np.array(flattened_state)
-    #     else:
-    #         if type(factored_state) == list:
-    #             flattened_state = np.array([np.concatenate([factored_state[i][f] for f in names], axis=1) for i in range(factored_state)])
-    #         else:
-    #             flattened_state = np.array(np.concatenate([factored_state[f] for f in names], axis=0))
-    #     return flattened_state
+
+                flattened_state = np.array(flattened_state)
+
+                if len(factored_state[names[0]].shape) == 2 and len(flattened_state.shape) == 1:
+                    flattened_state = np.expand_dims(flattened_state, axis=0)
+        else:
+            if type(factored_state) == list:
+                flattened_state = np.array([np.concatenate([factored_state[i][f] for f in names], axis=1) for i in range(factored_state)])
+            else:
+                # print(factored_state)
+                flattened_state = np.array(np.concatenate([factored_state[f] for f in names], axis=0))
+
+        return flattened_state
 
     # def unflatten_state(self, flattened_state, vec=False, instanced=False, names=None):
     #     if names is None:

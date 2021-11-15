@@ -142,7 +142,7 @@ class Ball(animateObject):
                 self.bottom_wall = True
                 if self.reset_seed > 0:
                     np.random.seed(self.reset_seed)
-                # print(self.pos, self.vel, "dropped", intersection(self,other))
+                print(self.pos, self.vel, "dropped", intersection(self,other))
                 # self.
                 # self.pos = np.array([46, np.random.randint(20, 36)])
                 # self.vel = np.array([1, np.random.choice([-1,1])])
@@ -155,7 +155,7 @@ class Ball(animateObject):
                 self.block = True
                 rel_x = self.pos[1] - other.pos[1]
                 rel_y = self.pos[0] - other.pos[0]
-                # print(rel_x, rel_y, self.vel, other.name, intersection(self, other))
+                print(rel_x, rel_y, self.vel, other.name, intersection(self, other))
                 other.attribute = 0
                 next_vel = self.vel
                 if rel_y == -2 or rel_y == -3 or rel_y == 3 or rel_y == 2:
