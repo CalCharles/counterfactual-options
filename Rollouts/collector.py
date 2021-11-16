@@ -263,6 +263,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         term_count = 0
         rews = 0
         saved_fulls = list()
+        saved_images = list()
         hit_count, miss_count = 0,0
         term_done = False # signifies if the termination was the result of a option terminal state
         term_end = False # if termination ends collection, should be True
@@ -358,7 +359,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
 
             # render calls not usually used in our case
             if render:
-                self.env.render()
+                saved_images.append(self.env.render()[0])
                 if render > 0 and not np.isclose(render, 0):
                     time.sleep(render)
 
@@ -415,6 +416,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 break
             if (n_term and term_count >= n_term):
                 break
+
         # generate statistics
         self.collect_step += step_count
         self.collect_episode += episode_count
@@ -428,5 +430,6 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             "n/m": miss_count,
             "rews": rews,
             "terminate": term_end,
-            "saved_fulls": saved_fulls
+            "saved_fulls": saved_fulls,
+            "saved_images" : saved_images
         }

@@ -9,6 +9,7 @@ def get_args():
     #                     help='algorithm to use: a2c, ppo, evo')
 
     # environment hyperparameters
+    parser.add_argument('--experiment-name', type=str, default='default', help='name of experiment for logging (default: default)')
     parser.add_argument('--true-environment', action='store_true', default=False,
                         help='triggers the baseline methods')
     parser.add_argument('--primitive-actions', action='store_true', default=False,
@@ -285,6 +286,8 @@ def get_args():
                         help='a differentiator for the save path for this network')
     parser.add_argument('--save-past', type=int, default=-1,
                     help='save past, saves a new net at the interval, -1 disables, must be a multiple of save-interval (default: -1)')
+    parser.add_argument('--save-video', action='store_true', default=False, help='save video of rollouts')
+    parser.add_argument('--video-log-interval', default=10, help='number of logging entries needed to save video')
     parser.add_argument('--display-focus', action ='store_true', default=False,
                         help='shows an image with the focus at each timestep like a video')
     parser.add_argument('--save-raw', action ='store_true', default=False,

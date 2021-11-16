@@ -2,8 +2,9 @@ from collections import deque
 import numpy as np
 from file_management import save_to_pickle
 import os
+import imageio
 
-def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss, hit_miss_train, random=False, option=None):
+def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss, hit_miss_train, random=False, option=None, render=False):
     '''
     collect trials with the test collector
     the environment is reset before starting these trials
@@ -15,8 +16,13 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     if random:
         trials = args.pretest_trials
     #     trials = args.test_trials * 10
+    rollout_images = []
     for j in range(trials):
-        result = test_collector.collect(n_episode=1, n_term=1, n_step=args.max_steps, random=random)
+        if render:
+            result = test_collector.collect(n_episode=1, n_term=1, n_step=args.max_steps, random=random, render=0.05)
+            rollout_images.append(result['saved_images'])
+        else:
+            result = test_collector.collect(n_episode=1, n_term=1, n_step=args.max_steps, random=random)
 
         print('Reward', result['rews'])
         if type(result['rews']) == int:
@@ -39,6 +45,16 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
         hmt = hmt[0] / (hmt[0] + hmt[1])
     print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}", f"Hit Miss train: {hmt}")
 
+    fname = f'{args.experiment_name}-iter-{i}.mp4'
+    writer = imageio.get_writer(fname, fps=20)
+    for it, rollout in enumerate(rollout_images):
+        if it > 0:
+            for i in range(5):
+                writer.append_data(np.zeros((84, 84)), dtype='uint8')
+
+        for im in rollout:
+            writer.append_data(im)
+    writer.close()
 
     return mean_perf, mean_suc, mean_hit
 
@@ -63,6 +79,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     total_steps = 0
     hit_miss_queue_test = deque(maxlen=2000)
     hit_miss_queue_train = deque(maxlen=20)
+    num_since_last_video = 0
 
     for i in range(args.num_iters):  # total step
         collect_result = train_collector.collect(n_step=args.num_steps, visualize_param=args.visualize_param) # TODO: make n-episode a usable parameter for collect
@@ -73,7 +90,9 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
 
         if i % args.log_interval == 0:
             print("testing collection")
-            _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss_queue_test, hit_miss_queue_train, option=option)
+            _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss_queue_test, hit_miss_queue_train, option=option, render=(args.save_video and num_since_last_video % args.video_log_interval == 0))
+            num_since_last_video = (num_since_last_video + 1) % args.video_log_interval
+
         # train option.policy with a sampled batch data from buffer
         losses = option.policy.update(args.batch_size, train_collector.buffer)
         if args.input_norm:
