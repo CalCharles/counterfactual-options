@@ -50,7 +50,7 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     for it, rollout in enumerate(rollout_images):
         if it > 0:
             for i in range(5):
-                writer.append_data(np.zeros((84, 84)), dtype='uint8')
+                writer.append_data(np.zeros((84, 84), dtype='uint8'))
 
         for im in rollout:
             writer.append_data(im)
