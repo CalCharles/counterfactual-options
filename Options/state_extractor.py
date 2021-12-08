@@ -82,6 +82,14 @@ def hardcode_norm_relative(hardcoded_normalization, bnorm, v1norm, v2norm):
     return mean, var
 
 
+def breakout_flatten_state(factored_state, instanced=False, names=None):
+    paddle_state = factored_state['Paddle']
+    ball_state = factored_state['Ball']
+    delta_state = paddle_state - ball_state
+
+    ret =  np.concatenate([paddle_state, ball_state, delta_state], axis=-1)
+    return ret
+
 # state extractor
 class StateExtractor():
     def __init__(self, args, option_selector, full_state, param, mask):
@@ -92,15 +100,20 @@ class StateExtractor():
         self.use_pair_gamma = args.use_pair_gamma
         if not args.true_environment:
             self._pair_featurizer = args.environment_model.create_entity_selector(args.name_pair)
+
+        self.use_breakout_pair_obs = args.use_breakout_pair_observations
         self._gamma_featurizer = args.dataset_model.gamma
         self._option_featurizer = option_selector # selects the TAIL
         self._delta_featurizer = args.dataset_model.delta
-        self._flatten_factored_state = args.environment_model.flatten_factored_state
+
+        if self.use_breakout_pair_obs:
+            self._flatten_factored_state = breakout_flatten_state
+        else:
+            self._flatten_factored_state = args.environment_model.flatten_factored_state
         self._action_feature_selector = args.action_feature_selector # option.next_option.dataset_model.feature_selector
         self.combine_param_mask = not args.no_combine_param_mask
         self.hardcoded_normalization = args.hardcode_norm
         self.scale = float(self.hardcoded_normalization[2]) if len(self.hardcoded_normalization) > 0 else 1
-        self.use_breakout_pair_obs = args.use_breakout_pair_observations
 
         self.obs_setting = args.observation_setting
         self.update(full_state)
@@ -169,8 +182,6 @@ class StateExtractor():
         # combines the possible components of state:
         # param relative
         factored_state = array_state(full_state['factored_state'])
-        if self.use_breakout_pair_obs:
-            factored_state['Delta'] = factored_state['Ball'] - factored_state['Paddle']
 
         k = list(factored_state.keys())[0]
         shape = factored_state[k].shape[:-1]
@@ -181,6 +192,7 @@ class StateExtractor():
         if inter: state_comb.append(self._get_inter(factored_state, normalize=normalize, use_pair = use_pair))
         if target: state_comb.append(self._delta_featurizer(factored_state))
         if flat: state_comb.append(self._flatten_factored_state(factored_state, instanced=True))
+
         if use_param and self.use_parametrized: state_comb.append(self._broadcast_param(shape, param, mask, normalize=normalize)) # only handles param as a concatenation
         if param_relative: state_comb.append(self._relative_param(shape, factored_state, param, mask, normalize=normalize))
         if relative: state_comb.append(self._get_relative(factored_state, normalize=normalize, use_pair=use_pair))

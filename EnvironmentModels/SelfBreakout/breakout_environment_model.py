@@ -51,7 +51,6 @@ class BreakoutEnvironmentModel(EnvironmentModel):
         factored_state["Done"] = np.array([float(self.environment.done)])
         factored_state["Reward"] = np.array([float(self.environment.reward)])
 
-        print(factored_state)
         return factored_state
 
     def get_raw_state(self, state):
@@ -59,7 +58,7 @@ class BreakoutEnvironmentModel(EnvironmentModel):
 
     def flatten_factored_state(self, factored_state, instanced=False, names=None):
         '''
-        generates an nxdim state from a list of factored states. Overloaded to accept single factored states as well 
+        generates an nxdim state from a list of factored states. Overloaded to accept single factored states as well
         This is in the environment model because the order shoud follow the order of the object names
         if the input state is not flattened, return
         '''
@@ -83,10 +82,9 @@ class BreakoutEnvironmentModel(EnvironmentModel):
                 for n in names:
                     if self.object_num[n] <= 1:
                         flattened_state += self.append_shapes(factored_state[n])
-                    # Uncommenting to avoid sticking blocks in factored state, which don't change positions much
-                    # else:
-                        # for i in range(self.object_num[n]):
-                        #    flattened_state += self.append_shapes(factored_state[n+str(i)])
+                    else:
+                        for i in range(self.object_num[n]):
+                           flattened_state += self.append_shapes(factored_state[n+str(i)])
 
 
                 flattened_state = np.array(flattened_state)

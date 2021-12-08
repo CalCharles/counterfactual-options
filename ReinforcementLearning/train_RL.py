@@ -45,16 +45,17 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
         hmt = hmt[0] / (hmt[0] + hmt[1])
     print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}", f"Hit Miss train: {hmt}")
 
-    fname = f'{args.experiment_name}-iter-{i}.mp4'
-    writer = imageio.get_writer(fname, fps=20)
-    for it, rollout in enumerate(rollout_images):
-        if it > 0:
-            for i in range(5):
-                writer.append_data(np.zeros((84, 84), dtype='uint8'))
+    if render:
+        fname = f'{args.experiment_name}-iter-{i}.mp4'
+        writer = imageio.get_writer(fname, fps=20)
+        for it, rollout in enumerate(rollout_images):
+            if it > 0:
+                for i in range(5):
+                    writer.append_data(np.zeros((84, 84), dtype='uint8'))
 
-        for im in rollout:
-            writer.append_data(im)
-    writer.close()
+            for im in rollout:
+                writer.append_data(im)
+        writer.close()
 
     return mean_perf, mean_suc, mean_hit
 
