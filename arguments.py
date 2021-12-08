@@ -29,7 +29,7 @@ def get_args():
                     help='collector will call reset whenever a "done" occurs unless this is true')
     parser.add_argument('--target-mode', action='store_true', default=False,
                     help='in breakout, induces a domain where there is a single block to target')
-    parser.add_argument('--block-shape', type=int, nargs=4, default=(5, 20, 4, 0),
+    parser.add_argument('--block-shape', type=int, nargs=5, default=(5, 20, 4, 0, 0),
                         help='shape of the blocks, number of blocks high, number of blocks wide, max block height, no_breakout(flag) (default: (5,20,4,0))')
     # # optimization hyperparameters
     parser.add_argument('--lr', type=float, default=1e-4,
@@ -59,17 +59,24 @@ def get_args():
     # cost function hyperparameters
     parser.add_argument('--gamma', type=float, default=0.99,
                         help='discount factor for rewards (default: 0.99)') 
+    # Iterated Supervised Learning parameters
+    parser.add_argument('--label-smoothing', type=float, default=0.00,
+                        help='smooths the one-hot labels for behavior cloning(default: 0.00)') 
+
     # model hyperparameters
     parser.add_argument('--true-actions', action='store_true', default=False,
                         help='short circuits option framework to just take true actions')
     parser.add_argument('--discretize-actions', action='store_true', default=False,
                         help='converts a continuous action space to a discrete one (TODO: currently requires relative-action)')
-
     parser.add_argument('--observation-setting', type=int, nargs='+', default=(0,0,0,0,0,0,0,0,0),
                         help='sets the components of the input state to the policy (default: (1,0,0,1,0,0,0,0,0))' +
                         'components in this order: interaction_state, target state, full flattened state' +
                         'param, target state relative to param, relative interaction state, action state, diff,' +
                         'used in interation model to indicate relative state if position 0 is 1')
+    parser.add_argument('--param-contained', action='store_true', default=False,
+                        help='shifts the parameter to the front of the input, for pairnet implementations')
+    parser.add_argument('--keep-target', action='store_true', default=False,
+                        help='also appends the target state to param_relative state')
 
     parser.add_argument('--relative-action', type=float, default=-1,
                     help='the model computes actions relative to the current object position (-1 is not used)')
@@ -145,6 +152,8 @@ def get_args():
                     help='add a small variance to limit overfitting to easy to predict parts')
     parser.add_argument('--multi-instanced', action = 'store_true', default=False,
                     help='if interaction trains to predict a vector')
+    parser.add_argument('--only-termination', action = 'store_true', default=False,
+                    help='only stores termination values, not temporal extension ones')
     # sampler parameters
     parser.add_argument('--sample-continuous', type=int, default=0,
                         help='use already existing values if 0, false if 1, true if 2')
@@ -209,6 +218,8 @@ def get_args():
                         help='only resamples HER when an interaction occurs')
     parser.add_argument('--sample-merged', action='store_true', default=False,
                         help='samples a batch from both the main buffer and the HER buffer and merges the batches')
+    parser.add_argument('--keep-proximity', action='store_true', default=False,
+                    help='keeps in the HER buffer (for iterated supervised learning) the nearby hits')
 
     #interaction parameters
     parser.add_argument('--train-pair', type=str, nargs='+', default=list(),
@@ -326,6 +337,8 @@ def get_args():
                         help='load the options for the existing network')
     parser.add_argument('--load-intermediate', action ='store_true', default=False,
                         help='load the passive model/interaction to skip passive model training')
+    parser.add_argument('--save-loaded-network', action ='store_true', default=False,
+                        help='save the graph with the @args load-network as policy to @args save-graph')
     parser.add_argument('--save-intermediate', action ='store_true', default=False,
                         help='save the passive model to skip training later')
     parser.add_argument('--load-network', default="",

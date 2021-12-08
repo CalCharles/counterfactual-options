@@ -27,15 +27,16 @@ def print_shape(batch, prefix=""):
     print(prefix, {n: batch[n].shape for n in batch.keys() if type(batch[n]) == np.ndarray})
 
 class TemporalAggregator():
-    def __init__(self, sum_reward=False):
+    def __init__(self, sum_reward=False, only_termination=False):
         self.current_data = Batch()
         self.next_action = False
         self.next_param = False
         self.keep_next = True
         self.temporal_skip = False
         self.ptr = 0
-        self.sum_reward = sum_reward
+        self.sum_reward = sum_reward # sums reward for the length of the trajectory
         self.time_counter = 0 # counts the number of time steps in the temporal extension
+        self.only_termination = only_termination # only samples when there is a termination of the current option
 
     def reset(self, data):
         self.current_data = copy.deepcopy(data)
@@ -75,11 +76,11 @@ class TemporalAggregator():
         added = False
         # print(data.act, data.rew, data.ext_term, self.temporal_skip, data.mapped_act, data.param, data.target)
         if (
-            np.any(data.ext_term) or # going to resample a new action
+            (np.any(data.ext_term) and not self.only_termination) or # going to resample a new action
             np.any(data.done)
             or np.any(data.terminate)):
             self.keep_next = True
-            print("keeping", self.temporal_skip, np.any(data.ext_term),np.any(data.terminate), self.current_data.obs.squeeze()[:5], self.current_data.obs_next.squeeze()[:5])
+            # print("keeping", self.temporal_skip, np.any(data.ext_term),np.any(data.terminate), self.current_data.obs.squeeze()[:5], self.current_data.obs_next.squeeze()[:5])
             if not self.temporal_skip:
                 added = True
                 # print(next_data.act)
@@ -121,6 +122,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.environment_model = environment_model
         self.save_action = args.save_action # saves the option level action at each time step in option_action.txt in environment.save_dir
         self.save_path = self.environment_model.environment.save_path
+        self._keep_proximity = args.keep_proximity
         option_dumps = open(os.path.join(self.save_path, "option_dumps.txt"), 'w')
         param_dumps = open(os.path.join(self.save_path, "param_dumps.txt"), 'w')
         option_dumps.close()
@@ -130,7 +132,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.state_extractor = self.option.state_extractor
         self.get_param = self.option.sampler.get_param # sampler manages either recalling the param, or getting a new one
         self.exploration_noise = self.option.policy.exploration_noise
-        self.temporal_aggregator = TemporalAggregator(sum_reward=args.sum_rewards)
+        self.temporal_aggregator = TemporalAggregator(sum_reward=args.sum_rewards, only_termination=args.only_termination)
         self.ext_reset = self.option.temporal_extension_manager.reset
         self._aggregate = self.temporal_aggregator.aggregate
         self.policy_collect = self.option.policy.collect
@@ -284,6 +286,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                     act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random)
             else:
                 act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random)
+            # if resampled: print(act, action_chain[-1])
             self._policy_state_update(result)
             self.data.update(true_action=[action_chain[0]], act=[act], mapped_act=[action_chain[-1]], option_resample=[resampled])
 
@@ -320,12 +323,17 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 reward_check =  (done and rew >= 0)
                 if self.option.dataset_model.multi_instanced:
                     nt = self.option.dataset_model.split_instances(next_target)
-                    hit = ((np.linalg.norm((param-nt), axis=-1).min() <= self.option.terminate_reward.epsilon_close and not true_done)
+                    ct = self.option.dataset_model.split_instances(target)
+                    hit = np.nonzero((nt[...,-1] - ct[...,-1]).flatten())
+                    inst_hit = nt[hit]
+                    close = self.option.terminate_reward.epsilon_close
+                    if self._keep_proximity: close = self.option.policy.learning_algorithm.dist
+                    hit = ((np.linalg.norm((param-inst_hit), ord=1) <= close and not true_done)
                                 or reward_check)
+                    # print(reward_check, param, next_target, inst_hit, mask)
                 else:
                     hit = ((np.linalg.norm((param-next_target) * mask) <= self.option.terminate_reward.epsilon_close and not true_done)
                                 or reward_check)
-                # print(reward_check, param, next_target, mask)
                 hit_count += int(hit)
                 miss_count += int(not hit)
             # print(rew, target, self.data.mapped_act.squeeze(), act, param)
@@ -365,7 +373,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             # debugging and visualization
             # if self.test: print(self.data.target.squeeze(), self.data.next_target.squeeze(), self.data.param.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # print(self.data.mapped_act, self.data.inter_state, self.data.param, self.data.obs)
-            if self.test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
+            # if self.test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
+            if self.test and resampled: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # if self.test: print(self.data.obs.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()
@@ -373,7 +382,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 if visualize_param != "nosave":
                     saveframe(new_frame, pth=visualize_param, count=self.counter, name="param_frame")
                     self.counter += 1
-                printframe(new_frame, waittime=10)
+                printframe(new_frame, waittime=100)
 
             # collect statistics
             step_count += len(ready_env_ids)

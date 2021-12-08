@@ -76,7 +76,7 @@ def dump_from_line(line, time_dict):
 
 def get_start(pth, filename, i, rng, tab_count=False):
     total_len = 0
-    if i < 0:
+    if i <= 0:
         if tab_count:
             for line in open(os.path.join(pth, filename), 'r'):
                 for action_str in line.split("\t"):
@@ -116,8 +116,10 @@ def read_action_dumps(pth, i=0, rng=-1, filename='action_dumps.txt', indexed=Fal
     for line in open(os.path.join(pth, filename), 'r'): # there should only be one line since actions are tab separated
         for action_str in line.split("\t"):
             current_len += 1
-            if current_len< i:
+            if current_len < i:
                 continue
+            if rng != -1 and current_len > i + rng:
+                break
             if indexed and len(action_str) > 0:
                 action_str = action_str.split(":")
                 idx_str, action_str = action_str[0], action_str[1] 
@@ -143,7 +145,7 @@ def read_obj_dumps(pth, i= 0, rng=-1, filename='object_dumps.txt'):
     '''
     obj_dumps = []
     i, total_len = get_start(pth, filename, i, rng)
-    print(i, total_len)
+    print("obj_dumps", i, total_len)
     current_len = 0
     for line in open(os.path.join(pth, filename), 'r'):
         current_len += 1
@@ -164,6 +166,7 @@ def visualize_frame_dumps(pth, i= 0, rng=-1, filename='focus_dumps.txt'):
     '''
     obj_dumps = []
     i, total_len = get_start(pth, filename, i, rng)
+    print(i,total_len)
     current_len = 0
     for line in open(os.path.join(pth, filename), 'r'):
         current_len += 1

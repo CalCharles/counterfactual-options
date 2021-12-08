@@ -7,7 +7,7 @@ class RobosuiteStickEnvironmentModel(EnvironmentModel):
         super().__init__(env)
         self.enumeration = {"Action": [0,1], "Gripper": [1,2], "Block": [2,3], 'Stick': [3,4], 'Target': [4,5],
                         'Done':[5,6], "Reward":[6,7], 'Grasped': [7,8]}
-        self.object_names = ["Action", "Gripper", 'Stick', "Block", 'Target', 'Done', "Reward", 'Grasped']
+        self.object_names = ["Action", "Gripper", 'Stick', 'Grasped', "Block", 'Target', 'Done', "Reward"]
         self.object_sizes = {"Action": 4, "Gripper": 4, "Block": 3, 'Stick': 3, 'Target': 3, 'Done': 1, "Reward": 1, 'Grasped': 1}
         self.object_num = {"Action": 1, "Gripper": 1, "Block": 1, 'Stick':1, 'Target': 1, 'Done': 1, "Reward": 1, 'Grasped': 1}
         self.state_size = sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])

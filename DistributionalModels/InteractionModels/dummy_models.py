@@ -141,3 +141,34 @@ class DummyNegativeRewardDatasetModel():
 
     def hypothesize(self, state): # gives an "interaction" when the Ball state is within a certain margin of the block
         return np.array(0), np.array(0), np.array(0)
+
+class DummyStickDatasetModel():
+    def __init__(self, environment_model, multi_instanced = False):
+        self.interaction_prediction = .3
+        self.interaction_minimum = .9
+        self.multi_instanced = multi_instanced
+        self.gamma = environment_model.create_entity_selector(["Gripper", "Grasped", "Stick"])
+        self.delta = environment_model.create_entity_selector(["Stick"])
+        fs1 = FeatureSelector([7], {"Stick": 0}, {"Stick": np.array([0, 7])}, ["Stick"])
+        fs2 = FeatureSelector([8], {"Stick": 1}, {"Stick": np.array([1, 8])}, ["Stick"])
+        fs3 = FeatureSelector([9], {"Stick": 2}, {"Stick": np.array([2, 9])}, ["Stick"])
+        rng1, rng2, rng3 = np.array([-.3,.05]), np.array([-.1, .1]), np.array([.82, .925])
+        self.cfselectors = [ControllableFeature(fs1, rng1, 1, self), ControllableFeature(fs2, rng2, 1, self), ControllableFeature(fs3, rng3, 1, self)]
+        self.cfnonselector = []
+        self.sample_able = StateSet([np.array([1,1,1])])
+        self.selection_binary = pytorch_model.wrap(np.array([1,1,1]))
+        self.name = "Gripper+Grapsed->Stick" # name needs this form for network initializaiton
+        self.control_min, self.control_max = np.array([-.3, -.1, .82]), np.array([.05, .1, .925])
+        self.iscuda = False
+        self.multi_instanced = False
+
+    def cuda(self):
+        self.iscuda = True
+
+    def cpu(self):
+        self.iscuda = False
+
+    def hypothesize(self, state): # gives an "interaction" when the Ball state is within a certain margin of the block
+        # state[4] should be the grasped indicator
+        return np.array(state[4]), np.array(0), np.array(0)
+

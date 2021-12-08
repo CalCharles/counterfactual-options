@@ -26,11 +26,11 @@ class Sampler():
         self.rate = 0
         self.current_distance = 0
 
-        # specifit to CFselectors
+        # specific to CFselectors
         self.cfselectors = self.dataset_model.cfselectors
         self.lower_cfs = np.array([i for i in [cfs.feature_range[0] for cfs in self.cfselectors]])
         self.upper_cfs = np.array([i for i in [cfs.feature_range[1] for cfs in self.cfselectors]])
-        self.len_cfs = np.array([j-i for i,j in [tuple(cfs.feature_range) for cfs in self.cfselectors]])
+        self.len_cfs = np.array([j-i for i,j in [tuple(cfs.feature_range) for cfs in self.cfselectors]]) # the range of the CFS
 
         self.param, self.mask = self.sample(kwargs["init_state"])
         print("ranges", self.lower_cfs, self.upper_cfs)
@@ -134,7 +134,6 @@ class RawSampler(Sampler):
 
 class LinearUniformSampling(Sampler):
     def get_targets(self, states):
-        print(self.dataset_model.sample_continuous)
         if self.dataset_model.sample_continuous:
             cfselectors = self.dataset_model.cfselectors
             weights = np.random.random((len(cfselectors,))) # random weight vector
@@ -591,8 +590,6 @@ class PredictiveSampling(Sampler):
             self.last_done_obs = copy.deepcopy(self.data.obs)
             print(self.last_done_obs)
         print(data.obs[:5], self.data.obs[:9], data.act, self.added_since_last)
-        if self.last_done:
-            error
         if (data.done or data.terminate) and not first:
             final_instances = self.split_instances(data.target)
             instance_binary = self.split_binary(final_instances, start_instances=self.start_instances)

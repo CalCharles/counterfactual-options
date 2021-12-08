@@ -51,6 +51,8 @@ class TerminateReward():
         '''
         gathers necessary statistics
         inter state is the interaction stat, which replaces getting it from the full state
+            The reason that inter state is used is because of temporal extension: full state is NOT always the prior state
+            if it is not, then inter_state is the interaction component of the prior state
         use_timer determines if the timer should influence computation
         '''
 

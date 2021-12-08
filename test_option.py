@@ -25,7 +25,7 @@ from Options.option_graph import OptionGraph, OptionNode, load_graph
 from Options.option import Option, PrimitiveOption, option_forms
 from Options.Reward.reward import reward_forms
 from Options.terminate_reward import TerminateReward
-from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel
+from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel, DummyMultiBlockDatasetModel
 from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model, interaction_models
 from DistributionalModels.InteractionModels.samplers import samplers
 from Rollouts.collector import OptionCollector
@@ -62,9 +62,13 @@ if __name__ == '__main__':
 
     if args.object == "Block" and args.env == "SelfBreakout":
         args.num_instance = environment.num_blocks
+        args.no_combine_param_mask = True
         if args.target_mode:
             dataset_model = DummyBlockDatasetModel(environment_model)
             dataset_model.environment_model = environment_model
+        else:
+            dataset_model = DummyMultiBlockDatasetModel(environment_model)
+            dataset_model.environment_model = environment_model            
         dataset_model.sample_able.vals = np.array([dataset_model.sample_able.vals[0]]) # for some reason, there are some interaction values that are wrong
         discretize_actions = {0: np.array([-1,-1]), 1: np.array([-2,-1]), 2: np.array([-2,1]), 3: np.array([-1,1])}
 

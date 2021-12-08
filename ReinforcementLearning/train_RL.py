@@ -105,15 +105,15 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                 rv_variance = [.2,.26,.0425, .2,.26,.001, .2,.26,.001, .2,.26,.0425, .2,.26,.0425]
 
                 rv = lambda x: (x * rv_variance) + rv_mean
-
-            for j in range(50):
-                idx = (train_collector.get_buffer_idx() + (j - 100)) % args.buffer_len
-                d, info,r, bi, a, ma, ti, p, t, nt, itr, obs = buf[idx].done, buf[idx].info, buf[idx].rew, buf[idx].inter, buf[idx].act, buf[idx].mapped_act, buf[idx].time, buf[idx].param, buf[idx].target, buf[idx].next_target, buf[idx].inter_state, buf[idx].obs_next
-                print(j, idx, d, info["TimeLimit.truncated"], r, bi, a, ma, ti, p, t, nt, itr, obs, rv(obs))
+            if not option.policy.sample_HER:
+                for j in range(50):
+                    idx = (train_collector.get_buffer_idx() + (j - 100)) % args.buffer_len
+                    d, info,r, bi, a, ma, ti, p, t, nt, itr, obs = buf[idx].done, buf[idx].info, buf[idx].rew, buf[idx].inter, buf[idx].act, buf[idx].mapped_act, buf[idx].time, buf[idx].param, buf[idx].target, buf[idx].next_target, buf[idx].inter_state, buf[idx].obs_next
+                    print(j, idx, d, info["TimeLimit.truncated"], r, bi, a, ma, ti, p, t, nt, itr, obs, rv(obs))
 
             if option.policy.is_her:
                 hrb = option.policy.learning_algorithm.replay_buffer
-                if len(hrb) > 100:
+                if len(hrb) > 10:
                     print("hindsight buffer", len(hrb), option.policy.learning_algorithm.get_buffer_idx())
                     for j in range(50):
                         idx = (option.policy.learning_algorithm.get_buffer_idx() + (j - 100)) % args.buffer_len

@@ -142,9 +142,10 @@ class RoboStickEnvironment(RawEnvironment):
 
     def set_named_state(self, obs_dict):
         # not setting quaternion at the moment
+        # print(obs_dict)
         obs_dict['Action'], obs_dict['Gripper'],obs_dict['Stick'], obs_dict['Block'], obs_dict['Target'] = (
                     self.action, 
-                    np.array(obs_dict['robot0_eef_pos'].tolist() + [obs_dict['robot0_gripper_qpos'][0]]), 
+                    np.array(obs_dict['robot0_eef_pos'].tolist() + [self.action[-1]]), # Appends the stick motion action to the gripper state # + [obs_dict['robot0_gripper_qpos'][0]]), 
                     obs_dict['stick_pos'],
                     obs_dict['cube_pos'],
                     obs_dict['goal_pos'])# assign the appropriate values
@@ -158,7 +159,7 @@ class RoboStickEnvironment(RawEnvironment):
 
     def step(self, action):
         self.action = action
-        next_obs, reward, done, info = self.env.step(np.concatenate([action[:3], [0, 0, 0, action[-1]]]))
+        next_obs, reward, done, info = self.env.step(np.concatenate([action[:3], [0, 0, 0] + [action[-1]]]))
         self.reward, self.done = reward, done
         info["TimeLimit.truncated"] = done
         # print(list(next_obs.keys()))

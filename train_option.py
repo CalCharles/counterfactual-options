@@ -8,6 +8,7 @@ from Environments.environment_initializer import initialize_environment
 
 from Rollouts.rollouts import ObjDict
 from ReinforcementLearning.train_RL import trainRL
+from ReinforcementLearning.Policy.loaded_policy import LoadedPolicy
 from ReinforcementLearning.Policy.policy import TSPolicy, pytorch_model
 from EnvironmentModels.environment_model import FeatureSelector, discretize_space
 from Options.Termination.termination import terminal_forms
@@ -19,7 +20,7 @@ from Options.action_map import PrimitiveActionMap, ActionMap
 from Options.state_extractor import StateExtractor
 from Options.terminate_reward import TerminateReward
 from Options.temporal_extension_manager import TemporalExtensionManager
-from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel, DummyNegativeRewardDatasetModel, DummyMultiBlockDatasetModel
+from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel, DummyNegativeRewardDatasetModel, DummyMultiBlockDatasetModel, DummyStickDatasetModel
 from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model, interaction_models
 from DistributionalModels.InteractionModels.samplers import samplers
 from Rollouts.collector import OptionCollector
@@ -65,6 +66,7 @@ if __name__ == '__main__':
         dataset_model.sample_able.vals = [np.array([0,0,-1,-1,0]).astype(float), np.array([0,0,-2,-1,0]).astype(float), np.array([0,0,-2,1,0]).astype(float), np.array([0,0,-1,1,0]).astype(float)]
     if args.object == "Block" and args.env == "SelfBreakout":
         args.num_instance = environment.num_blocks
+        args.no_combine_param_mask = True
         if args.target_mode:
             dataset_model = DummyBlockDatasetModel(environment_model)
             dataset_model.environment_model = environment_model
@@ -79,6 +81,9 @@ if __name__ == '__main__':
         args.target_object = "Target"
         args.num_instance = args.num_obstacles
         args.reverse_feature_selector = dataset_model.cfnonselector[0]
+    if args.object == "Stick" and args.env == "RoboStick":
+        dataset_model = DummyStickDatasetModel(environment_model)
+        dataset_model.environment_model = environment_model
 
 
     if args.cuda: dataset_model.cuda()
@@ -187,19 +192,32 @@ if __name__ == '__main__':
     args.first_obj_dim = state_extractor.first_obj_shape[0]
     args.object_dim = state_extractor.object_shape[0]
     args.post_dim = state_extractor.post_dim
-    if not load_option and not args.change_option:
-        policy = TSPolicy(num_inputs, paction_space, action_space, max_action, **vars(args)) # default args?
-    else:
-        set_option = graph.nodes[args.object].option
-        policy = set_option.policy
-        policy.option = option
-    action_map.assign_policy_map(policy.map_action, policy.reverse_map_action, policy.exploration_noise)
-    if not load_option:
+    if args.save_loaded_network:
+        policy = LoadedPolicy(load_network=args.load_network)
+        action_map.assign_policy_map(policy.map_action, policy.reverse_map_action, policy.exploration_noise)
         option.policy = policy
-        policy.option = option
-        graph.nodes[args.object] = OptionNode(args.object, option, action_shape = action_map.mapped_action_shape)
+        if len(args.save_graph) > 0:
+            print(args.object)
+            graph.nodes[args.object] = OptionNode(args.object, option, action_shape = action_map.mapped_action_shape)
+            graph.cfs += dataset_model.cfselectors
+            graph.add_edge(OptionEdge(args.object, option_name))
+            print(args.save_graph, graph.nodes)
+            graph.save_graph(args.save_graph, [args.object], args.environment_model, cuda=args.cuda)
+            error
     else:
-        graph.load_environment_model(environment_model)
+        if not load_option and not args.change_option:
+            policy = TSPolicy(num_inputs, paction_space, action_space, max_action, **vars(args)) # default args?
+        else:
+            set_option = graph.nodes[args.object].option
+            policy = set_option.policy
+            policy.option = option
+        action_map.assign_policy_map(policy.map_action, policy.reverse_map_action, policy.exploration_noise)
+        if not load_option:
+            option.policy = policy
+            policy.option = option
+            graph.nodes[args.object] = OptionNode(args.object, option, action_shape = action_map.mapped_action_shape)
+        else:
+            graph.load_environment_model(environment_model)
 
     # apply cuda
     if args.cuda:

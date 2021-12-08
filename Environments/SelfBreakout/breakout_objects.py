@@ -76,6 +76,7 @@ class Ball(animateObject):
         self.top_wall = False
         self.block = False
         self.block_id = None
+        self.paddle = False
 
         # MODE 1 # only odd lengths valid, prefer 7,11,15, etc. 
         self.paddle_interact = dict()
@@ -100,7 +101,7 @@ class Ball(animateObject):
         # self.nohit_delay = 0
 
     def clear_hits(self):
-        self.bottom_wall, self.top_wall, self.block, self.flipped = False, False, False, False
+        self.paddle, self.bottom_wall, self.top_wall, self.block, self.flipped = False, False, False, False, False
 
     def reset_pos(self, target_mode=False):
         self.vel = np.array([np.random.randint(1,2), np.random.choice([-1,1])])
@@ -122,6 +123,7 @@ class Ball(animateObject):
                 self.vel = self.paddle_interact[int(rel_x)].copy()
                 self.apply_move = False
                 self.paddlehits += 1
+                self.paddle = True
             elif other.name.find("SideWall") != -1:
                 self.vel = np.array([self.vel[0], -self.vel[1]])
                 self.apply_move = False
@@ -159,7 +161,7 @@ class Ball(animateObject):
                 rel_x = self.pos[1] - other.pos[1]
                 rel_y = self.pos[0] - other.pos[0]
                 # print(rel_x, rel_y, self.vel, self.pos[0], other.pos[0], other.name, intersection(self, other))
-                other.attribute = 0
+                if other.attribute != 2: other.attribute = 0
                 next_vel = self.vel
                 # if (rel_y == -2 or rel_y == -3 or rel_y == 3 or rel_y == 2) and not self.flipped:
                 # if rel_y == -2 or rel_y == -3 or rel_y == 3 or rel_y == 2:

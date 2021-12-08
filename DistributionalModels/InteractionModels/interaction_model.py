@@ -519,7 +519,7 @@ class NeuralInteractionForwardModel(nn.Module):
                         all_indices.append(np.array([np.random.randint(train_args.batch_size), np.random.randint(interaction_likelihood.shape[1])]))
 
                     obj_indices = np.array(all_indices)
-                    print("iteration: ", i)
+                    print("Iters: ", i)
                     # print(trw[idxes], trace[idxes].sum(dim=1), idxes)
                     print(forward_loss[obj_indices[0][0]], interaction_likelihood[obj_indices[0][0]])
                     for a in obj_indices[:20]:
@@ -554,7 +554,7 @@ class NeuralInteractionForwardModel(nn.Module):
                     # print(inp.shape, batchvals.values.state.shape, prediction_params[0].shape, test_idxes, test_binaries, likelihood_binaries, interaction_binaries)
                     test_idxes = torch.tensor([i[0] for i in test_idxes if i < 30]).long()
                     print(test_idxes)
-                    print("iteration: ", i,
+                    print("Iters: ", i,
                         "input", inp[:30].squeeze(),
                         # "\ninteraction", interaction_likelihood,
                         # "\nbinaries", interaction_binaries[:30],
@@ -638,13 +638,13 @@ class NeuralInteractionForwardModel(nn.Module):
                             all_indices.append(pytorch_model.unwrap(ti))
                             if ti[1]+1 < interaction_likelihood[ti[0]].shape[0]: all_indices.append(np.array([ti[0], ti[1]+1]))
                             if ti[1]+2 < interaction_likelihood[ti[0]].shape[0]: all_indices.append(np.array([ti[0], ti[1]+2]))
-                            for _ in range(3):
+                            for i in range(3):
                                 all_indices.append(np.array([ti[0], np.random.randint(interaction_likelihood[ti[0]].shape[0])]))
                         for _ in range(20):
                             all_indices.append(np.array([np.random.randint(train_args.batch_size), np.random.randint(interaction_likelihood.shape[1])]))
                         obj_indices = np.array(all_indices)
                         # print (obj_indices)
-                        print("Iters", i, ": tl: ", trace_loss)
+                        print("Iters: ", i, ": tl: ", trace_loss)
                         # print(target.shape)
                         print(target[obj_indices[0][0]], interaction_likelihood[obj_indices[0][0]])
                         for a in obj_indices:
@@ -652,7 +652,7 @@ class NeuralInteractionForwardModel(nn.Module):
                             "inter: ", pytorch_model.unwrap(interaction_likelihood[a[0], a[1]]),
                             "target: ", pytorch_model.unwrap(target[a[0], a[1]]))
                     else:
-                        print("Iters", i, ": tl: ", trace_loss)
+                        print("Iters: ", i, ": tl: ", trace_loss)
                         print("\nstate:", pytorch_model.unwrap(inp)[obj_indices],
                             "\ntraining: ", pytorch_model.unwrap(interaction_likelihood[obj_indices]),
                             "\ntarget: ", pytorch_model.unwrap(target[obj_indices]))
@@ -695,6 +695,7 @@ class NeuralInteractionForwardModel(nn.Module):
             self.run_optimizer(train_args, passive_optimizer, self.passive_model, passive_loss)
             if i % train_args.log_interval == 0:
                 if self.multi_instanced:
+                    print("Iters: ", i, ", pl: ", passive_loss.mean().detach().cpu().numpy())
                     for j in range(2):
                         print(
                             # self.network_args.normalization_function.reverse(passive_prediction_params[0][0]),

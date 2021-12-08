@@ -64,6 +64,7 @@ class ParameterizedStateTermination(Termination):
 		dataset_model = kwargs["dataset_model"]
 		self.epsilon_close = kwargs['epsilon_close']
 		self.name = kwargs['name']
+		self.inter = 1
 		self.inter_pred = dataset_model.interaction_prediction
 
 	def check_interaction(self, inter):
@@ -97,6 +98,7 @@ class InteractionTermination(Termination):
 		super().__init__(**kwargs)
 		self.interaction_model = kwargs["dataset_model"]
 		self.epsilon = kwargs["epsilon"]
+		self.inter = 1
 
 	def check(self, inter, state, param, mask, true_done=0):
 		# NOTE: input state is from the current state, state, param are from the next state
@@ -202,7 +204,7 @@ class InstancedTermination(Termination):
 		instanced = self.dataset_model.split_instances(state)
 		inverse_mask = invert_mask(mask)
 		indexes = compute_instance_indexes(instanced, param, inverse_mask, multi=-1)
-		output = self.terminator.check(input_state, instanced[idxes], param, mask, true_done)
+		output = self.terminator.check(input_state, instanced[indexes], param, mask, true_done)
 		self.inter = self.terminator.inter
 		return output
 

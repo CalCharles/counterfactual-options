@@ -24,7 +24,7 @@ robopush_relative_norm = (np.array([0,0,0]), np.array([.2,.26,.0425]))
 robopush_relative_surface_norm = (np.array([0,0,0]), np.array([.2,.2,.1]))
 
 robostick_action_norm = (np.array([0,0,0,0]), np.array([1,1,1,1]))
-robostick_gripper_norm = (np.array([-0.2, 0,.8725,0]), np.array([.1,.15,.0425, 0.05]))
+robostick_gripper_norm = (np.array([-0.2, 0,.8725,0]), np.array([.1,.15,.0425,1]))
 robostick_stick_norm = (np.array([-0.1,0.0,.824]), np.array([.2,.15,.1]))
 robostick_block_norm = (np.array([-0.1,0.0,.802]), np.array([.1,.15,.1]))
 robostick_target_norm = (np.array([0.0,0.0,.802]), np.array([.07,.15,.1]))

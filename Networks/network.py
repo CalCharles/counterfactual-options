@@ -381,7 +381,7 @@ class PointNetwork(Network):
             self.MLP = BasicMLPNetwork(**kwargs)
             self.model = nn.Sequential(self.conv, self.MLP)
         else:
-            self.model = nn.ModuleList([self.conv])
+            self.model = [self.conv]
         self.train()
         self.reset_parameters()
 
@@ -437,14 +437,15 @@ class PairNetwork(Network):
             layers.append(self.post_channel)
         self.aggregate_final = kwargs["aggregate_final"]
         self.activation_final = kwargs["activation_final"] if "activation_final" in kwargs else ""
+        self.softmax = nn.Softmax(-1)
         if kwargs["aggregate_final"]: # does not work with a post-channel
             kwargs["include_last"] = True
             kwargs["num_inputs"] = self.output_dim
             kwargs["num_outputs"] = self.num_outputs
-            kwargs["hidden_sizes"] = [128, 128, 128] # TODO: hardcoded final hidden sizes for now
+            kwargs["hidden_sizes"] = [256, 128, 128] # TODO: hardcoded final hidden sizes for now
             self.MLP = BasicMLPNetwork(**kwargs)
             layers.append(self.MLP)
-        self.model = nn.ModuleList(layers)
+        self.model = layers
         self.train()
         self.reset_parameters()
 
@@ -473,7 +474,8 @@ class PairNetwork(Network):
         if self.aggregate_final:
             # TODO: could use additive instead of max
             # print(x.shape)
-            x = torch.max(x, 2, keepdim=True)[0]
+            # x = torch.max(x, 2, keepdim=True)[0]
+            x = torch.mean(x, 2)
             # print(x.shape)
             x = x.view(-1, self.conv_dim)
             # print(x.shape)
@@ -486,7 +488,13 @@ class PairNetwork(Network):
             x = x.transpose(2,1)
             x = x.reshape(batch_size, -1)
         if len(self.activation_final) > 0:
-            x = torch.sigmoid(x)
+            if self.activation_final == "sigmoid":
+                x = torch.sigmoid(x)
+            elif self.activation_final == "tanh":
+                x = torch.tanh(x)
+            elif self.activation_final == "softmax":
+                x = self.softmax(x)
+                # print("tanh", x)
         return x
 
 
@@ -567,7 +575,7 @@ class MultiheadedTransformerPairNetwork(Network):
             self.heads.append(TransformerPairNetwork(**kwargs))
 
         kwargs["object_dim"] = self.hidden_sizes[-1] * self.num_heads
-        kwargs["hidden_sizes"] = [64, 64, 64] # hardcoded final layer
+        kwargs["hidden_sizes"] = [128, 128, 128] # hardcoded final layer
         kwargs["output_dim"] = self.output_dim
         self.output_network = PointNetwork(**kwargs)
         self.layers = self.heads + [self.output_network]

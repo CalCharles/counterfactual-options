@@ -18,7 +18,8 @@ from tianshou.data import Batch, ReplayBuffer
 import tianshou as ts
 import gym
 from typing import Any, Dict, Tuple, Union, Optional, Callable
-from ReinforcementLearning.learning_algorithms import HER
+from ReinforcementLearning.LearningAlgorithm.iterated_supervised_learner import IteratedSupervisedPolicy
+from ReinforcementLearning.LearningAlgorithm.HER import HER
 from Rollouts.rollouts import ObjDict
 
 
@@ -40,6 +41,7 @@ class TSPolicy(nn.Module):
         self.collect = None
         self.lookahead = args.lookahead # lookahead for RL, computes \sum^lookahead R + Q(s^lookahead+1)
         # self.option = args.option
+        self.sample_HER = False
         self.use_input_norm = args.input_norm
         self.input_var = np.ones(input_shape) # only if input variance and mean are used
         self.input_mean = np.zeros(input_shape)
@@ -161,11 +163,19 @@ class TSPolicy(nn.Module):
         elif self.algo_name in ['dqn']:
             critic = PolicyType(num_inputs=input_shape, num_outputs=action_shape, aggregate_final=True, **args)
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
+        elif self.algo_name in ['isl']:
+            hsizes = args.hidden_sizes
+            args.hidden_sizes = args.hidden_sizes[:-1]
+            net = PolicyType(num_inputs=input_shape, num_outputs=hsizes[-1], aggregate_final=True, **args)
+            args.hidden_sizes = hsizes
+            actor = Actor(net, action_shape, device=device).to(device)
+            actor_optim = torch.optim.Adam(set(actor.parameters()), lr=args.actor_lr)
+
         elif self.algo_name in ['ppo']:
             if discrete_actions:
                 hsizes = args.hidden_sizes
                 args.hidden_sizes = args.hidden_sizes[:-1]
-                net = PolicyType(num_inputs=input_shape, num_outputs=args.hidden_sizes[-1], aggregate_final=True, **args)
+                net = PolicyType(num_inputs=input_shape, num_outputs=hsizes[-1], aggregate_final=True, **args)
                 args.hidden_sizes = hsizes
                 actor = Actor(net, action_shape, device=device).to(device)
                 critic = Critic(net, device=device).to(device)
@@ -226,6 +236,9 @@ class TSPolicy(nn.Module):
                                                                             exploration_noise=args.exploration_noise,
                                                                             estimation_step=args.lookahead, action_space=args.action_space,
                                                                             action_bound_method='clip', deterministic_eval=args.deterministic_eval)
+        elif self.algo_name == 'isl':
+            policy = IteratedSupervisedPolicy(args.actor, args.actor_optim, label_smoothing=args.label_smoothing)
+            self.sample_HER = True
         # support as many algos as possible, at least ddpg, dqn SAC
         return policy
 
@@ -255,6 +268,8 @@ class TSPolicy(nn.Module):
             Q_val = self.algo_policy.critic(comp, batch.act)
         if self.algo_name in ['dqn']:
             Q_val = self.algo_policy(batch, input="obs_next" if nxt else "obs").logits
+        if self.algo_name in ['isl']:
+            Q_val = torch.softmax(self.algo_policy(batch, input="obs_next" if nxt else "obs").logits, dim=-1)
         return Q_val
 
     def add_param(self, batch, indices = None):
@@ -397,7 +412,13 @@ class TSPolicy(nn.Module):
         '''
         for i in range(self.grad_epoch):
             use_buffer = buffer
-            if self.sample_merged and len(self.learning_algorithm.replay_buffer) > 1000:
+            if self.sample_HER:
+                if len(self.learning_algorithm.replay_buffer) < 1000: # nothing to sample 
+                    return {}
+                her_buffer = self.learning_algorithm.replay_buffer
+                her_batch, indice = her_buffer.sample(sample_size)
+                batch = self.algo_policy.process_fn(her_batch, her_buffer, indice)
+            elif self.sample_merged and len(self.learning_algorithm.replay_buffer) > 1000:
                 her_buffer = self.learning_algorithm.replay_buffer
                 if buffer is None or her_buffer is None:
                     return {}
