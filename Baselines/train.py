@@ -4,15 +4,18 @@ import pprint
 
 import numpy as np
 import torch
-from atari_network import DQN
-from atari_wrapper import wrap_deepmind
 from torch.utils.tensorboard import SummaryWriter
 
 from tianshou.data import Collector, VectorReplayBuffer
-from tianshou.env import ShmemVectorEnv
+from tianshou.env import DummyVectorEnv
 from tianshou.policy import DQNPolicy
 from tianshou.trainer import offpolicy_trainer
 from tianshou.utils import TensorboardLogger, WandbLogger
+
+from Environments.SelfBreakout.breakout_screen import Screen
+from Environments.SelfBreakout.gym_wrapper import BreakoutGymWrapper
+
+from Baselines.networks import DQN
 
 
 def get_args():
@@ -32,7 +35,6 @@ def get_args():
     parser.add_argument('--step-per-collect', type=int, default=10)
     parser.add_argument('--update-per-step', type=float, default=0.1)
     parser.add_argument('--batch-size', type=int, default=32)
-    parser.add_argument('--training-num', type=int, default=10)
     parser.add_argument('--test-num', type=int, default=10)
     parser.add_argument('--logdir', type=str, default='log')
     parser.add_argument('--render', type=float, default=0.)
@@ -58,33 +60,25 @@ def get_args():
     return parser.parse_args()
 
 
-def make_atari_env(args):
-    return wrap_deepmind(args.task, frame_stack=args.frames_stack)
+def make_breakout_env(args):
+    return BreakoutGymWrapper(Screen())
 
+def make_breakout_env_fn(args):
+    def create():
+        return make_breakout_env(args)
 
-def make_atari_env_watch(args):
-    return wrap_deepmind(
-        args.task,
-        frame_stack=args.frames_stack,
-        episode_life=False,
-        clip_rewards=False
-    )
-
+    return create
 
 def test_dqn(args=get_args()):
-    env = make_atari_env(args)
+    env = make_breakout_env(args)
     args.state_shape = env.observation_space.shape or env.observation_space.n
     args.action_shape = env.action_space.shape or env.action_space.n
     # should be N_FRAMES x H x W
     print("Observations shape:", args.state_shape)
     print("Actions shape:", args.action_shape)
     # make environments
-    train_envs = ShmemVectorEnv(
-        [lambda: make_atari_env(args) for _ in range(args.training_num)]
-    )
-    test_envs = ShmemVectorEnv(
-        [lambda: make_atari_env_watch(args) for _ in range(args.test_num)]
-    )
+    train_envs = DummyVectorEnv([make_breakout_env_fn(args)])
+    test_envs = DummyVectorEnv([make_breakout_env_fn(args)])
     # seed
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -111,9 +105,8 @@ def test_dqn(args=get_args()):
         args.buffer_size,
         buffer_num=len(train_envs),
         ignore_obs_next=True,
-        save_only_last_obs=True,
-        stack_num=args.frames_stack
     )
+
     # collector
     train_collector = Collector(policy, train_envs, buffer, exploration_noise=True)
     test_collector = Collector(policy, test_envs, exploration_noise=True)
@@ -136,12 +129,7 @@ def test_dqn(args=get_args()):
         torch.save(policy.state_dict(), os.path.join(log_path, 'policy.pth'))
 
     def stop_fn(mean_rewards):
-        if env.spec.reward_threshold:
-            return mean_rewards >= env.spec.reward_threshold
-        elif 'Pong' in args.task:
-            return mean_rewards >= 20
-        else:
-            return False
+        return False
 
     def train_fn(epoch, env_step):
         # nature DQN setting, linear decay in the first 1M steps
@@ -175,8 +163,6 @@ def test_dqn(args=get_args()):
                 args.buffer_size,
                 buffer_num=len(test_envs),
                 ignore_obs_next=True,
-                save_only_last_obs=True,
-                stack_num=args.frames_stack
             )
             collector = Collector(policy, test_envs, buffer, exploration_noise=True)
             result = collector.collect(n_step=args.buffer_size)
@@ -197,7 +183,7 @@ def test_dqn(args=get_args()):
         exit(0)
 
     # test train_collector and start filling replay buffer
-    train_collector.collect(n_step=args.batch_size * args.training_num)
+    train_collector.collect(n_step=args.batch_size)
     # trainer
     result = offpolicy_trainer(
         policy,
