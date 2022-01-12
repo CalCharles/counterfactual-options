@@ -17,6 +17,8 @@ class BreakoutGymWrapper():
     def delta_observation_wrapper(self, obs):
         factored_state = obs['factored_state']
         delta = np.array(factored_state['Paddle']) - np.array(factored_state['Ball'])
+
+        # Possibly add Ball and Paddle
         return delta
 
     def reset(self):
@@ -26,3 +28,6 @@ class BreakoutGymWrapper():
     def step(self, action):
         orig_obs, reward, done, info = self.env.step(action)
         return self.delta_observation_wrapper(orig_obs), reward, done, info
+
+    def render(self):
+        return self.env.render()
