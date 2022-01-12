@@ -7,6 +7,8 @@ import torch.nn as nn
 import torch.optim as optim
 import cv2
 import copy
+from tianshou.policy import BasePolicy
+
 
 print("value")
 
@@ -170,12 +172,30 @@ class TargetingPolicy():
             self.target = self.sampler.hit_determine(self.current_environment.blocks,
              target_act, flipped = True, freeze_model = True)
             state = self.construct_state(state, self.target, num_samples=self.num_samples, flipped = True)
+            print(state)
             state = pytorch_model.wrap(state, cuda=True)
             logits = self.network(state)
             dist = self.dist_fn(logits)
             self.act = dist.sample()
         action = self.angle_policy.act(self.current_environment, angle=self.act)
         return action
+
+class TSNetworkWrapper(nn.Module):
+    def __init__(self, network):
+        super().__init__()
+        self.last = network
+        self.network = network
+
+    def forward(
+        self,
+        obs,
+        state=None,
+        info=None
+    ):
+        print(obs)
+        obs = pytorch_model.wrap(obs, cuda= True)
+        return self.network(obs), None
+
 
 def hot_act(act, act_num):
     z = np.zeros(act_num)
@@ -240,7 +260,7 @@ if __name__ == "__main__":
     args.batchsize = 64
     args.use_layer_norm = False
     args.activation_final = "softmax" # row counter mode
-    args.num_iters = 100000
+    args.num_iters = 30000
     args.num_rows = 2 # row counter mode
     args.num_samples = 20 # row counter mode
     args.num_outputs = 4 # row counter mode
@@ -251,10 +271,12 @@ if __name__ == "__main__":
     # args.num_actions = num_rows
     args.num_actions = 4
     # args.num_actions = 5
-    args.first_obj_dim = 5
+    # args.first_obj_dim = 5
     # args.first_obj_dim = 5 + args.num_actions
+    args.first_obj_dim = 10
     # args.num_inputs = 5 + 5 * args.num_samples + args.num_actions
-    args.num_inputs = 5 + 5 * args.num_samples
+    # args.num_inputs = 5 + 5 * args.num_samples
+    args.num_inputs = 10 + 5 * args.num_samples
     args.num_outputs = args.num_outputs # row counter mode
     args.no_breakout = True
     args.hit_reset = 15
@@ -263,10 +285,13 @@ if __name__ == "__main__":
     args.no_reset = True
     args.keep_both = False
     args.late_state = False
-    args.filename = "ball_test_true"
-    args.generate_data = True
-    args.generate_from_obj_dict = True
+    args.filename = "ball_test_policy_small"
+    args.generate_data = False
+    args.generate_from_obj_dict = False
+    args.generate_from_collector_buffer = "/hdd/datasets/counterfactual_data/breakout/pretrain_block2.10.4.1.15/pretrain_collector.pkl"
     args.choice_labels = False
+    args.register_adjacent = 0
+    np.set_printoptions(threshold = 1000000, linewidth = 150, precision=3)
 
 
     screen = Screen(num_rows = args.num_rows, num_columns = args.num_columns, max_block_height=4, random_exist=args.num_samples, negative_mode = args.negative_mode, no_breakout = args.no_breakout, hit_reset=args.hit_reset)
@@ -336,12 +361,24 @@ if __name__ == "__main__":
 
 
     if not args.generate_data:
-        values = load_from_pickle("data/breakout/network_test/values" + args.filename + ".pkl")
-        states = load_from_pickle("data/breakout/network_test/states" + args.filename + ".pkl")
-        if args.action_choice: choice_actions = load_from_pickle("data/breakout/network_test/actions" + args.filename + ".pkl")
-        test_values = load_from_pickle("data/breakout/network_test/test_values" + args.filename + ".pkl")
-        test_states = load_from_pickle("data/breakout/network_test/test_states" + args.filename + ".pkl")
-        if args.action_choice: test_choice_actions = load_from_pickle("data/breakout/network_test/test_actions" + args.filename + ".pkl")
+        if len(args.generate_from_collector_buffer) > 0:
+            buffer = load_from_pickle(args.generate_from_collector_buffer).hindsight_buffer
+            buffer = buffer.sample(0)[0]
+            labels = np.array([hot_act(a, 4) for a in buffer.act])
+            print(labels)
+            states = buffer.obs[:int(len(buffer.obs) * .9)]
+            print(states[:10])
+            values = labels[:int(len(buffer.obs) * .9)]
+            test_states = buffer.obs[int(len(buffer.obs) * .9):]
+            test_values = labels[int(len(buffer.obs) * .9):]
+            error
+        else:
+            values = load_from_pickle("data/breakout/network_test/values" + args.filename + ".pkl")
+            states = load_from_pickle("data/breakout/network_test/states" + args.filename + ".pkl")
+            if args.action_choice: choice_actions = load_from_pickle("data/breakout/network_test/actions" + args.filename + ".pkl")
+            test_values = load_from_pickle("data/breakout/network_test/test_values" + args.filename + ".pkl")
+            test_states = load_from_pickle("data/breakout/network_test/test_states" + args.filename + ".pkl")
+            if args.action_choice: test_choice_actions = load_from_pickle("data/breakout/network_test/test_actions" + args.filename + ".pkl")
     else:
         if args.generate_from_obj_dict:
             print("../hdd_data/breakout/" + args.filename + "/")
@@ -352,6 +389,7 @@ if __name__ == "__main__":
             values = list()
             true_action = None
             param = None
+            option_action = None
             angle_reference = {(-1,-1): 0, (-2,-1):1, (-2, 1):2, (-1,1):3}
             miss = 0
             rate = 0
@@ -392,11 +430,14 @@ if __name__ == "__main__":
                     hit, block_ids = determine_hit(blocks_state, next_blocks_state)
                     if hit:
                         param = next_blocks_state[block_ids[0][0]]
+                        # param = next_blocks_state[np.random.randint(20)]
+                        param[-1] = 0
                         completed_state = construct_state(state, param, args.num_actions, args.num_samples, flipped=args.flipped or args.action_choice)
                         print("ballstate", state["factored_state"]["Ball"], next_factored_state["Ball"])
-                        states.append(completed_state)
-                        true_options.append(true_action)
-                        corresponding_option.append(option_action)
+                        if option_action is not None:
+                            states.append(completed_state)
+                            true_options.append(true_action)
+                            corresponding_option.append(option_action)
                         print(miss/rate, next_blocks_state[:,-1], completed_state, param, factored_state["Ball"], next_factored_state["Ball"], true_action, option_action)
                         state = {'factored_state': next_factored_state}
                     if next_factored_state["Done"][0]:
@@ -420,12 +461,12 @@ if __name__ == "__main__":
             values, test_values = hot_dataset(values, test_values)
             print("values", np.sum(values))
 
-        save_to_pickle("data/breakout/network_test/values" + args.filename + ".pkl", values)
-        save_to_pickle("data/breakout/network_test/states" + args.filename + ".pkl", states)
-        if args.action_choice or args.generate_from_obj_dict: save_to_pickle("data/breakout/network_test/actions" + args.filename + ".pkl", choice_actions)
-        save_to_pickle("data/breakout/network_test/test_values" + args.filename + ".pkl", test_values)
-        save_to_pickle("data/breakout/network_test/test_states" + args.filename + ".pkl", test_states)
-        if args.action_choice or args.generate_from_obj_dict: save_to_pickle("data/breakout/network_test/test_actions" + args.filename + ".pkl", test_choice_actions)
+        # save_to_pickle("data/breakout/network_test/values" + args.filename + ".pkl", values)
+        # save_to_pickle("data/breakout/network_test/states" + args.filename + ".pkl", states)
+        # if args.action_choice or args.generate_from_obj_dict: save_to_pickle("data/breakout/network_test/actions" + args.filename + ".pkl", choice_actions)
+        # save_to_pickle("data/breakout/network_test/test_values" + args.filename + ".pkl", test_values)
+        # save_to_pickle("data/breakout/network_test/test_states" + args.filename + ".pkl", test_states)
+        # if args.action_choice or args.generate_from_obj_dict: save_to_pickle("data/breakout/network_test/test_actions" + args.filename + ".pkl", test_choice_actions)
 
     if args.choice_labels:
         values = choice_actions

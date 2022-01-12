@@ -97,14 +97,14 @@ class Option():
         batch['obs'] = self.next_option.state_extractor.get_obs(batch["full_state"], param_act, next_mask) if self.next_option.state_extractor is not None else batch['obs']
         return param, obs, mask
 
-    def extended_action_sample(self, batch, state_chain, term_chain, ext_terms, random=False, use_model=False):
+    def extended_action_sample(self, batch, state_chain, term_chain, ext_terms, random=False, use_model=False, force=None):
         '''
         get a new action (resample) or not based on the result of TEM.check. If we don't, check downstream options
         batch must contain full_state and termination_chain
         '''
         needs_sample, act, chain, policy_batch, state, masks = self.temporal_extension_manager.check(term_chain[-1], ext_terms[-1])
         if needs_sample: 
-            result_tuple = self.sample_action_chain(batch, state_chain, random=random, use_model=use_model)
+            result_tuple = self.sample_action_chain(batch, state_chain, random=random, use_model=use_model, force=force)
             if not random: self.temporal_extension_manager.update_policy(result_tuple[2], result_tuple[3][-1] if result_tuple[3] is not None else None) # result tuple  2 and 3 are policy_batch and state-chain respectively
             resampled = True
         else:
@@ -116,14 +116,21 @@ class Option():
             resampled = False
         return (*result_tuple, resampled)
 
-    def sample_action_chain(self, batch, state_chain, random=False, use_model=False): # TODO: change this to match the TS parameter format, in particular, make sure that forward returns the desired components in RLOutput
+    def sample_action_chain(self, batch, state_chain, random=False, use_model=False, force=None): # TODO: change this to match the TS parameter format, in particular, make sure that forward returns the desired components in RLOutput
         '''
         takes in a tianshou.data.Batch object and param, and runs the policy on it
         the batch object can only contain a single full state (computes one state at a time), because of handling issues
         use_model is only for model based search
         if the batch object contains a partial flag (key with PARTIAL=1), then treat the state as a partial
+        @param force forces the action to be a particular value
         '''
-        if random:
+        if force is not None:
+            state = None
+            act = force
+            act, mapped_act = self.action_map.map_action(act, batch)
+            # if self.name == "Block": print(act, mapped_act)
+            policy_batch = Batch()
+        elif random:
             state = None
             act = self.action_map.sample_policy_space()
             act, mapped_act = self.action_map.map_action(act, batch)

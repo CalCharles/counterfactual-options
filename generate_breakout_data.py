@@ -11,11 +11,12 @@ if __name__ == '__main__':
         target_mode = False
         if sys.argv[3].find("tar") != -1:
             target_mode = True
+        print(sys.argv, sys.argv[4])
         screen = Screen(target_mode=target_mode, breakout_variant=sys.argv[4])
         if sys.argv[3].find("ang") != -1:
             policy = AnglePolicy(4)
         print("running angle policy")
-        screen.run(policy, render=True, iterations = int(sys.argv[2]), duplicate_actions=1, save_path=sys.argv[1], save_raw = True, angle_mode=True)
+        screen.run(policy, render=True, iterations = int(sys.argv[2]), duplicate_actions=1, save_path=sys.argv[1], save_raw = True, angle_mode=True, visualize=True)
     else:
         screen.run(policy, render=True, iterations = int(sys.argv[2]), duplicate_actions=1, save_path=sys.argv[1], save_raw = True)
     # demonstrate(sys.argv[1], 1000)

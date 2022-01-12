@@ -3,11 +3,12 @@ import torch
 import numpy as np
 from arguments import get_args
 from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
+from test_network import TSNetworkWrapper
 
 from Environments.environment_initializer import initialize_environment
 
 from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEnvironmentModel
-from Environments.SelfBreakout.breakout_screen import Screen
+from Environments.SelfBreakout.breakout_screen import Screen, AnglePolicy
 from EnvironmentModels.Nav2D.Nav2D_environment_model import Nav2DEnvironmentModel
 from Environments.Nav2D.Nav2D import Nav2D
 from EnvironmentModels.Pushing.pushing_environment_model import PushingEnvironmentModel
@@ -18,6 +19,7 @@ from Environments.RobosuitePushing.find_path import find_path
 from Rollouts.rollouts import ObjDict
 from ReinforcementLearning.test_RL import testRL
 from ReinforcementLearning.Policy.policy import TSPolicy, pytorch_model
+from ReinforcementLearning.assess_policies import assess_policies
 from EnvironmentModels.environment_model import FeatureSelector
 from Options.Termination.termination import terminal_forms
 from Options.done_model import DoneModel
@@ -140,7 +142,7 @@ if __name__ == '__main__':
         termination = terminal_forms[tt](name=args.object, **vars(args))
         reward = reward_forms[rt](**vars(args)) # using the same epsilon for now, but that could change
         done_model = DoneModel(use_termination = args.use_termination, time_cutoff=args.time_cutoff, true_done_stopping = not args.not_true_done_stopping)
-        
+
         # initialize terminate-reward
         args.reward = reward
         args.termination = termination
@@ -150,6 +152,11 @@ if __name__ == '__main__':
 
         option.terminate_reward = terminate_reward
         option.sampler = sampler
+        if len(args.load_network) > 0:
+            # data/breakout/network_test/net_ball_test_policy_small.pt
+            network = torch.load(args.load_network)
+            option.policy.algo_policy.model = TSNetworkWrapper(network)
+
 
     np.set_printoptions(threshold = 1000000, linewidth = 150, precision=3)
 
@@ -170,7 +177,14 @@ if __name__ == '__main__':
 
     # if args.set_time_cutoff:
     option.time_cutoff = -1
-    done_lengths = testRL(args, test_collector, environment, environment_model, option, names, graph)
+    if args.policy_type == "Assess":
+        # TODO: bottom two lines are hardcoded
+        policy = AnglePolicy(4)
+        option.action_map.num_actions = 4
+        assess_policies(args, test_collector, environment, environment_model, option, policy, names, graph)
+    else:
+        done_lengths = testRL(args, test_collector, environment, environment_model, option, names, graph)
+
     if len(args.save_graph) > 0:
         option.cpu()
         option.save(args.save_dir)

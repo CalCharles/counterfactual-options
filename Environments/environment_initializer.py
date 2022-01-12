@@ -21,7 +21,8 @@ def initialize_environment(args, set_save=True, render=False):
         args.continuous = False
         nhigh, nwide, maxheight, no_breakout, hit_reset = args.block_shape
         environment = Screen(drop_stopping=args.drop_stopping, target_mode=args.target_mode, 
-            num_rows = nhigh, num_columns = nwide, max_block_height=maxheight, no_breakout=bool(no_breakout), hit_reset=hit_reset)
+            num_rows = nhigh, num_columns = nwide, max_block_height=maxheight, no_breakout=bool(no_breakout), hit_reset=hit_reset,
+            breakout_variant=args.variant_name)
         environment.seed(args.seed)
         environment_model = BreakoutEnvironmentModel(environment)
     elif args.env == "Nav2D":

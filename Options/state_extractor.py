@@ -155,13 +155,17 @@ class StateExtractor():
         self.param_contained = args.param_contained
         if self.param_contained:
             # contains the parameter and first object in the first_obj_shape, and moves param relative information into the object shape
+            self.pre_param = 0
             self.post_dim = self.target_shape[0] + self.flat_shape[0] + self.action_shape[0] + self.diff_shape[0]
-            self.object_shape = self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape if self.inter_shape[0] > 0 else self.param_rel_shape
+            self.full_object_shape = self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape if self.inter_shape[0] > 0 else self.param_rel_shape
+            self.object_shape = ((self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape if self.inter_shape[0] > 0 else self.param_rel_shape)[0] // self.num_instance, )
             self.first_obj_shape = (self.get_state(full_state, (0,0,0,0,0,0,0,1,0)).shape[0] + self.param_shape[0], )
+            print(self.object_shape, self.first_obj_shape)
         else:
             self.post_dim = self.target_shape[0] + self.flat_shape[0] + self.param_shape[0] + self.param_rel_shape[0] + self.action_shape[0] + self.diff_shape[0]
-            self.object_shape = self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape
-
+            self.full_object_shape = self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape
+            self.object_shape = ((self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape)[0] // self.num_instance, )
+        
 
     def split_obs(self, state):
         self.lengths = [ self.option_shape, self.inter_shape, self.relative_shape, self.target_shape, self.flat_shape, self.param_shape, self.param_rel_shape, self.action_shape, self.diff_shape]

@@ -25,6 +25,8 @@ from DistributionalModels.InteractionModels.interaction_model import load_hypoth
 from DistributionalModels.InteractionModels.samplers import samplers
 from Rollouts.collector import OptionCollector
 from Rollouts.param_buffer import ParamReplayBuffer, ParamPriorityReplayBuffer
+from torch.utils.tensorboard import SummaryWriter
+
 
 import tianshou as ts
 
@@ -206,7 +208,9 @@ if __name__ == '__main__':
             error
     else:
         if not load_option and not args.change_option:
+            args.discrete_actions, args.discretize_acts = args.discretize_acts, args.discrete_actions
             policy = TSPolicy(num_inputs, paction_space, action_space, max_action, **vars(args)) # default args?
+            args.discrete_actions, args.discretize_acts = args.discretize_acts, args.discrete_actions
         else:
             set_option = graph.nodes[args.object].option
             policy = set_option.policy
@@ -239,10 +243,23 @@ if __name__ == '__main__':
 
     train_collector = OptionCollector(option.policy, environment, trainbuffer, exploration_noise=True, test=False,
                         option=option, environment_model = environment_model, args = args) # for now, no preprocess function
+    if len(args.load_pretrain) > 0:
+        pretrain_collector = load_from_pickle(os.path.join(args.load_pretrain, "pretrain_collector.pkl"))
+        train_collector.at = pretrain_collector.at
+        train_collector.buffer = pretrain_collector.buffer
+        train_collector.full_at = pretrain_collector.full_at
+        train_collector.full_buffer = pretrain_collector.full_buffer
+        if option.policy.learning_algorithm is not None:
+            option.policy.learning_algorithm.at = pretrain_collector.hindsight_at
+            option.policy.sample_buffer = pretrain_collector.hindsight_buffer
+            option.policy.learning_algorithm.replay_buffer = pretrain_collector.hindsight_buffer
     MAXEPISODELEN = 100
     test_collector = OptionCollector(option.policy, test_environment, ParamReplayBuffer(MAXEPISODELEN, 1), option=option, test=True, args=args, environment_model=test_environment_model)
 
-    trained = trainRL(args, train_collector, test_collector, environment, environment_model, option, names, graph)
+    tensorboard_logger = SummaryWriter(log_dir=os.path.join(args.record_rollouts, "logs") if len(args.record_rollouts) > 0 else "./logs/temp/")
+
+    trained = trainRL(args, train_collector, test_collector, environment, environment_model, option, names, graph, tensorboard_logger)
+    tensorboard_logger.close()
     if trained and not args.true_environment: # if trained, add control feature to the graph
         graph.cfs += dataset_model.cfselectors
         graph.add_edge(OptionEdge(args.object, option_name))

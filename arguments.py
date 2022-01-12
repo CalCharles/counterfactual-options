@@ -31,6 +31,8 @@ def get_args():
                     help='in breakout, induces a domain where there is a single block to target')
     parser.add_argument('--block-shape', type=int, nargs=5, default=(5, 20, 4, 0, 0),
                         help='shape of the blocks, number of blocks high, number of blocks wide, max block height, no_breakout(flag) (default: (5,20,4,0))')
+    parser.add_argument('--variant-name', default='',
+                        help='name of a specialized variant of breakout')
     # # optimization hyperparameters
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='learning rate, not used if actor and critic learning rate used for algo (default: 1e-6)')
@@ -286,6 +288,10 @@ def get_args():
                         help='save interval, one save per n updates (default: 10)')
     parser.add_argument('--save-dir', default='data/new_net/',
                         help='directory to save data when adding edges')
+    parser.add_argument('--save-pretrain', default='',
+                        help='saves the pretrain data if len > 0, suggested data/temp')
+    parser.add_argument('--load-pretrain', default='',
+                        help='loads the pretrain data from the location if len > 0')
     parser.add_argument('--test-trials', type=int, default=10,
                     help='number of episodes to run as a test')
     parser.add_argument('--pretest-trials', type=int, default=1,

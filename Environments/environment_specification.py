@@ -114,6 +114,7 @@ class RawEnvironment():
         self.save_raw = save_raw
         try:
             os.makedirs(save_dir)
+            os.makedirs(os.path.join(save_dir, "logs"))
         except OSError as e:
             print(e)
             pass

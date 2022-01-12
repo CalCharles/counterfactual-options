@@ -11,7 +11,12 @@ def load_from_pickle(pth):
 
 def save_to_pickle(pth, val):
     try:
-        os.makedirs(os.path.join(*pth.split("/")[:-1]))
+        splt_path = pth.split("/")[:-1]
+        target = os.path.join(*splt_path)
+        if splt_path[0] == "":
+            target = "/" + target
+        
+        os.makedirs(target)
     except OSError:
         pass
     fid = open(pth, 'wb')

@@ -22,7 +22,7 @@ if __name__ == "__main__":
     args.num_actions = 4
     args.no_breakout = True
     args.hit_reset = 15
-    args.filename = "action_predict_nobreak_mini"
+    args.filename = "ball_test_policy_small"
 
     screen = Screen(num_rows = args.num_rows, num_columns = args.num_columns, max_block_height=4, random_exist=args.num_samples, negative_mode = args.negative_mode, no_breakout = args.no_breakout, hit_reset=args.hit_reset)
     net = torch.load("data/breakout/network_test/net_"+ args.filename + ".pt")

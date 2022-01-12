@@ -111,6 +111,9 @@ class TSPolicy(nn.Module):
             self.algo_policy.critic.last.device = device
             self.algo_policy.actor.device = device
             self.algo_policy.critic.device = device
+        if self.algo_name in ["isl"]:
+            self.algo_policy.model.last.device = device
+            self.algo_policy.model.device = device
 
     def init_networks(self, args, input_shape, action_shape, discrete_actions, max_action = 1):
         if discrete_actions:
@@ -168,7 +171,7 @@ class TSPolicy(nn.Module):
             args.hidden_sizes = args.hidden_sizes[:-1]
             net = PolicyType(num_inputs=input_shape, num_outputs=hsizes[-1], aggregate_final=True, **args)
             args.hidden_sizes = hsizes
-            actor = Actor(net, action_shape, device=device).to(device)
+            actor = Actor(net, action_shape, softmax_output=False, device=device).to(device)
             actor_optim = torch.optim.Adam(set(actor.parameters()), lr=args.actor_lr)
 
         elif self.algo_name in ['ppo']:
@@ -269,7 +272,9 @@ class TSPolicy(nn.Module):
         if self.algo_name in ['dqn']:
             Q_val = self.algo_policy(batch, input="obs_next" if nxt else "obs").logits
         if self.algo_name in ['isl']:
-            Q_val = torch.softmax(self.algo_policy(batch, input="obs_next" if nxt else "obs").logits, dim=-1)
+            # Q_val = torch.softmax(self.algo_policy(batch, input="obs_next" if nxt else "obs").logits, dim=-1)
+            Q_val = self.algo_policy(batch, input="obs_next" if nxt else "obs").logits
+            # print(Q_val, torch.softmax(self.algo_policy(batch, input="obs_next" if nxt else "obs").logits, dim=-1))
         return Q_val
 
     def add_param(self, batch, indices = None):

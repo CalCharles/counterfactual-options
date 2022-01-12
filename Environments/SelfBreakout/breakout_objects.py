@@ -168,9 +168,9 @@ class Ball(animateObject):
                 if rel_y <= -1 or 1 <= rel_y:
                     next_vel[0] = - self.vel[0]
                     self.flipped = True
-                # else:
-                #     if rel_x == -2 or rel_x == 4 or (rel_x == 3 and rel_y != -2):
-                #         next_vel[1] = - self.vel[1]
+                elif other.attribute == 2:
+                    # if rel_x <= -2 or rel_x >= 2:
+                    next_vel[1] = - self.vel[1]
                 self.vel = np.array(next_vel)
                 self.apply_move = False
                 other.interaction_trace.append(self.name)

@@ -33,6 +33,7 @@ class TemporalAggregator():
         self.next_param = False
         self.keep_next = True
         self.temporal_skip = False
+        self.last_true_done = False
         self.ptr = 0
         self.sum_reward = sum_reward # sums reward for the length of the trajectory
         self.time_counter = 0 # counts the number of time steps in the temporal extension
@@ -52,9 +53,10 @@ class TemporalAggregator():
         skipped = False
         if self.keep_next: 
             self.current_data = copy.deepcopy(data)
+            # print("keeping:", self.current_data.true_done, self.current_data.obs, self.current_data.full_state["factored_state"], self.current_data.next_full_state["factored_state"])
             self.current_data.rew = [self.current_data.rew.squeeze()] # TODO: hack to make sure that reward is a regular shape
             self.current_data.true_reward= self.current_data.true_reward.astype(float)
-            self.keep_next = self.temporal_skip
+            self.keep_next = self.temporal_skip or self.last_true_done # if the environment just reset, we will have an obs from the old environment, so keep the next
         else: # the reward is already recorded if we copy the input data
             if self.sum_reward:
                 self.current_data.rew += data.rew.squeeze()
@@ -72,9 +74,12 @@ class TemporalAggregator():
         self.current_data.update(time=[self.time_counter])
         self.current_data.inter = [max(data.inter[0], self.current_data.inter[0])]
         next_data = copy.deepcopy(self.current_data)
+        self.last_true_done = next_data.true_done
         # if we just resampled (meaning temporal extension occurred)
         added = False
         # print(data.act, data.rew, data.ext_term, self.temporal_skip, data.mapped_act, data.param, data.target)
+        # if (np.any(data.ext_term) and not np.any(data.terminate)):
+        #     print("bouncing", next_data.act, next_data.mapped_act, next_data.full_state["factored_state"]["Ball"], next_data.next_full_state["factored_state"]["Ball"], next_data.obs)
         if (
             (np.any(data.ext_term) and not self.only_termination) or # going to resample a new action
             np.any(data.done)
@@ -84,7 +89,10 @@ class TemporalAggregator():
             if not self.temporal_skip:
                 added = True
                 # print(next_data.act)
-                # print(next_data.obs, next_data.time, next_data.act, next_data.mapped_act, next_data.done, next_data.rew, next_data.target, next_data.next_target)
+                # print("adding", next_data.param, next_data.obs[:10], next_data.time, 
+                #     next_data.act, next_data.mapped_act,)
+                    # next_data.done, next_data.true_done, next_data.rew, self.current_data.info[0]["TimeLimit.truncated"],
+                    # next_data.full_state["factored_state"], next_data.next_full_state["factored_state"])
                 # print(len(buffer))
                 self.ptr, ep_rew, ep_len, ep_idx = buffer.add(
                         next_data, buffer_ids=ready_env_ids)
@@ -95,6 +103,17 @@ class TemporalAggregator():
         self.temporal_skip = "TimeLimit.truncated" in self.current_data.info[0] and self.current_data.info[0]["TimeLimit.truncated"] and np.any(data.done)
         self.time_counter += 1
         return next_data, skipped, added, self.ptr
+
+class BufferWrapper():
+    # wraps around the buffer components for pickleing
+    def __init__(self, at, buffer, full_at, full_buffer, her_at=0, hindsight_buffer=None):
+        self.at = at
+        self.buffer = buffer
+        self.full_at = full_at
+        self.full_buffer = full_buffer
+        if hindsight_buffer is not None:
+            self.hindsight_buffer = hindsight_buffer
+            self.hindsight_at = her_at
 
 class OptionCollector(Collector): # change to line  (update batch) and line 12 (param parameter), the rest of parameter handling must be in policy
     def __init__(
@@ -212,6 +231,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             self.data.update(param=[param], mask=[mask])
         else:
             param, mask = self.data.param.squeeze(), self.data.mask.squeeze()
+        self.data.obs = self.state_extractor.assign_param(self.data.full_state, self.data.obs, param, mask)
+        self.data.obs_next = self.state_extractor.assign_param(self.data.full_state, self.data.obs_next, param, mask)
         return param, mask, new_param
 
     def get_buffer_idx(self):
@@ -226,6 +247,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         render: Optional[float] = None,
         visualize_param: str = "",
         no_grad: bool = True,
+        force: [np.array, int] = None
     ) -> Dict[str, Any]:
         """Collect a specified number of step or episode.
 
@@ -283,16 +305,17 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             state_chain = self.data.state_chain if hasattr(self.data, "state_chain") else None
             if no_grad:
                 with torch.no_grad():  # faster than retain_grad version
-                    act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random)
+                    act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random, force=force)
             else:
-                act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random)
-            # if resampled: print(act, action_chain[-1])
+                act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random, force=force)
+            if resampled: print("resampling", act, action_chain[-1],  param, self.data[0].obs[:10], pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             self._policy_state_update(result)
             self.data.update(true_action=[action_chain[0]], act=[act], mapped_act=[action_chain[-1]], option_resample=[resampled])
 
             # step in env
             action_remap = self.data.true_action
             obs_next, rew, done, info = self.env.step(action_remap, id=ready_env_ids)
+            # print("obs_next_ball", self.data.full_state[0]['factored_state']['Ball'], obs_next[0]['factored_state']['Ball'])
             next_full_state = obs_next[0] # only handling one environment
 
             true_done, true_reward = done, rew
@@ -320,12 +343,12 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             rews += rew
             # print("rew sum", rews, rew) # debugging
             if term: 
-                reward_check =  (done and rew >= 0)
+                reward_check =  (done and rew > 0)
                 if self.option.dataset_model.multi_instanced:
                     nt = self.option.dataset_model.split_instances(next_target)
                     ct = self.option.dataset_model.split_instances(target)
-                    hit = np.nonzero((nt[...,-1] - ct[...,-1]).flatten())
-                    inst_hit = nt[hit]
+                    hit_idx = np.nonzero((nt[...,-1] - ct[...,-1]).flatten())
+                    inst_hit = nt[hit_idx]
                     close = self.option.terminate_reward.epsilon_close
                     if self._keep_proximity: close = self.option.policy.learning_algorithm.dist
                     hit = ((np.linalg.norm((param-inst_hit), ord=1) <= close and not true_done)
@@ -334,6 +357,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 else:
                     hit = ((np.linalg.norm((param-next_target) * mask) <= self.option.terminate_reward.epsilon_close and not true_done)
                                 or reward_check)
+                # print(self.option.dataset_model.multi_instanced,nt, ct, hit, hit_idx, param, inst_hit, true_done, reward_check)
                 hit_count += int(hit)
                 miss_count += int(not hit)
             # print(rew, target, self.data.mapped_act.squeeze(), act, param)
@@ -365,24 +389,30 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
 
             next_data, skipped, added, self.at = self._aggregate(self.data, self.buffer, full_ptr, ready_env_ids)
             if not self.test and self.policy_collect is not None: self.policy_collect(next_data, self.data, skipped, added)
+            
             if term: 
+                # print("term", self.data.full_state['factored_state']['Ball'], param, obs[:10], pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()),
+                #     act, self.data.mapped_act)
                 print("term", term, true_done, done, inter, not time_cutoff, hit,hit_count, miss_count, self.temporal_aggregator.time_counter, rew, 
                     pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()), 
                     param, self.data.mapped_act.squeeze(), act, next_target, 
                     inter_state, obs)
+
             # debugging and visualization
+            # print(obs[5:10], self.data.full_state['factored_state']['Ball'])
             # if self.test: print(self.data.target.squeeze(), self.data.next_target.squeeze(), self.data.param.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # print(self.data.mapped_act, self.data.inter_state, self.data.param, self.data.obs)
             # if self.test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
-            if self.test and resampled: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
+            # if self.test and resampled: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # if self.test: print(self.data.obs.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
+            
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()
                 new_frame = visualize(frame, self.data.target[0], param, mask)
                 if visualize_param != "nosave":
                     saveframe(new_frame, pth=visualize_param, count=self.counter, name="param_frame")
                     self.counter += 1
-                printframe(new_frame, waittime=100)
+                printframe(new_frame, waittime=30)
 
             # collect statistics
             step_count += len(ready_env_ids)

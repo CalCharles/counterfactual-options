@@ -442,7 +442,7 @@ class PairNetwork(Network):
             kwargs["include_last"] = True
             kwargs["num_inputs"] = self.output_dim
             kwargs["num_outputs"] = self.num_outputs
-            kwargs["hidden_sizes"] = [256, 128, 128] # TODO: hardcoded final hidden sizes for now
+            kwargs["hidden_sizes"] = [256] # TODO: hardcoded final hidden sizes for now
             self.MLP = BasicMLPNetwork(**kwargs)
             layers.append(self.MLP)
         self.model = layers
@@ -451,20 +451,27 @@ class PairNetwork(Network):
 
     def slice_input(self, x):
         fx, px = None, None
+        # input of shape: [batch size, ..., flattened state shape]
         batch_size = x.shape[0] if len(x.shape) > 1 else 1
         output_shape = x.shape[-1] - self.first_obj_dim  - self.post_dim
         if self.post_dim > 0:
+            # cut out the "post" component, which is sent through a different channel
             px = torch.cat([x[...,:self.first_obj_dim], x[..., x.shape[-1]-self.post_dim:]], dim=-1)
             px = px.view(-1, px.shape[-1])
         if self.first_obj_dim > 0:
+            # cut out the "pre" component, which is appended to every object
             fx = x[..., :self.first_obj_dim] # TODO: always assumes first object dim is the first dimensions
-            x = x[..., self.first_obj_dim:x.shape[-1]-self.post_dim]
             fx = fx.view(-1, self.first_obj_dim)
+            # cut out the object components
+            x = x[..., self.first_obj_dim:x.shape[-1]-self.post_dim]
         nobj = x.shape[-1] // self.object_dim
+        # reshape the object components
         x = x.view(-1, nobj, self.object_dim)
         if self.first_obj_dim > 0 and not self.drop_first:
+            # append the pre components to every object and reshape
             broadcast_fx = torch.stack([fx.clone() for i in range(nobj)], dim=len(fx.shape) - 1)
             x = torch.cat((broadcast_fx, x), dim=-1)
+        # transpose because conv-nets have reversed dimensions
         x = x.transpose(-1,-2)
         return x, fx, px, batch_size
 
