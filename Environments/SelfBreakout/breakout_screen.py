@@ -46,7 +46,7 @@ breakout_variants = {"default": (0,5, 20, -1, "", 0),
 class Screen(RawEnvironment):
     def __init__(self, frameskip = 1, drop_stopping=True, target_mode = False, angle_mode=False,
                 num_rows = 5, num_columns = 20, max_block_height=4, no_breakout=False,
-                 negative_mode="", random_exist=-1, hit_reset=-1, breakout_variant="", bounce_count=0, verbose=False):
+                negative_mode="", random_exist=-1, hit_reset=-1, breakout_variant="", bounce_count=0):
         super(Screen, self).__init__()
         self.num_actions = 4
         self.action_space = spaces.Discrete(self.num_actions)
@@ -97,7 +97,6 @@ class Screen(RawEnvironment):
         self.random_exist = random_exist
         self.use_2D = not self.target_mode and not self.random_exist
         self.resetted = True
-        self.verbose = verbose
         self.reset()
 
 
@@ -310,8 +309,7 @@ class Screen(RawEnvironment):
                 self.total_score += -1 * self.default_reward * int(not self.ball.block)
                 self.done = True
                 self.needs_ball_reset = True
-                if self.verbose:
-                    print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
+                print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
                 break
             if (self.ball.losses == 4 and pre_stop) or (self.target_mode and (self.ball.top_wall or self.ball.bottom_wall or self.ball.block)):
                 self.average_points_per_life = self.total_score / 5.0
@@ -328,8 +326,7 @@ class Screen(RawEnvironment):
                 self.hit_counter += 1
                 if self.get_num_points() == len(self.blocks) or (self.no_breakout and self.hit_reset <= 0 and self.get_num_points() == self.num_columns + 1 and self.num_rows > 1) or (self.no_breakout and self.hit_reset > 0 and self.hit_counter == self.hit_reset):
                     needs_reset = True
-                    if self.verbose:
-                        print("block_reset", self.get_num_points())
+                    print("block_reset", self.get_num_points())
                     break
             if render:
                 self.render_frame()
