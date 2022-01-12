@@ -244,7 +244,10 @@ def test(args=get_args()):
     def watch():
         print("Setup test envs ...")
         policy.eval()
-        policy.set_eps(args.eps_test)
+
+        if args.algorithm in ['rainbow', 'dqn']:
+            policy.set_eps(args.eps_test)
+
         test_envs.seed(args.seed)
         if args.save_buffer_name:
             print(f"Generate buffer with size {args.buffer_size}")
