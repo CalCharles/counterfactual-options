@@ -59,7 +59,7 @@ def intersection(a, b):
     return (abs(midax - midbx) * 2 < (a.width + b.width)) and (abs(miday - midby) * 2 < (a.height + b.height))
 
 class Ball(animateObject):
-    def __init__(self, pos, attribute, vel, top_reset = False):
+    def __init__(self, pos, attribute, vel, top_reset = False, hard_mode=False):
         super(Ball, self).__init__(pos, attribute, vel)
         self.width = 2
         self.height = 2
@@ -69,6 +69,8 @@ class Ball(animateObject):
         self.reset_seed = -1
         self.top_reset = top_reset
         self.needs_ball_reset = False
+        self.hard_mode = hard_mode
+        self.hit_trace = list()
 
         # indicators for if the ball hit a particular object
         self.flipped = False
@@ -102,13 +104,14 @@ class Ball(animateObject):
 
     def clear_hits(self):
         self.paddle, self.bottom_wall, self.top_wall, self.block, self.flipped = False, False, False, False, False
+        self.hit_trace = list()
 
     def reset_pos(self, target_mode=False):
         self.vel = np.array([np.random.randint(1,2), np.random.choice([-1,1])])
         if target_mode:
-            self.pos = np.array([41, np.random.randint(20, 52)])
+            self.pos = np.array([41, np.random.randint(14, 70)])
         else:
-            self.pos = np.array([46, np.random.randint(20, 52)])
+            self.pos = np.array([np.random.randint(43, 50), np.random.randint(14, 70)])
 
     def interact(self, other):
         '''
@@ -160,19 +163,28 @@ class Ball(animateObject):
                 self.block_id = other
                 rel_x = self.pos[1] - other.pos[1]
                 rel_y = self.pos[0] - other.pos[0]
-                # print(rel_x, rel_y, self.vel, self.pos[0], other.pos[0], other.name, intersection(self, other))
-                if other.attribute != 2: other.attribute = 0
+                print(rel_x, rel_y, self.vel, self.pos[0], other.pos[0], other.height, other.name, intersection(self, other))
+                if not self.hard_mode or other.attribute != -1: other.attribute = 0
                 next_vel = self.vel
                 # if (rel_y == -2 or rel_y == -3 or rel_y == 3 or rel_y == 2) and not self.flipped:
                 # if rel_y == -2 or rel_y == -3 or rel_y == 3 or rel_y == 2:
                 if rel_y <= -1 or 1 <= rel_y:
                     next_vel[0] = - self.vel[0]
                     self.flipped = True
-                elif other.attribute == 2:
-                    # if rel_x <= -2 or rel_x >= 2:
-                    next_vel[1] = - self.vel[1]
+                if other.attribute == -1 and self.hard_mode:
+                    if -1 > rel_y > -self.height or other.height > rel_y > 1:
+                        next_vel[1] = - self.vel[1]
+
+                if other.attribute == -1 and self.hard_mode:
+                    if len(self.hit_trace) > 0:
+                        print("push_out", np.sign(next_vel[1]), np.sign(rel_x))
+                        trace_rel = self.pos[0] - self.hit_trace[0].pos[0]
+                        if trace_rel != rel_y:
+                            if np.sign(next_vel[1]) == np.sign(rel_x):
+                                next_vel[1] = - self.vel[1]
                 self.vel = np.array(next_vel)
                 self.apply_move = False
+                self.hit_trace.append(other)
                 other.interaction_trace.append(self.name)
                 # self.nohit_delay = 2
             self.interaction_trace.append(other.name)

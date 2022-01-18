@@ -175,6 +175,7 @@ class InstancePredictiveSampler(Sampler):
     def __init__(self, **kwargs):
         self.sampler_network = PairNetwork(**kwargs)
 
+
 class InstanceSampling(Sampler):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -466,6 +467,29 @@ class BreakoutTargetSampler(Sampler):
         value[:2] = pos
         return value, mask
 
+class BreakoutRandomSampler(Sampler):
+    def __init__(self, **kwargs):
+        self.current_environment_model = kwargs["environment_model"]
+        super().__init__(**kwargs)
+        self.combine_param_mask = False
+
+    def sample(self, states):
+        mask = np.zeros((5,))
+        mask[4] = 1
+        targets = list()
+        rem_block = list()
+        for block in self.current_environment_model.environment.blocks:
+            if block.attribute != 0:
+                rem_block.append(block)
+        block = rem_block[np.random.randint(len(rem_block))]
+        pos = block.getMidpoint()
+        value = np.zeros((5,))
+        value[4] = 0
+        value[:2] = pos
+        return value, mask
+
+
+
 PREDICT_BINARY = 0
 PREDICT_VALUE = 1
 class PredictiveSampling(Sampler):
@@ -696,4 +720,5 @@ class PredictiveSampling(Sampler):
 mask_samplers = {"rans": RandomSubsetSampling, "pris": PrioritizedSubsetSampling} # must be 4 characters
 samplers = {"uni": LinearUniformSampling, "cuni": LinearUniformCenteredSampling, 'cuuni': LinearUniformCenteredUnclipSampling,
             "gau": GaussianCenteredSampling, "hst": HistorySampling, 'inst': InstanceSampling,
-            "hstinst": HistoryInstanceSampling, 'tar': TargetSampler, 'path': PathSampler, "block": BreakoutTargetSampler}  
+            "hstinst": HistoryInstanceSampling, 'tar': TargetSampler, 'path': PathSampler, "block": BreakoutTargetSampler,
+            'randblock': BreakoutRandomSampler}  

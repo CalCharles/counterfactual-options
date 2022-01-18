@@ -24,7 +24,7 @@ def testRL(args, test_collector, environment, environment_model, option, names, 
         hit_count = list()
         miss_count = list()
         for j in range(args.test_trials):
-            if args.max_steps > 0: result = test_collector.collect(n_episode=1, n_term=1, n_step=args.max_steps, visualize_param=args.visualize_param)
+            if args.max_steps > 0: result = test_collector.collect(n_episode=1, n_term=None if args.test_episode else 1, n_step=args.max_steps, visualize_param=args.visualize_param)
             print(result["n/st"])
             total_steps += result["n/st"]
             hit_count.append(result['n/h'])

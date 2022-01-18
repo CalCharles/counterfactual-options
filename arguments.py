@@ -31,7 +31,7 @@ def get_args():
                     help='in breakout, induces a domain where there is a single block to target')
     parser.add_argument('--block-shape', type=int, nargs=5, default=(5, 20, 4, 0, 0),
                         help='shape of the blocks, number of blocks high, number of blocks wide, max block height, no_breakout(flag) (default: (5,20,4,0))')
-    parser.add_argument('--variant-name', default='',
+    parser.add_argument('--breakout-variant', default='',
                         help='name of a specialized variant of breakout')
     # # optimization hyperparameters
     parser.add_argument('--lr', type=float, default=1e-4,
@@ -292,6 +292,8 @@ def get_args():
                         help='saves the pretrain data if len > 0, suggested data/temp')
     parser.add_argument('--load-pretrain', default='',
                         help='loads the pretrain data from the location if len > 0')
+    parser.add_argument('--test-episode', action='store_true', default=False,
+                    help='if true, the test will run full epsiodes instead of just until termination')
     parser.add_argument('--test-trials', type=int, default=10,
                     help='number of episodes to run as a test')
     parser.add_argument('--pretest-trials', type=int, default=1,

@@ -64,7 +64,6 @@ class TemporalAggregator():
             else:
                 self.current_data.rew = [data.rew.squeeze()]
                 self.current_data.true_reward = [data.true_reward.squeeze()]
-
         self.current_data.update(next_full_state = data.next_full_state, next_target=data.next_target, obs_next=data.obs_next, inter_state=data.inter_state)
         self.current_data.done = [np.any(self.current_data.done) + np.any(data.done)] # basically an OR
         self.current_data.terminate = [np.any(self.current_data.terminate) + np.any(data.terminate)] # basically an OR
@@ -89,8 +88,8 @@ class TemporalAggregator():
             if not self.temporal_skip:
                 added = True
                 # print(next_data.act)
-                # print("adding", next_data.param, next_data.obs[:10], next_data.time, 
-                #     next_data.act, next_data.mapped_act,)
+                print("adding", next_data.param, next_data.obs[:10], next_data.time, 
+                    next_data.act, next_data.mapped_act, next_data.rew)
                     # next_data.done, next_data.true_done, next_data.rew, self.current_data.info[0]["TimeLimit.truncated"],
                     # next_data.full_state["factored_state"], next_data.next_full_state["factored_state"])
                 # print(len(buffer))
@@ -285,7 +284,6 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             assert n_episode > 0
         if n_term is not None:
             assert n_term > 0
-
         start_time = time.time()
 
         step_count = 0
@@ -412,17 +410,18 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 if visualize_param != "nosave":
                     saveframe(new_frame, pth=visualize_param, count=self.counter, name="param_frame")
                     self.counter += 1
-                printframe(new_frame, waittime=30)
+                printframe(new_frame, waittime=10)
 
             # collect statistics
             step_count += len(ready_env_ids)
 
             # update counters
             if np.any(done) or np.any(term):
-                episode_count += int(np.any(done))
                 term_count += int(np.any(term))
                 term_done, timer, true = self._done_check(term, true_done)
                 term_end = term and not time_cutoff
+                if np.any(done):
+                    episode_count += int(np.any(done))
             if np.any(true_done):
                 true_episode_count += 1
                 # if we have a true done, reset the environments and self.data
@@ -430,6 +429,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                     full_state = self.environment_model.get_state()
                     self._reset_components(full_state)
                 else:
+                    print("reset from collector", true_done)
                     self.reset_env()
 
                 # full_state_reset = self.data.full_state[0] # set by reset_env

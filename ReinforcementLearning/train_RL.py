@@ -23,7 +23,7 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
         orig_env_model = test_collector.option.sampler.current_environment_model
         test_collector.option.sampler.current_environment_model = test_collector.environment_model
     for j in range(trials):
-        result = test_collector.collect(n_episode=1, n_term=1, n_step=args.max_steps, random=random, visualize_param=args.visualize_param)
+        result = test_collector.collect(n_episode=1, n_term=None if args.test_episode else 1, n_step=args.max_steps, random=random, visualize_param=args.visualize_param)
         test_perf.append(result["rews"].mean())
         suc.append(float(result["terminate"]))
         hit_miss.append(result['n/h'])
@@ -63,9 +63,10 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     if args.input_norm: option.policy.compute_input_norm(train_collector.buffer)
     if len(args.save_pretrain) > 0:
         her_at = option.policy.learning_algorithm.at if option.policy.learning_algorithm is not None else 0
+        her_buffer = option.policy.learning_algorithm.replay_buffer if option.policy.learning_algorithm is not None else None
         buffer_wrapper = BufferWrapper(train_collector.at, train_collector.buffer, 
                                         train_collector.full_at, train_collector.full_buffer,
-                                        her_at, option.policy.learning_algorithm.replay_buffer)
+                                        her_at, her_buffer)
         save_to_pickle(os.path.join(args.save_pretrain,"pretrain_collector.pkl"), buffer_wrapper)
     # collect initial test trials
     initial_perf, initial_suc, initial_hit = _collect_test_trials(args, test_collector, 0, 0, list(), list(), list(), list(), random=True, option=option, tensorboard_logger=tensorboard_logger)
@@ -132,8 +133,13 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                     rv = lambda x: (x * rv_variance) + rv_mean
                 else: 
                     num_instances = args.num_instance
-                    rv_mean = np.array([32, 84 // 2, 0,0,0] + [84 // 2, 84 // 2, 0,0,1] + [32, 84 // 2, 0,0,0] * args.num_instance)
-                    rv_variance = np.array([10, 84 // 2, 2,1,1,84 // 2, 84 // 2, 2,1,1] + [10, 84 // 2, 2,1,1] * args.num_instance)
+                    param_mean = [32, 84 // 2, 0,0,0]
+                    param_variance = [10, 84 // 2, 2,1,1]
+                    if len(args.breakout_variant) > 0:
+                        param_mean = list()
+                        param_variance = list() 
+                    rv_mean = np.array(param_mean + [84 // 2, 84 // 2, 0,0,1] + [32, 84 // 2, 0,0,0] * args.num_instance)
+                    rv_variance = np.array(param_variance + [84 // 2, 84 // 2, 2,1,1] + [10, 84 // 2, 2,1,1] * args.num_instance)
                     rv = lambda x: (x * rv_variance) + rv_mean
             if not option.policy.sample_HER:
                 for j in range(50):

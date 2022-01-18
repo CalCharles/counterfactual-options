@@ -183,6 +183,35 @@ class ParameterizedInstancedReward(Reward):
 		# print(instanced.shape, param, np.abs(instanced - param).sum(axis=-1), (np.abs(instanced - param).sum(axis=-1).min(axis=-1) <= self.epsilon_close).astype(float) * inter * self.plmbda + self.reward_constant)
 		return (np.abs(instanced - param).sum(axis=-1).min(axis=-1) <= self.epsilon_close).astype(float) * inter * self.plmbda + self.reward_constant
 
+class DistanceInstancedReward(Reward):
+	def __init__(self, **kwargs): # TODO: for now, operates under fixed mask assumption
+		self.dataset_model = kwargs["dataset_model"]
+		self.max_distance_epsilon = kwargs["max_distance_epsilon"]
+		self.plmbda = kwargs["parameterized_lambda"]
+
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
+		# info is full state
+		if inter:
+			instanced = self.dataset_model.split_instances(state)
+			# TODO: hardcoded hit checking
+			prev_state = self.dataset_model.split_instances(self.dataset_model.delta(info['factored_state']))
+			hit_idx = np.nonzero(instanced[:,4] - prev_state[:,4])[0]
+			param_pos = param[...,:2]
+			rews = list()
+
+			# super hacky way
+			# print(param_pos, hit_idx)
+			if len(hit_idx) == 0: # TODO: random bug where instanced=prev_state when the target is hit
+				return self.plmbda
+			for hi in hit_idx:
+				hit = instanced[hi.squeeze(),:2].squeeze()
+				dist = np.linalg.norm(param_pos-hit, ord=1) / self.max_distance_epsilon
+				# print(param_pos, hit, hi, dist)
+				rews.append(np.exp(-dist) * self.plmbda)
+			# print(rews, max(rews))
+			return max(rews)
+		return 0
+
 class ProximityInstancedReward(Reward):
 	def __init__(self, **kwargs): # TODO: for now, operates under fixed mask assumption
 		# self.mask = kwargs["mask"]
@@ -199,7 +228,7 @@ class ProximityInstancedReward(Reward):
 
 	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
 		'''
-		finds out of the desired instance now has the desired value,
+		finds out if the desired instance now has the desired value,
 		Finds the instance by matching the values of the instance NOT masked (inverse mask)
 		'''
 		instanced = self.dataset_model.split_instances(state)
@@ -245,6 +274,7 @@ class ProximityInstancedReward(Reward):
 			new_true = 0 if true_reward > 0 else 1
 			neg_tr = new_true * true_reward
 			# print (inst_idx)
+			print(inter_bin, inter, batch_idx, inst_idx)
 			if np.sum(inter_bin) == 0 or len(batch_idx) == 0: # no interactions
 				output = self.reward_constant + neg_tr * self.rlambda
 			else:
@@ -273,4 +303,4 @@ class EnvFnReward(Reward):
 
 
 reward_forms = {'bin': BinaryParameterizedReward, 'param': ConstantParameterizedReward, 'negparam': ConstantNegativePositiveParameterizedReward, 'int': InteractionReward, 'comb': CombinedReward, 'inst': InstancedReward,
-				'true': TrueReward, 'env': EnvFnReward, 'tcomb': TrueNegativeCombinedReward, 'proxist': ProximityInstancedReward, 'paramist': ParameterizedInstancedReward, 'tconst': TrueConstantReward}
+				'true': TrueReward, 'env': EnvFnReward, 'tcomb': TrueNegativeCombinedReward, 'proxist': ProximityInstancedReward, 'paramist': ParameterizedInstancedReward, 'tconst': TrueConstantReward, 'dist': DistanceInstancedReward}

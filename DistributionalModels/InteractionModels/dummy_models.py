@@ -87,6 +87,7 @@ class DummyMultiBlockDatasetModel():
         self.control_min, self.control_max = 0, 1
         self.iscuda = False
         self.multi_instanced = True
+        self.just_hit = 0
 
     def cuda(self):
         self.iscuda = True
@@ -107,12 +108,13 @@ class DummyMultiBlockDatasetModel():
             block_pos = state[5 + i * 5: 5 + i * 5 + 2]
             block_attr = state[9 + i*5]
             # print(ball_next_pos, block_pos, intersection(ball_next_pos, block_pos, (self.ball_width, self.ball_height), (self.block_width, self.block_height)), block_attr)
-            if intersection(ball_next_pos, block_pos, (self.ball_width, self.ball_height), (self.block_width, self.block_height)) and block_attr > 0:
-                # print(ball_pos, block_pos, ball_next_pos)
+            if intersection(ball_next_pos, block_pos, (self.ball_width, self.ball_height), (self.block_width, self.block_height)) and block_attr != 0:
+                print(ball_pos, state[5 + i * 5: 5 + i * 5 + 5], ball_next_pos)
+                self.just_hit = i
                 return np.array(1), np.array(0), np.array(0)
         return np.array(0), np.array(0), np.array(0)
 
-class DummyFinalDatasetModel():
+class DummyVariantBlockDatasetModel():
     def __init__(self, environment_model, multi_instanced = True):
         self.interaction_prediction = .3
         self.interaction_minimum = .9
@@ -125,7 +127,7 @@ class DummyFinalDatasetModel():
         self.cfselectors = [ControllableFeature(fs, rng, 1, self)]
         self.sample_able = StateSet([np.array([0,0,0,0,0])])
         self.selection_binary = pytorch_model.wrap(np.array([0,0,0,0,1]))
-        self.name = "Ball->Block"
+        self.name = "Ball->Reward"
         self.block_width = environment_model.environment.block_width
         self.block_height = environment_model.environment.block_height
         self.ball_width = environment_model.environment.ball.height
@@ -155,18 +157,17 @@ class DummyFinalDatasetModel():
         # also gives an interaction when the Ball state is within a certain margin of the top wall
         ball_pos = state[:2]
         ball_next_pos = ball_pos + state[2:4]
+        # print("hypothesizing")
         for i in range(self.num_blocks):
             block_pos = state[5 + i * 5: 5 + i * 5 + 2]
             block_attr = state[9 + i*5]
             # print(ball_next_pos, block_pos, intersection(ball_next_pos, block_pos, (self.ball_width, self.ball_height), (self.block_width, self.block_height)), block_attr)
-            if intersection(ball_next_pos, block_pos, (self.ball_width, self.ball_height), (self.block_width, self.block_height)) and block_attr > 0:
-                # print(ball_pos, block_pos, ball_next_pos)
+            if intersection(ball_next_pos, block_pos, (self.ball_width, self.ball_height), (self.block_width, self.block_height)) and block_attr != 0:
+                # print("blockhit", ball_pos, block_pos, ball_next_pos, block_attr,  (self.block_width, self.block_height))
                 return np.array(1), np.array(0), np.array(0)
         if intersection(ball_next_pos, self.wall_pos, (self.ball_width, self.ball_height), (self.wall_width, self.wall_height)):
             return np.array(1), np.array(0), np.array(0)
         return np.array(0), np.array(0), np.array(0)
-
-
 
 class DummyNegativeRewardDatasetModel():
     def __init__(self, environment_model, multi_instanced = False):

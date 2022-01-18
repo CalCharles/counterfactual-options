@@ -14,7 +14,8 @@ def adjacent(i,j):
 
 ball_vels = [np.array([-1.,-1.]).astype(np.int), np.array([-2.,-1.]).astype(np.int), np.array([-2.,1.]).astype(np.int), np.array([-1.,1.]).astype(np.int)]
 
-# default settings for normal variants, args in order: target_mode (1)/edges(2)/center(3), num rows, num_columns, no_breakout (value for hit_reset), negative mode, bounce_count
+# default settings for normal variants, args in order: 
+# target_mode (1)/edges(2)/center(3), scatter (4), num rows, num_columns, no_breakout (value for hit_reset), negative mode, bounce_count
 breakout_variants = {"default": (0,5, 20, -1, "", 0),
                      "row":  (0,1,10,-1,"", 0),
                      "small": (0,2,10,-1,"", 0), 
@@ -25,7 +26,7 @@ breakout_variants = {"default": (0,5, 20, -1, "", 0),
                     "single_block": (1,1,1,-1,"",-1),
                     "negative_split_full": (0,5,20,75,"side",0),
                     "negative_split_small": (0,2,10,15,"side",0),
-                    "negative_split_row": (0,1,10,10,"side",0),
+                    "negative_split_row": (0,1,10,5,"side",0),
                     "negative_center_full": (0,5,20,75,"center",0),
                     "negative_center_small": (0,2,10,15,"center",0),
                     "negative_center_row": (0,1,10,10,"center",0),
@@ -33,15 +34,19 @@ breakout_variants = {"default": (0,5, 20, -1, "", 0),
                     "negative_edge_small": (0,2,10,15,"edge",0),
                     "negative_edge_row": (0,1,10,10,"edge",0),
                     "negative_checker_row": (0,1,10,10,"checker",0),
+                    "negative_rand_row": (0,1,10,5,"rand",0),
                     "negative_double": (1,1,1,-1,"rand",-1),
+                    "negative_multi": (1,1,1,-1,"rand",-1),
                     "negative_top_full": (0,5,20,40,"top",0),
                     "negative_top_small": (0,2,10,7,"top",0),
                     "breakout_priority_small": (0,2,10,-1,"",-2),
+                    "breakout_priority_medium": (0,3,10,-1,"",-2),
                     "breakout_priority_full": (0,5,20,-1,"",-2),
                     "edges_full": (2,5,20,-1,"",-1),
                     "edges_small": (2,2,10,-1,"",-1),
                     "center_small": (3,2,10,-1,"",-1),
-                    "center_full": (3,5,20,-1,"",-1)}
+                    "center_full": (3,5,20,-1,"",-1),
+                    "harden_single": (4,3,10,-1,"",-1)}
 
 class Screen(RawEnvironment):
     def __init__(self, frameskip = 1, drop_stopping=True, target_mode = False, angle_mode=False,
@@ -60,18 +65,23 @@ class Screen(RawEnvironment):
             if var_form == 2:
                 negative_mode = "hardedge"
             if var_form == 3:
-                negative_mode = "hardcenter"                
+                negative_mode = "hardcenter"
+            if var_form == 4:
+                negative_mode = "hardscatter"
             no_breakout = hit_reset > 0
 
+        self.full_stopping = bounce_count < 0
         self.drop_stopping = drop_stopping
         self.target_mode = target_mode
         self.bounce_count = bounce_count
-        self.default_reward = 1 if self.bounce_count == 0 else 25
+        self.default_reward = 1 if self.bounce_count == 0 else 1
         self.num_rows = num_rows # must be a factor of 10
         self.num_columns = num_columns # must be a factor of 60
         self.max_block_height = max_block_height
         if self.target_mode:
             self.num_blocks = 1
+        elif negative_mode == "hardscatter":
+            self.num_blocks = 6 # hardcoded for now
         else:
             self.num_blocks = num_rows * num_columns
         self.angle_mode = angle_mode
@@ -91,9 +101,13 @@ class Screen(RawEnvironment):
         self.block_height = min(self.max_block_height, 10 // self.num_rows)
         self.block_width = 60 // self.num_columns
         self.no_breakout = no_breakout
-        self.hit_reset = hit_reset
+        self.hit_reset = hit_reset # number of block hits before resetting
         self.hit_counter = 0
+        self.bounce_reset = -1 # number of paddle bounces before resetting
+        self.bounce_counter = 0
         self.negative_mode = negative_mode
+        self.hard_mode = self.negative_mode[:4] == "hard"
+        self.choices = list()
         self.random_exist = random_exist
         self.use_2D = not self.target_mode and not self.random_exist
         self.resetted = True
@@ -129,11 +143,25 @@ class Screen(RawEnvironment):
             atrv = 0
             nmode = self.negative_mode[4:]
         if self.negative_mode[:4] == "hard":
-            atrv = 2 
+            atrv = -1
             nmode = self.negative_mode[4:]
-        if nmode == "rand":
-            choices = np.random.choice(len(self.blocks), size=len(self.blocks) // 4 * 3)
-            for choice in choices:
+        if nmode == "scatter":
+            newblocks = list()
+            pos = list(range(len(self.blocks)))
+            self.target = np.random.choice(pos, size=1, replace=False)[0]
+            pos.pop(self.target)
+            self.choices = np.random.choice(pos, size=5, replace=False) # Hardcoded at the moment
+            for choice in self.choices:
+                self.blocks[choice].attribute = atrv
+                newblocks.append(self.blocks[choice])
+            self.blocks[self.target].attribute = 1
+            newblocks.append(self.blocks[self.target])
+            for i, block in enumerate(newblocks):
+                block.name = "Block" + str(i)
+            self.blocks = newblocks
+        elif nmode == "rand":
+            self.choices = np.random.choice(list(range(len(self.blocks))), size=len(self.blocks) // 2, replace=False)
+            for choice in self.choices:
                 self.blocks[choice].attribute = atrv
         else:
             for block in self.blocks:
@@ -146,7 +174,8 @@ class Screen(RawEnvironment):
             np.random.seed(self.seed_counter)
         vel= np.array([np.random.randint(1,2), np.random.choice([-1,1])])
         # self.ball = Ball(np.array([52, np.random.randint(14, 70)]), 1, vel)
-        self.ball = Ball(np.array([41, np.random.randint(20, 52)]), 1, vel, top_reset=self.target_mode and self.bounce_count >= 0)
+        self.ball = Ball(np.array([np.random.randint(38, 45), np.random.randint(14, 70)]), 1, vel, top_reset=self.target_mode and self.bounce_count >= 0)
+        self.ball.hard_mode = self.hard_mode
         self.ball.reset_pos(self.target_mode)
         self.ball.losses = 0
         self.paddle = Paddle(np.array([71, 84//2]), 1, np.zeros((2,), dtype = np.int64))
@@ -156,6 +185,8 @@ class Screen(RawEnvironment):
         if self.target_mode:
             if self.bounce_count: # target mode with small blocks
                 pos_block = Block(np.array([int(17 + np.random.rand() * 20),int(15 + np.random.rand() * 51)]), 1, -1, (0,0), size = 2)
+                self.block_width = pos_block.width
+                self.block_height = pos_block.height
                 self.blocks = [pos_block]
                 if len(self.negative_mode) > 0:
                     while True:
@@ -273,10 +304,18 @@ class Screen(RawEnvironment):
         if self.negative_mode[:4] == "hard":
             atrv = 2 
             nmode = self.negative_mode[4:]
-        for block in self.blocks:
-            if block.pos[0] == 22:
-                block.attribute = 1
-                self.assign_attribute(nmode, block, atrv)
+        if nmode == "rand":
+            for block in self.blocks:
+                if block.pos[0] == 22:
+                    block.attribute = 1
+            for choice in self.choices:
+                if self.blocks[choice].pos[0] == 22:
+                    self.blocks[choice].attribute = atrv
+        else:
+            for block in self.blocks:
+                if block.pos[0] == 22:
+                    block.attribute = 1
+                    self.assign_attribute(nmode, block, atrv)
 
 
     def step(self, action, render=True, angle=-1): # TODO: remove render as an input variable
@@ -331,8 +370,8 @@ class Screen(RawEnvironment):
             if (self.ball.losses == 4 and pre_stop) or (self.target_mode and ((self.ball.top_wall and self.bounce_count >= 0) or self.ball.bottom_wall or self.ball.block)):
                 self.average_points_per_life = self.total_score / 5.0
                 self.done = True
-                self.reward += -1 * self.default_reward * int(not self.ball.block)
-                self.total_score += -1 * self.default_reward * int(not self.ball.block)
+                self.reward += -20 * self.default_reward * int(not self.ball.block)
+                self.total_score += -20 * self.default_reward * int(not self.ball.block)
                 self.episode_rewards.append(self.total_score)
                 self.total_score = 0
                 needs_reset = True
@@ -344,9 +383,20 @@ class Screen(RawEnvironment):
                 if (self.get_num_points() == self.num_remove
                     or self.get_num_points() == len(self.blocks) 
                     or (self.no_breakout and self.hit_reset <= 0 and self.get_num_points() == self.num_columns + 1 and self.num_rows > 1)
-                    or (self.no_breakout and self.hit_reset > 0 and self.hit_counter == self.hit_reset)):
+                    or (self.no_breakout and self.hit_reset > 0 and self.hit_counter == self.hit_reset)
+                    or self.negative_mode == "hardscatter" and self.get_num_points() == 1):
                     needs_reset = True
-                    print("block_reset", self.get_num_points())
+                    print("block_reset", self.get_num_points(), self.num_remove, len(self.blocks), self.hit_counter, self.hit_reset, self.no_breakout and self.hit_reset <= 0 and self.get_num_points() == self.num_columns + 1 and self.num_rows > 1, self.no_breakout and self.hit_reset > 0 and self.hit_counter == self.hit_reset)
+                    if self.full_stopping:
+                        self.done = True
+                    break
+            if self.bounce_reset > 0 and self.ball.paddle:
+                self.bounce_counter += 1
+                if self.bounce_counter == self.bounce_reset:
+                    needs_reset = True
+                    print("bounce_reset", self.get_num_points(), self.num_remove, len(self.blocks), self.hit_counter, self.hit_reset, self.no_breakout and self.hit_reset <= 0 and self.get_num_points() == self.num_columns + 1 and self.num_rows > 1, self.no_breakout and self.hit_reset > 0 and self.hit_counter == self.hit_reset)
+                    if self.full_stopping:
+                        self.done = True
                     break
             if render:
                 self.render_frame()

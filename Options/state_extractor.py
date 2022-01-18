@@ -419,6 +419,8 @@ class StateExtractor():
         full state is needed for relative param, as is mask
         since we are assigning to obs, make sure this is normalized
         '''
+        if self.param_shape[0] == 0:
+            return obs
         shape = obs.shape[:-1]
         param_norm = self._broadcast_param(shape, param, mask, normalize=True)
         if len(obs.shape) == 1:

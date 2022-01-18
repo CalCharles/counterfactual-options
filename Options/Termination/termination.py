@@ -43,7 +43,7 @@ def compute_instance_indexes(instanced, param, inverse_mask, multi=-1):
 			diff[diff > multi] = 0
 			idxes = diff.nonzero()
 			idxes = ([0], idxes[0])
-	# print(idxes)
+	print(idxes, instanced, param)
 	return idxes
 		# print(instanced[idxes], param)
 
