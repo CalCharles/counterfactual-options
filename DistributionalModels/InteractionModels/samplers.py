@@ -479,7 +479,7 @@ class BreakoutRandomSampler(Sampler):
         targets = list()
         rem_block = list()
         for block in self.current_environment_model.environment.blocks:
-            if block.attribute != 0:
+            if block.attribute > 0:
                 rem_block.append(block)
         block = rem_block[np.random.randint(len(rem_block))]
         pos = block.getMidpoint()

@@ -54,7 +54,7 @@ class TemporalAggregator():
         if self.keep_next: 
             self.current_data = copy.deepcopy(data)
             # print("keeping:", self.current_data.true_done, self.current_data.obs, self.current_data.full_state["factored_state"], self.current_data.next_full_state["factored_state"])
-            self.current_data.rew = [self.current_data.rew.squeeze()] # TODO: hack to make sure that reward is a regular shape
+            self.current_data.rew = [self.current_data.rew.squeeze().astype(float)] # TODO: hack to make sure that reward is a regular shape
             self.current_data.true_reward= self.current_data.true_reward.astype(float)
             self.keep_next = self.temporal_skip or self.last_true_done # if the environment just reset, we will have an obs from the old environment, so keep the next
         else: # the reward is already recorded if we copy the input data
@@ -62,8 +62,8 @@ class TemporalAggregator():
                 self.current_data.rew += data.rew.squeeze()
                 self.current_data.true_reward += data.true_reward.squeeze()
             else:
-                self.current_data.rew = [data.rew.squeeze()]
-                self.current_data.true_reward = [data.true_reward.squeeze()]
+                self.current_data.rew = [data.rew.squeeze().astype(float)]
+                self.current_data.true_reward = [data.true_reward.squeeze().astype(float)]
         self.current_data.update(next_full_state = data.next_full_state, next_target=data.next_target, obs_next=data.obs_next, inter_state=data.inter_state)
         self.current_data.done = [np.any(self.current_data.done) + np.any(data.done)] # basically an OR
         self.current_data.terminate = [np.any(self.current_data.terminate) + np.any(data.terminate)] # basically an OR
@@ -88,8 +88,8 @@ class TemporalAggregator():
             if not self.temporal_skip:
                 added = True
                 # print(next_data.act)
-                print("adding", next_data.param, next_data.obs[:10], next_data.time, 
-                    next_data.act, next_data.mapped_act, next_data.rew)
+                # print("adding", next_data.param, next_data.obs[:10], next_data.time, 
+                #     next_data.act, next_data.mapped_act, next_data.rew)
                     # next_data.done, next_data.true_done, next_data.rew, self.current_data.info[0]["TimeLimit.truncated"],
                     # next_data.full_state["factored_state"], next_data.next_full_state["factored_state"])
                 # print(len(buffer))
@@ -182,12 +182,16 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         return (val + 1) % self.buffer.maxsize
 
     def _reset_data(self, full_state):
-        # ensure that data has the correct: param, obs, full_state, option_resample
+        # ensure that data has the correct: param, obs, obs_next, full_state, option_resample
         # will always sample a new param
         self.data.update(full_state=[full_state])
         param, mask, _ = self.get_param(full_state, True)
         self.data.update(target=self.state_extractor.get_target(self.data.full_state),
             obs=[self.state_extractor.get_obs(self.data.full_state, param, mask)])
+        if "next_full_state" in self.data:
+            self.data.update(obs_next=[self.state_extractor.get_obs(self.data.next_full_state, param, mask)])
+        else:
+            self.data.update(obs_next=[self.state_extractor.get_obs(self.data.full_state, param, mask)])
         self.data.update(param=[param], mask = [mask], option_resample=[[True]])
         term_chain = self.option.reset(full_state)
         act, chain, policy_batch, state, masks, resampled = self.option.extended_action_sample(self.data, None, term_chain, term_chain[:-1], random=False)
@@ -306,9 +310,9 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                     act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random, force=force)
             else:
                 act, action_chain, result, state_chain, masks, resampled = self.option.extended_action_sample(self.data, state_chain, self.data.terminations, self.data.ext_terms, random=random, force=force)
-            if resampled: print("resampling", act, action_chain[-1],  param, self.data[0].obs[:10], pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             self._policy_state_update(result)
             self.data.update(true_action=[action_chain[0]], act=[act], mapped_act=[action_chain[-1]], option_resample=[resampled])
+            # if resampled: print("resampling", act, action_chain[-1],  param, self.data[0].obs[:10], pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
 
             # step in env
             action_remap = self.data.true_action
@@ -332,7 +336,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             done, rew, term, ext_term = done, rewards[-1], terminations[-1], ext_terms[-1]
             if self.save_action: self._save_mapped_action(action_chain[-1], param, resampled, term)
 
-            cutoff = (np.array([time_cutoff]) or (true_done and not term))  # treat true dones like time limits (TODO: this is not valid when learning to control true dones)
+            cutoff = (np.array([time_cutoff]) or (true_done)) #and not term))  # treat true dones like time limits (TODO: this is not valid when learning to control true dones)
             if type(cutoff) != bool: cutoff = cutoff.squeeze()
             info[0]["TimeLimit.truncated"] = bool(cutoff + info[0]["TimeLimit.truncated"]) # environment might send truncated itself
             self.option.update(self.buffer, done, self.data.full_state[0], act, action_chain, terminations, param, masks, not self.test)
@@ -388,13 +392,13 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             next_data, skipped, added, self.at = self._aggregate(self.data, self.buffer, full_ptr, ready_env_ids)
             if not self.test and self.policy_collect is not None: self.policy_collect(next_data, self.data, skipped, added)
             
-            if term: 
-                # print("term", self.data.full_state['factored_state']['Ball'], param, obs[:10], pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()),
-                #     act, self.data.mapped_act)
-                print("term", term, true_done, done, inter, not time_cutoff, hit,hit_count, miss_count, self.temporal_aggregator.time_counter, rew, 
-                    pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()), 
-                    param, self.data.mapped_act.squeeze(), act, next_target, 
-                    inter_state, obs)
+            # if term: 
+            #     # print("term", self.data.full_state['factored_state']['Ball'], param, obs[:10], pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()),
+            #     #     act, self.data.mapped_act)
+                # print("term", term, true_done, done, inter, not time_cutoff, hit,hit_count, miss_count, self.temporal_aggregator.time_counter, rew, 
+                #     pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()), 
+                #     param, self.data.mapped_act.squeeze(), act, next_target, 
+                #     inter_state, obs)
 
             # debugging and visualization
             # print(obs[5:10], self.data.full_state['factored_state']['Ball'])
@@ -410,7 +414,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 if visualize_param != "nosave":
                     saveframe(new_frame, pth=visualize_param, count=self.counter, name="param_frame")
                     self.counter += 1
-                printframe(new_frame, waittime=10)
+                printframe(new_frame, waittime=5)
 
             # collect statistics
             step_count += len(ready_env_ids)
@@ -429,7 +433,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                     full_state = self.environment_model.get_state()
                     self._reset_components(full_state)
                 else:
-                    print("reset from collector", true_done)
+                    # print("reset from collector", true_done)
                     self.reset_env()
 
                 # full_state_reset = self.data.full_state[0] # set by reset_env

@@ -205,9 +205,10 @@ class DistanceInstancedReward(Reward):
 				return self.plmbda
 			for hi in hit_idx:
 				hit = instanced[hi.squeeze(),:2].squeeze()
-				dist = np.linalg.norm(param_pos-hit, ord=1) / self.max_distance_epsilon
+				dist = np.linalg.norm(param_pos-hit, ord=1) 
 				# print(param_pos, hit, hi, dist)
-				rews.append(np.exp(-dist) * self.plmbda)
+				# print("rew", dist, (np.exp(-dist/ self.max_distance_epsilon) - .1) * self.plmbda)
+				rews.append((np.exp(-dist) - .1) * self.plmbda)
 			# print(rews, max(rews))
 			return max(rews)
 		return 0
@@ -293,6 +294,16 @@ class TrueReward(Reward):
 	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
 		return true_reward
 
+class TrueScaledReward(Reward):
+	#scales positive rewards by "parameterized_lambda"
+	def __init__(self, **kwargs):
+		super().__init__(**kwargs)
+		self.plmbda = kwargs["parameterized_lambda"]		
+
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
+		return true_reward * self.plmbda if true_reward > 0 else true_reward 
+
+
 class EnvFnReward(Reward):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
@@ -303,4 +314,4 @@ class EnvFnReward(Reward):
 
 
 reward_forms = {'bin': BinaryParameterizedReward, 'param': ConstantParameterizedReward, 'negparam': ConstantNegativePositiveParameterizedReward, 'int': InteractionReward, 'comb': CombinedReward, 'inst': InstancedReward,
-				'true': TrueReward, 'env': EnvFnReward, 'tcomb': TrueNegativeCombinedReward, 'proxist': ProximityInstancedReward, 'paramist': ParameterizedInstancedReward, 'tconst': TrueConstantReward, 'dist': DistanceInstancedReward}
+				'true': TrueReward, 'tscale': TrueScaledReward, 'env': EnvFnReward, 'tcomb': TrueNegativeCombinedReward, 'proxist': ProximityInstancedReward, 'paramist': ParameterizedInstancedReward, 'tconst': TrueConstantReward, 'dist': DistanceInstancedReward}

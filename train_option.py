@@ -64,10 +64,12 @@ if __name__ == '__main__':
     discretize_actions = args.discretize_actions
     target_object = "Reward"
     args.num_instance = 1
+    args.target_instanced=False
     if args.object == "Ball" and args.env == "SelfBreakout":
         dataset_model.sample_able.vals = [np.array([0,0,-1,-1,0]).astype(float), np.array([0,0,-2,-1,0]).astype(float), np.array([0,0,-2,1,0]).astype(float), np.array([0,0,-1,1,0]).astype(float)]
     if args.object == "Block" and args.env == "SelfBreakout":
         args.num_instance = environment.num_blocks
+        args.target_instanced = True
         args.no_combine_param_mask = True
         if args.target_mode:
             dataset_model = DummyBlockDatasetModel(environment_model)
@@ -79,6 +81,7 @@ if __name__ == '__main__':
         discretize_actions = {0: np.array([-1,-1]), 1: np.array([-2,-1]), 2: np.array([-2,1]), 3: np.array([-1,1])}
     if args.object == "Reward" and args.env == "SelfBreakout":
         args.num_instance = environment.num_blocks
+        args.target_instanced = True
         args.no_combine_param_mask = True
         dataset_model = DummyVariantBlockDatasetModel(environment_model)
         dataset_model.environment_model = environment_model

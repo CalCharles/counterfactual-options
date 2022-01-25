@@ -29,8 +29,10 @@ def get_args():
                     help='collector will call reset whenever a "done" occurs unless this is true')
     parser.add_argument('--target-mode', action='store_true', default=False,
                     help='in breakout, induces a domain where there is a single block to target')
+    parser.add_argument('--joint-mode', action='store_true', default=False,
+                    help='in robosuite, changes the action space to be joint level control')
     parser.add_argument('--block-shape', type=int, nargs=5, default=(5, 20, 4, 0, 0),
-                        help='shape of the blocks, number of blocks high, number of blocks wide, max block height, no_breakout(flag) (default: (5,20,4,0))')
+                        help='shape of the blocks, number of blocks high, number of blocks wide, max block height, no_breakout(flag), max number of hits (default: (5,20,4,0,0))')
     parser.add_argument('--breakout-variant', default='',
                         help='name of a specialized variant of breakout')
     # # optimization hyperparameters
@@ -77,6 +79,8 @@ def get_args():
                         'used in interation model to indicate relative state if position 0 is 1')
     parser.add_argument('--param-contained', action='store_true', default=False,
                         help='shifts the parameter to the front of the input, for pairnet implementations')
+    parser.add_argument('--interleave', action='store_true', default=False,
+                        help='interweaves the interaction state and relative state for pairnet implementations')
     parser.add_argument('--keep-target', action='store_true', default=False,
                         help='also appends the target state to param_relative state')
 

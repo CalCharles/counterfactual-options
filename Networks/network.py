@@ -464,6 +464,7 @@ class PairNetwork(Network):
             fx = fx.view(-1, self.first_obj_dim)
             # cut out the object components
             x = x[..., self.first_obj_dim:x.shape[-1]-self.post_dim]
+        print(self.first_obj_dim, self.object_dim)
         nobj = x.shape[-1] // self.object_dim
         # reshape the object components
         x = x.view(-1, nobj, self.object_dim)

@@ -126,8 +126,12 @@ class StateExtractor():
         self.combine_param_mask = not args.no_combine_param_mask
         self.hardcoded_normalization = args.hardcode_norm
         self.scale = float(self.hardcoded_normalization[2]) if len(self.hardcoded_normalization) > 0 else 1
+        
         self.num_instance = args.num_instance
+        self.target_instanced = args.target_instanced
+
         self.keep_target = args.keep_target # keeps the target state in relative_param
+        self.interleave = args.interleave # weave the instances so that rel, inter instance components are grouped by instance
 
         self.obs_setting = args.observation_setting
         self.update(full_state)
@@ -148,18 +152,22 @@ class StateExtractor():
         self.diff_shape = self.get_state(full_state, (0,0,0,0,0,0,0,0,diff)).shape
         self.lengths = [ self.option_shape, self.inter_shape, self.relative_shape, self.target_shape, self.flat_shape, self.param_shape, self.param_rel_shape, self.action_shape, self.diff_shape]
         self.component_names = ["option", "inter", "rel", "target", "flat", "param", "param_rel", "action", "diff"]
+        self.first_obj_shape = self.get_state(full_state, (0,0,0,0,0,0,0,1,0)).shape
+        self.first_obj_inter_shape = self.get_state(full_state, (0,0,0,0,0,0,0,1,0)).shape
         self.obs_shape = self.get_obs(full_state, param=param, mask=mask).shape
 
         print(self.target_shape, self.flat_shape, self.param_shape, self.param_rel_shape, self.relative_shape, self.action_shape, self.option_shape)
-        self.first_obj_shape = self.get_state(full_state, (0,0,0,0,0,0,0,1,0)).shape
         self.param_contained = args.param_contained
         if self.param_contained:
             # contains the parameter and first object in the first_obj_shape, and moves param relative information into the object shape
             self.pre_param = 0
             self.post_dim = self.target_shape[0] + self.flat_shape[0] + self.action_shape[0] + self.diff_shape[0]
             self.full_object_shape = self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape if self.inter_shape[0] > 0 else self.param_rel_shape
-            self.object_shape = ((self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape if self.inter_shape[0] > 0 else self.param_rel_shape)[0] // self.num_instance, )
-            self.first_obj_shape = (self.get_state(full_state, (0,0,0,0,0,0,0,1,0)).shape[0] + self.param_shape[0], )
+            self.first_obj_shape = (self.get_state(full_state, (0,0,0,0,0,0,0,1,0)).shape[0] + self.param_shape[0] + self.param_rel_shape[0], )
+            if self.target_instanced:
+                self.object_shape = ((self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape if self.inter_shape[0] > 0 else self.param_rel_shape)[0] // self.num_instance, )
+            else:
+                self.object_shape = ((self.obs_shape[0] - self.first_obj_shape[0]) // self.num_instance, )
             print(self.object_shape, self.first_obj_shape)
         else:
             self.post_dim = self.target_shape[0] + self.flat_shape[0] + self.param_shape[0] + self.param_rel_shape[0] + self.action_shape[0] + self.diff_shape[0]
@@ -220,6 +228,26 @@ class StateExtractor():
         factored_state = full_state["factored_state"]
         return self._combine_state(full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=param, mask=mask, normalize=normalize, use_pair=use_pair)
 
+    def interleave_state(self, inter, rel):
+        # interleaves the interaction and relative states
+        num_dims = len(inter.shape)
+        instanced_state = inter[...,self.first_obj_inter_shape[0]:]
+        if num_dims == 1:
+            instanced_state = instanced_state.reshape(self.num_instance, -1)
+            instanced_rel = rel.reshape(self.num_instance, -1)
+        else:
+            batch_size = inter.shape[0]
+            instanced_state = instanced_state.reshape(batch_size, self.num_instance, -1)
+            instanced_rel = rel.reshape(batch_size, self.num_instance, -1)
+        combined = np.concatenate((instanced_state, instanced_rel), axis = -1)
+        if num_dims == 1: combined = combined.reshape(-1)
+        else: combined = combined.reshape(batch_size, -1)
+        combined = np.concatenate((inter[...,:self.first_obj_inter_shape[0]], combined), -1)
+        
+        return combined
+
+
+
     def _combine_state(self, full_state, inter, target, flat, use_param, param_relative, relative, action, option, diff, param=None, mask=None, normalize=False, use_pair=False):
         # combines the possible components of state:
         # param relative
@@ -249,9 +277,13 @@ class StateExtractor():
         # if action: state_comb.append(self._select_action_feature(factored_state))
         # if diff: state_comb.append(self._get_diff(factored_state))
 
+        if hasattr(self, "interleave") and self.interleave and relative and inter:
+            state_comb_dict['inter'] = self.interleave_state(state_comb_dict['inter'], state_comb_dict['relative'])
+            state_comb_dict.pop("relative")
+
 
         if hasattr(self, 'param_contained') and self.param_contained:
-            name_order = ['option', 'use_param', 'inter', 'relative', 'target', 'flat', 'param_relative', 'action', 'diff']
+            name_order = ['option', 'use_param', 'param_relative', 'inter', 'relative', 'target', 'flat', 'action', 'diff']
         else:
             name_order = ['option', 'inter', 'relative', 'target', 'flat', 'use_param', 'param_relative', 'action', 'diff']
         for name in name_order:
@@ -378,7 +410,7 @@ class StateExtractor():
     def _relative_param(self, shape, factored_state, param, mask, normalize=False):
         target = self._delta_featurizer(factored_state)
         param = self._broadcast_param(shape, param, mask, normalize=False)
-        if self.num_instance > 1:
+        if self.num_instance > 1 and self.target_instanced:
             if len(target.shape) == 2:
                 target = target.reshape(-1, self.num_instance, mask.shape[0])
             else:
@@ -387,7 +419,7 @@ class StateExtractor():
             rel_state = self.apply_normalization( param,"param_rel", mask, target)
         else:
             rel_state = self.get_mask_param(target, mask) - param
-        if self.num_instance > 1:
+        if self.num_instance > 1 and self.target_instanced:
             if self.keep_target:
                 rel_state = np.concatenate((target, rel_state), axis = -1)
             if len(rel_state.shape) == 3:
@@ -431,7 +463,7 @@ class StateExtractor():
             obs[:,:,self.pre_param:self.pre_param + self.param_shape[0]] = param_norm
         if self.param_rel_shape[0] > 0:
             target = self.get_target(full_state)
-            if self.num_instance > 1:
+            if self.num_instance > 1 and self.target_instanced:
                 if len(target.shape) == 2:
                     target = target.reshape(-1, self.num_instance, mask.shape[0])
                 else:
@@ -439,7 +471,7 @@ class StateExtractor():
             target = self.get_mask_param(target, mask)
             target = self.apply_normalization(target, 'param', mask)
             diff = param_norm - target
-            if self.num_instance > 1:
+            if self.num_instance > 1 and self.target_instanced:
                 if self.keep_target:
                     diff = np.concatenate((target, diff), axis = -1)
                 if len(diff.shape) == 3:
@@ -448,6 +480,7 @@ class StateExtractor():
                     diff = diff.reshape(self.num_instance * diff.shape[-1])
 
             pre_rel = self.pre_param + self.param_shape[0]
+            # print(pre_rel, self.pre_param, self.param_rel_shape[0], diff.shape, obs.shape)
             # if len(obs.shape) == 1:
             obs[...,pre_rel:pre_rel + self.param_rel_shape[0]] = diff
             # elif len(obs.shape) == 2:

@@ -268,6 +268,7 @@ class TSPolicy(nn.Module):
         if self.algo_name in ['sac']:
             Q_val = self.algo_policy.critic1(comp, batch.act)
         if self.algo_name in ['ddpg']:
+            print(comp, batch.act)
             Q_val = self.algo_policy.critic(comp, batch.act)
         if self.algo_name in ['dqn']:
             Q_val = self.algo_policy(batch, input="obs_next" if nxt else "obs").logits

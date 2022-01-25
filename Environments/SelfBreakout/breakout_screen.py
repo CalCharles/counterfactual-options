@@ -45,6 +45,7 @@ breakout_variants = {"default": (0,5, 20, -1, "", 0),
                     "edges_full": (2,5,20,-1,"",-1),
                     "edges_small": (2,2,10,-1,"",-1),
                     "center_small": (3,2,10,-1,"",-1),
+                    "center_medium": (3,3,15,-1,"",-1),
                     "center_full": (3,5,20,-1,"",-1),
                     "harden_single": (4,3,10,-1,"",-1)}
 
@@ -59,6 +60,7 @@ class Screen(RawEnvironment):
         self.name = "Breakout"
         self.variant = breakout_variant
 
+        bounce_reset = -1
         if len(breakout_variant) > 0: # overrides any existing arguments
             var_form, num_rows, num_columns, hit_reset, negative_mode, bounce_count = breakout_variants[breakout_variant]
             target_mode = (var_form == 1)
@@ -68,9 +70,10 @@ class Screen(RawEnvironment):
                 negative_mode = "hardcenter"
             if var_form == 4:
                 negative_mode = "hardscatter"
+                bounce_reset = 10
             no_breakout = hit_reset > 0
 
-        self.full_stopping = bounce_count < 0
+        self.full_stopping = bounce_count < 0 or hit_reset > 0 or bounce_reset > 0
         self.drop_stopping = drop_stopping
         self.target_mode = target_mode
         self.bounce_count = bounce_count
@@ -103,7 +106,7 @@ class Screen(RawEnvironment):
         self.no_breakout = no_breakout
         self.hit_reset = hit_reset # number of block hits before resetting
         self.hit_counter = 0
-        self.bounce_reset = -1 # number of paddle bounces before resetting
+        self.bounce_reset = bounce_reset # number of paddle bounces before resetting
         self.bounce_counter = 0
         self.negative_mode = negative_mode
         self.hard_mode = self.negative_mode[:4] == "hard"
@@ -236,6 +239,7 @@ class Screen(RawEnvironment):
         self.render_frame()
         self.needs_ball_reset = False
         self.hit_counter = 0
+        self.bounce_counter = 0
         self.resetted = True
         return self.get_state()
 
@@ -361,8 +365,8 @@ class Screen(RawEnvironment):
                 ani_obj.move()
             pre_stop = (self.ball.pos[0] == 77 and self.ball.vel[0] == 2) or (self.ball.pos[0] == 78 and self.ball.vel[0] == 1) or (self.ball.pos[0] == 78 and self.ball.vel[0] == 2)
             if pre_stop and (self.drop_stopping or self.target_mode):
-                self.reward += -1 * self.default_reward # negative reward for dropping the ball since done is not triggered
-                self.total_score += -1 * self.default_reward * int(not self.ball.block)
+                self.reward += -1 * self.default_reward * 10 # negative reward for dropping the ball since done is not triggered
+                self.total_score += -1 * self.default_reward * int(not self.ball.block) * 10
                 self.done = True
                 self.needs_ball_reset = True
                 print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))

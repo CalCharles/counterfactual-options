@@ -132,12 +132,13 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                     rv_variance = [84 // 2, 84 // 2, 2,1,1, 10, 84 // 2, 2,1,1]
                     rv = lambda x: (x * rv_variance) + rv_mean
                 else: 
+                    print(args.num_instance)
                     num_instances = args.num_instance
                     param_mean = [32, 84 // 2, 0,0,0]
                     param_variance = [10, 84 // 2, 2,1,1]
-                    if len(args.breakout_variant) > 0:
+                    if len(args.breakout_variant) > 0 and args.breakout_variant != "harden_single":
                         param_mean = list()
-                        param_variance = list() 
+                        param_variance = list()
                     rv_mean = np.array(param_mean + [84 // 2, 84 // 2, 0,0,1] + [32, 84 // 2, 0,0,0] * args.num_instance)
                     rv_variance = np.array(param_variance + [84 // 2, 84 // 2, 2,1,1] + [10, 84 // 2, 2,1,1] * args.num_instance)
                     rv = lambda x: (x * rv_variance) + rv_mean
@@ -145,8 +146,9 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                 for j in range(50):
                     idx = (train_collector.get_buffer_idx() + (j - 100)) % args.buffer_len
                     d, info,r, bi, a, ma, ti, p, t, nt, itr, obs, obs_n = buf[idx].done, buf[idx].info, buf[idx].rew, buf[idx].inter, buf[idx].act, buf[idx].mapped_act, buf[idx].time, buf[idx].param, buf[idx].target, buf[idx].next_target, buf[idx].inter_state, buf[idx].obs, buf[idx].obs_next
+                    # print(obs.shape, rv_variance.shape, rv_mean.shape)
                     print(j, idx, d, info["TimeLimit.truncated"], r, bi, 
-                        a, ma, option.policy.compute_Q(Batch(obs=obs, obs_next = obs_n,info=info), False), 
+                        a, ma, option.policy.compute_Q(Batch(obs=obs, obs_next = obs_n,info=info, act=a), False), 
                         ti, p, t, nt, itr, 
                         obs, rv(obs), obs_n, rv(obs_n))
 
@@ -158,7 +160,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                         idx = (option.policy.learning_algorithm.get_buffer_idx() + (j - 100)) % args.buffer_len
                         dh, infoh, rh, ih, ah, mah, tih, ph, th, nth, itrh, obsh, obs_nh = hrb[idx].done, hrb[idx].info, hrb[idx].rew, hrb[idx].inter, hrb[idx].act, hrb[idx].mapped_act, hrb[idx].time, hrb[idx].param, hrb[idx].target, hrb[idx].next_target, hrb[idx].inter_state, hrb[idx].obs, hrb[idx].obs_next
                         print(j, idx, dh, infoh["TimeLimit.truncated"], rh, ih, "acts\n",
-                            ah, mah, option.policy.compute_Q(Batch(obs=obsh, obs_next = obs_nh,info=infoh), False),
+                            ah, mah, option.policy.compute_Q(Batch(obs=obsh, obs_next = obs_nh,info=infoh, act=ah), False),
                             tih, "tar\n", ph,  th, nth, itrh, "obs\n", obsh, rv(obsh), obs_nh, rv(obs_nh))
         # # END PRINTOUTS
 

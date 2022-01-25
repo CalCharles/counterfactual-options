@@ -93,12 +93,14 @@ macros.SIMULATION_TIMESTEP = 0.02
 #         return self.curr_obs["frontview_image"][::-1]
 
 class RoboPushingEnvironment(RawEnvironment):
-    def __init__(self, control_freq=2, horizon=30, renderable=False, num_obstacles=0, standard_reward=-1, goal_reward=10, obstacle_reward=-10, out_of_bounds_reward=-1):
+    def __init__(self, control_freq=2, horizon=30, renderable=False, num_obstacles=0, standard_reward=-1, goal_reward=10, obstacle_reward=-10, out_of_bounds_reward=-1, joint_mode=False):
         super().__init__()
+        self.joint_mode = joint_mode
+        controller = "JOINT_POSITION" if joint_mode else "OSC_POSE" # TODO: handles only two action spaces at the moment
         self.env = robosuite.make(
                 "Push",
                 robots=["Panda"],
-                controller_configs=load_controller_config(default_controller="OSC_POSE"),
+                controller_configs=load_controller_config(default_controller=controller),
                 has_renderer=False,
                 has_offscreen_renderer=renderable,
                 render_visual_mesh=renderable,
@@ -119,7 +121,8 @@ class RoboPushingEnvironment(RawEnvironment):
         self.frameskip = control_freq
 
         low, high = self.env.action_spec
-        self.action_space = spaces.Box(low=low[:3], high=high[:3])
+        limit = 7 if self.joint_mode else 3
+        self.action_space = spaces.Box(low=low[:limit], high=high[:limit])
 
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=[9])
         self.num_actions = -1 # this must be defined, -1 for continuous. Only needed for primitive actions
@@ -134,7 +137,7 @@ class RoboPushingEnvironment(RawEnvironment):
         self.renderable = renderable
 
         # should be set in subclass
-        self.action_shape = (3,) # should be set in the environment, (1,) is for discrete action environments
+        self.action_shape = (limit,) # should be set in the environment, (1,) is for discrete action environments
         self.action = np.array([0,0,0])
         self.reward = 0
         self.done = False
@@ -159,7 +162,11 @@ class RoboPushingEnvironment(RawEnvironment):
 
     def step(self, action):
         self.action = action
-        next_obs, reward, done, info = self.env.step(np.concatenate([action, [0, 0, 0]]))
+        if self.joint_mode:
+            use_act = action
+        else: # OSC mode
+            use_act = np.concatenate([action, [0, 0, 0]])
+        next_obs, reward, done, info = self.env.step(use_act)
         self.reward, self.done = reward, done
         info["TimeLimit.truncated"] = done
         # print(list(next_obs.keys()))
