@@ -60,7 +60,7 @@ class Screen(RawEnvironment):
             if var_form == 2:
                 negative_mode = "hardedge"
             if var_form == 3:
-                negative_mode = "hardcenter"                
+                negative_mode = "hardcenter"
             no_breakout = hit_reset > 0
 
         self.drop_stopping = drop_stopping
@@ -284,8 +284,9 @@ class Screen(RawEnvironment):
                         preattr = obj2.attribute
                         obj1.interact(obj2)
                         if preattr != obj2.attribute:
-                            self.reward += obj2.attribute * self.default_reward
-                            self.total_score += obj2.attribute * self.default_reward
+                            # print("hit", obj1.name, obj2.name, obj2.attribute, self.default_reward)
+                            self.reward += preattr * self.default_reward
+                            self.total_score += preattr * self.default_reward
                             hit = True
                             if obj2.name.find("Block") != -1 and not self.target_mode and self.use_2D:
                                 if obj2.index2D in self.exposed_blocks:
@@ -309,7 +310,7 @@ class Screen(RawEnvironment):
                 self.total_score += -1 * self.default_reward * int(not self.ball.block)
                 self.done = True
                 self.needs_ball_reset = True
-                print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
+                # print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
                 break
             if (self.ball.losses == 4 and pre_stop) or (self.target_mode and (self.ball.top_wall or self.ball.bottom_wall or self.ball.block)):
                 self.average_points_per_life = self.total_score / 5.0
@@ -340,6 +341,7 @@ class Screen(RawEnvironment):
                 object_dumps.close()
             self.write_objects(extracted_state, frame.astype(np.uint8))
         if needs_reset: self.reset()
+
         return {"raw_state": frame, "factored_state": extracted_state}, self.reward, self.done, {"lives": lives, "TimeLimit.truncated": False}
 
     def run(self, policy, iterations = 10000, render=False, save_path = "runs/", save_raw = True, duplicate_actions=1, angle_mode=False):

@@ -18,6 +18,7 @@ from tianshou.utils.net.discrete import Actor, Critic
 
 from Baselines.shared_train import make_breakout_env, make_breakout_env_fn, VideoCollector
 from Baselines.networks import DQN, Rainbow
+from Baselines.env_args import add_env_args
 
 
 def get_args():
@@ -85,6 +86,9 @@ def get_args():
         help='watch the play of pre-trained policy only'
     )
     parser.add_argument('--save-buffer-name', type=str, default=None)
+
+    add_env_args(parser)
+
     return parser.parse_args()
 
 

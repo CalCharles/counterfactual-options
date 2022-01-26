@@ -24,7 +24,7 @@ from tianshou.policy import BasePolicy
 
 
 def make_breakout_env(args):
-    return BreakoutGymWrapper(Screen())
+    return BreakoutGymWrapper(Screen(breakout_variant=args.variant, angle_mode=args.use_angle_mode), args)
 
 def make_breakout_env_fn(args):
     def create():
