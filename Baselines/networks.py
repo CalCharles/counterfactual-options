@@ -6,6 +6,8 @@ from torch import nn
 
 from tianshou.utils.net.discrete import NoisyLinear
 
+from Networks.network import Basic2DConvNetwork, PairNetwork
+
 class DQN(nn.Module):
     """Reference: Human-level control through deep reinforcement learning.
     For advanced usage (how to customize the network), please refer to
@@ -14,30 +16,61 @@ class DQN(nn.Module):
 
     def __init__(
         self,
-        obs_dim: int,
-        action_shape: int,
-        device: Union[str, int, torch.device] = "cpu",
-        features_only: bool = False,
+        obs_dim,
+        action_shape,
+        device,
+        observation_info,
     ) -> None:
         super().__init__()
         self.device = device
-        # self.net = nn.Sequential(
-        #     nn.Conv2d(c, 32, kernel_size=8, stride=4), nn.ReLU(inplace=True),
-        #     nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(inplace=True),
-        #     nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU(inplace=True),
-        #     nn.Flatten()
-        # )
 
         self.obs_dim = obs_dim
         self.output_dim = action_shape
-        # with torch.no_grad():
-        #    self.output_dim = np.prod(self.net(torch.zeros(1, c, h, w)).shape[1:])
 
-        self.net = nn.Sequential(
-            nn.Linear(self.obs_dim, 256), nn.ReLU(inplace=True),
-            nn.Linear(256, 256), nn.ReLU(inplace=True),
-            nn.Linear(256, self.output_dim)
-        )
+        observation_type = observation_info['observation-type']
+
+        if observation_type == "delta":
+            self.obs_dim = self.obs_dim[0]
+            self.net = nn.Sequential(
+                nn.Linear(self.obs_dim, 256), nn.ReLU(inplace=True),
+                nn.Linear(256, 256), nn.ReLU(inplace=True),
+                nn.Linear(256, self.output_dim)
+            )
+        elif observation_type == "image":
+            kwargs = { 'hidden_sizes' : [32, 64, 64],
+                       'kernel' : 5,
+                       'use_layer_norm' : True,
+                       'input_dims' : self.obs_dim,
+                       'stride' : 2,
+                       'padding' : 0,
+                       'output_dim' : self.output_dim,
+                       'reduce': True,
+                       'include_last' : False,
+                       'num_inputs' : 0,
+                       'num_outputs' : 0,
+                       'init_form': "xnorm",
+                       'activation' : 'relu'
+                       }
+
+            self.net = Basic2DConvNetwork(**kwargs)
+        elif observation_type == "multi-block-encoding":
+            first_obj_dim = observation_info['first-obj-dim']
+            object_dim = observation_info['obj-dim']
+
+            kwargs = { 'hidden_sizes' : [128, 128, 128],
+                       'first_obj_dim' : first_obj_dim,
+                       'object_dim' : object_dim,
+                       'aggregate_final' : True,
+                       'use_layer_norm' : False,
+                       'post_dim' : 0,
+                       'output_dim' : self.output_dim,
+                       'num_inputs' : 0,
+                       'num_outputs' : 0,
+                       'init_form': "xnorm",
+                       'activation' : 'relu',
+            }
+
+            self.net = PairNetwork(**kwargs)
 
     def forward(
         self,
@@ -58,15 +91,16 @@ class Rainbow(DQN):
 
     def __init__(
         self,
-        obs_dim: int,
-        action_shape: int,
-        num_atoms: int = 51,
-        noisy_std: float = 0.5,
-        device: Union[str, int, torch.device] = "cpu",
-        is_dueling: bool = True,
-        is_noisy: bool = True,
+        obs_dim,
+        action_shape,
+        num_atoms = 51,
+        noisy_std = 0.5,
+        device = "cpu",
+        is_dueling = True,
+        is_noisy = True,
+        observation_info = {"observation-type" : "delta"},
     ) -> None:
-        super().__init__(obs_dim, action_shape, device, features_only=True)
+        super().__init__(obs_dim, action_shape, device, observation_info)
         self.action_num = action_shape
         self.num_atoms = num_atoms
 

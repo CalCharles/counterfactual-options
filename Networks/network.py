@@ -277,7 +277,7 @@ class BasicConvNetwork(Network): # basic 1d conv network
         x = self.model(x)
         return x
 
-class Basic2DConvNetwork(Network): # basic 1d conv network 
+class Basic2DConvNetwork(Network): # basic 1d conv network
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.hs = kwargs['hidden_sizes']
@@ -297,7 +297,7 @@ class Basic2DConvNetwork(Network): # basic 1d conv network
             x = int(( x + 2 * self.padding - (self.kernel - 1) - 1) / self.stride + 1)
             y = int(( y + 2 * self.padding - (self.kernel - 1) - 1) / self.stride + 1)
         last_num = self.hs[-1] if not include_last else self.output_dim
-        self.reduce_size = x * y * last_num 
+        self.reduce_size = x * y * last_num
 
         if len(self.hs) == 0:
             layers = [nn.Conv2d(self.channels, self.output_dim, self.kernel, self.stride, self.padding)]
@@ -310,6 +310,7 @@ class Basic2DConvNetwork(Network): # basic 1d conv network
                       + [nn.Conv2d(self.hs[-2], self.hs[-1], self.kernel, self.stride, self.padding), nn.ReLU(inplace=True)])
             if include_last: # if we include last, we need a relu after second to last. If we do not include last, we assume that there is a layer afterwards so we need a relu after the second to last
                 layers += [nn.Conv2d(self.hs[-1], self.output_dim, self.kernel, self.stride, self.padding)]
+
         self.conv = nn.Sequential(*layers)
         self.model = nn.ModuleList([self.conv])
         self.final = None
@@ -327,7 +328,7 @@ class Basic2DConvNetwork(Network): # basic 1d conv network
         return x
 
 class PairConvNetwork(Network):
-    def __init__(self, **kwargs): 
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.first_dim = kwargs["first_obj_dim"]
         self.input_dims = kwargs["input_dims"]
@@ -500,7 +501,9 @@ class PairNetwork(Network):
 
 
     def forward(self, x):
+        print(x.shape)
         x, fx, px, batch_size = self.slice_input(x)
+        print(x.shape, batch_size)
         x = self.run_networks(x, px, batch_size)
         return x
 

@@ -109,13 +109,19 @@ def test(args=get_args()):
     test_envs.seed(args.seed)
     # define model
     if args.algorithm == 'rainbow':
-        net = Rainbow(*args.state_shape,
+        observation_info = { 'observation-type' : args.observation_type,
+                             'obj-dim' : env.block_dimension,
+                             'first-obj-dim' : env.ball_paddle_info_dim
+                             }
+
+        net = Rainbow(args.state_shape,
                       args.action_shape,
                       args.num_atoms,
                       args.noisy_std,
                       args.device,
                       is_dueling=not args.no_dueling,
-                      is_noisy=not args.no_noisy
+                      is_noisy=not args.no_noisy,
+                      observation_info=observation_info
                       ).to(args.device)
 
         optim = torch.optim.Adam(net.parameters(), lr=args.lr)
@@ -146,9 +152,14 @@ def test(args=get_args()):
                 weight_norm=not args.no_weight_norm
             )
 
-        log_path = os.path.join(args.logdir, 'breakout', 'rainbow', f'seed{args.seed}')
+        log_path = os.path.join(args.logdir, args.observation_type, 'rainbow', f'seed{args.seed}')
     elif args.algorithm == 'dqn':
-        net = DQN(*args.state_shape, args.action_shape, args.device).to(args.device)
+        observation_info = { 'observation-type' : args.observation_type,
+                             'obj-dim' : env.block_dimension,
+                             'first-obj-dim' : env.ball_paddle_info_dim
+                             }
+
+        net = DQN(args.state_shape, args.action_shape, args.device, observation_info).to(args.device)
         optim = torch.optim.Adam(net.parameters(), lr=args.lr)
         # define policy
         policy = DQNPolicy(
@@ -166,8 +177,9 @@ def test(args=get_args()):
             ignore_obs_next=True,
         )
 
-        log_path = os.path.join(args.logdir, 'breakout', 'dqn', f'seed{args.seed}')
+        log_path = os.path.join(args.logdir, args.observation_type, 'dqn', f'seed{args.seed}')
     elif args.algorithm == 'sac':
+        # TODO: Modify SAC networks to deal w different env types
         net = Net(*args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
         actor = Actor(net, args.action_shape, softmax_output=False, device=args.device).to(args.device)
 
