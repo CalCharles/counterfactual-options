@@ -152,7 +152,7 @@ def test(args=get_args()):
                 weight_norm=not args.no_weight_norm
             )
 
-        log_path = os.path.join(args.logdir, args.observation_type, 'rainbow', f'seed{args.seed}')
+        log_path = os.path.join(args.logdir, args.observation_type, 'rainbow', f'variant{args.variant}-seed{args.seed}')
     elif args.algorithm == 'dqn':
         observation_info = { 'observation-type' : args.observation_type,
                              'obj-dim' : env.block_dimension,
@@ -177,7 +177,7 @@ def test(args=get_args()):
             ignore_obs_next=True,
         )
 
-        log_path = os.path.join(args.logdir, args.observation_type, 'dqn', f'seed{args.seed}')
+        log_path = os.path.join(args.logdir, args.observation_type, 'dqn', f'variant{args.variant}-seed{args.seed}')
     elif args.algorithm == 'sac':
         # TODO: Modify SAC networks to deal w different env types
         net = Net(*args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
