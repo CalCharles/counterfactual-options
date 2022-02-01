@@ -71,11 +71,24 @@ class NegativeParameterizedReward(Reward):
 		obstacles = np.array(obstacles)
 		return float(np.any(np.max(np.abs(obstacles[:, :2] - state[:2]), axis=-1) <= self.epsilon_close)) # hardcoded for robosuite obstacles
 
+class NegativeBoundsReward(Reward):
+	def __init__(self, **kwargs): # TODO: hardcoded values
+		super().__init__(**kwargs)
+		self.BLOCK_BOUNDS_SIZE = 0.175
+		self.table_offset = np.array((-0.1, 0, 0.8))
+
+
+	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
+		# hardcoded for robosuite obstacles based on naming
+		return float(np.any(np.abs(state[:2] - self.table_offset[:2]) >= self.BLOCK_BOUNDS_SIZE))
+
+
 class ConstantNegativePositiveParameterizedReward(Reward):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 		self.parameterized_reward = BinaryParameterizedReward(**kwargs)
 		self.negative_reward = NegativeParameterizedReward(**kwargs)
+		self.bounds_reward = NegativeBoundsReward(**kwargs)
 		self.plmbda = kwargs["parameterized_lambda"]
 		self.reward_constant = kwargs["reward_constant"]
 		self.nlambda = kwargs["true_reward_lambda"]
@@ -87,7 +100,8 @@ class ConstantNegativePositiveParameterizedReward(Reward):
 
 		preward = self.parameterized_reward.get_reward(inter, state, param, mask)
 		nreward = self.negative_reward.get_reward(inter, state, param, mask, info=info)
-		return self.reward_constant + preward * self.plmbda + nreward * self.nlambda # preward * interacting.squeeze() * self.plmbda
+		breward = self.bounds_reward.get_reward(inter, state, param, mask, info=info)
+		return self.reward_constant + preward * self.plmbda + (nreward + breward) * self.nlambda # preward * interacting.squeeze() * self.plmbda
 
 
 class InteractionReward(Reward):
@@ -298,10 +312,11 @@ class TrueScaledReward(Reward):
 	#scales positive rewards by "parameterized_lambda"
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
-		self.plmbda = kwargs["parameterized_lambda"]		
+		self.plmbda = kwargs["parameterized_lambda"]
+		self.tlmbda = kwargs["true_reward_lambda"]
 
 	def get_reward(self, inter, state, param, mask, true_reward=0, info=None):
-		return true_reward * self.plmbda if true_reward > 0 else true_reward 
+		return true_reward * self.plmbda if true_reward > 0 else true_reward * self.tlmbda
 
 
 class EnvFnReward(Reward):

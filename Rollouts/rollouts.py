@@ -349,9 +349,14 @@ class Rollouts():
         return idxes, batch
 
 
-def merge_rollouts(rols, set_dones=False):
+def merge_rollouts(rols, set_dones=False, existing=None):
     total_len = sum([r.filled for r in rols])
-    rollout = type(rols[0])(total_len, rols[0].shapes)
+    if existing is not None:
+        rollout=existing
+    else:
+        rollout = type(rols[0])(total_len, rols[0].shapes)
+    if rols[0].iscuda:
+        rollout.cuda()
     at = 0
     for r in rols:
         rollout.copy_values(at, r.filled, r, 0)
@@ -359,5 +364,6 @@ def merge_rollouts(rols, set_dones=False):
             rollout.values["done"][at:at+r.filled] = 0
             rollout.values["done"][at+r.filled-1] = 1
         at += r.filled
-    rollout.at = at 
+    rollout.filled = rollout.length
+    rollout.at = at % total_len
     return rollout

@@ -54,9 +54,15 @@ def hardcode_norm_inter(anorm, v1norm, v2norm, v3norm, hardcoded_normalization, 
     elif hardcoded_normalization[1] == '3':
         mean = np.concatenate([v1norm[0], v2norm[0]])
         var = np.concatenate([v1norm[1], v2norm[1]])
-    else:
+    elif hardcoded_normalization[1] == '4':
         mean = np.concatenate([v2norm[0]] + [ v3norm[0].copy() for _ in range(num_instance)] )
         var = np.concatenate([v2norm[1]] + [ v3norm[1].copy() for _ in range(num_instance)])
+    elif hardcoded_normalization[1] == '5':
+        mean = np.concatenate([anorm[0]] + [v1norm[0]] + [ v3norm[0].copy() for _ in range(num_instance)] )
+        var = np.concatenate([anorm[1]] + [v1norm[1]] + [ v3norm[1].copy() for _ in range(num_instance)])
+    elif hardcoded_normalization[1] == '6':
+        mean = np.concatenate([v1norm[0]] + [v2norm[0]] + [ v3norm[0].copy() for _ in range(num_instance)] )
+        var = np.concatenate([v1norm[1]] + [v2norm[1]] + [ v3norm[1].copy() for _ in range(num_instance)])
     # print("inter", hardcoded_normalization, mean, var)
     return mean, var
 
@@ -126,6 +132,7 @@ class StateExtractor():
         self.combine_param_mask = not args.no_combine_param_mask
         self.hardcoded_normalization = args.hardcode_norm
         self.scale = float(self.hardcoded_normalization[2]) if len(self.hardcoded_normalization) > 0 else 1
+        self.target_contained = args.target_contained
         
         self.num_instance = args.num_instance
         self.target_instanced = args.target_instanced
@@ -163,17 +170,20 @@ class StateExtractor():
             self.pre_param = 0
             self.post_dim = self.target_shape[0] + self.flat_shape[0] + self.action_shape[0] + self.diff_shape[0]
             self.full_object_shape = self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape if self.inter_shape[0] > 0 else self.param_rel_shape
-            self.first_obj_shape = (self.get_state(full_state, (0,0,0,0,0,0,0,1,0)).shape[0] + self.param_shape[0] + self.param_rel_shape[0], )
+            first_obj_comp = self.get_state(full_state, (0,0,0,0,0,0,0,1,0)).shape[0]
+            if self.target_contained:
+                first_obj_comp = first_obj_comp + self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape[0]
+            self.first_obj_shape = (first_obj_comp + self.param_shape[0] + self.param_rel_shape[0], )
             if self.target_instanced:
                 self.object_shape = ((self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape if self.inter_shape[0] > 0 else self.param_rel_shape)[0] // self.num_instance, )
             else:
                 self.object_shape = ((self.obs_shape[0] - self.first_obj_shape[0]) // self.num_instance, )
-            print(self.object_shape, self.first_obj_shape)
+            print(self.first_obj_shape, self.object_shape)
         else:
             self.post_dim = self.target_shape[0] + self.flat_shape[0] + self.param_shape[0] + self.param_rel_shape[0] + self.action_shape[0] + self.diff_shape[0]
             self.full_object_shape = self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape
-            self.object_shape = ((self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape)[0] // self.num_instance, )
-        
+            self.object_shape = ((self.get_state(full_state, (0,1,0,0,0,0,0,0,0)).shape)[0], )
+            self.first_obj_shape = (self.get_state(full_state, (0,0,0,0,0,0,0,1,0)).shape[0] + self.param_shape[0] + self.param_rel_shape[0], )
 
     def split_obs(self, state):
         self.lengths = [ self.option_shape, self.inter_shape, self.relative_shape, self.target_shape, self.flat_shape, self.param_shape, self.param_rel_shape, self.action_shape, self.diff_shape]

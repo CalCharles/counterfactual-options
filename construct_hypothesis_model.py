@@ -27,6 +27,7 @@ import numpy as np
 import sys
 
 if __name__ == '__main__':
+    print("pid", os.getpid())
     print(sys.argv)
     args = get_args()
     torch.cuda.set_device(args.gpu)
@@ -83,6 +84,7 @@ if __name__ == '__main__':
             model_args = default_model_args(args.predict_dynamics, args.policy_type) # input and output sizes should not be needed
             model_args.hidden_sizes, model_args.interaction_binary, model_args.interaction_prediction, model_args.init_form, model_args.activation, model_args.interaction_distance = args.hidden_sizes, args.interaction_binary, args.interaction_prediction, args.init_form, args.activation, args.interaction_distance
             model_args['controllable'], model_args['environment_model'] = controllable_feature_selectors, environment_model
+            print(model_args)
             feature_explorer = FeatureExplorer(graph, controllable_feature_selectors, environment_model, model_args) # args should contain the model args, might want subspaces for arguments or something since args is now gigantic
             print(rollouts.filled)
             exploration = feature_explorer.search(rollouts, args) # again, args contains the training parameters, but we might want subsets since this is a ton of parameters more 

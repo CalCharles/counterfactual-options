@@ -324,7 +324,7 @@ def get_selection_list(cfss): # TODO: put this inside ControllableFeature as a s
             fr.append(s)
             s += cfs.feature_step
         possibility_lists.append(fr)
-    print( cfs.feature_range, cfs.feature_step)
+    # print( cfs.feature_range, cfs.feature_step)
     return itertools.product(*possibility_lists)
 
 def sample_multiple(controllable_features, states):

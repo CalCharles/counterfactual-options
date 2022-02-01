@@ -29,12 +29,14 @@ def get_args():
                     help='collector will call reset whenever a "done" occurs unless this is true')
     parser.add_argument('--target-mode', action='store_true', default=False,
                     help='in breakout, induces a domain where there is a single block to target')
-    parser.add_argument('--joint-mode', action='store_true', default=False,
-                    help='in robosuite, changes the action space to be joint level control')
     parser.add_argument('--block-shape', type=int, nargs=5, default=(5, 20, 4, 0, 0),
                         help='shape of the blocks, number of blocks high, number of blocks wide, max block height, no_breakout(flag), max number of hits (default: (5,20,4,0,0))')
     parser.add_argument('--breakout-variant', default='',
                         help='name of a specialized variant of breakout')
+    parser.add_argument('--joint-mode', action='store_true', default=False,
+                    help='in robosuite, changes the action space to be joint level control')
+    parser.add_argument('--hard-obstacles', action='store_true', default=False,
+                    help='in robosuite, changes the obstacles from soft negative reward regions to physical blocks ')    
     # # optimization hyperparameters
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='learning rate, not used if actor and critic learning rate used for algo (default: 1e-6)')
@@ -78,7 +80,10 @@ def get_args():
                         'param, target state relative to param, relative interaction state, action state, diff,' +
                         'used in interation model to indicate relative state if position 0 is 1')
     parser.add_argument('--param-contained', action='store_true', default=False,
-                        help='shifts the parameter to the front of the input, for pairnet implementations')
+                        help='shifts the parameter to the front of the input, for pairnet implementations'+
+                        'OVERLOADED to also move the target first in distributional models')
+    parser.add_argument('--target-contained', action='store_true', default=False,
+                        help='has the target at the start of the representation, for pairnet implementations where the target is NOT instanced')
     parser.add_argument('--interleave', action='store_true', default=False,
                         help='interweaves the interaction state and relative state for pairnet implementations')
     parser.add_argument('--keep-target', action='store_true', default=False,
@@ -158,6 +163,8 @@ def get_args():
                     help='add a small variance to limit overfitting to easy to predict parts')
     parser.add_argument('--multi-instanced', action = 'store_true', default=False,
                     help='if interaction trains to predict a vector')
+    parser.add_argument('--instanced-additional', action = 'store_true', default=False,
+                    help='if interaction uses additional instanced information (obstacles)')
     parser.add_argument('--only-termination', action = 'store_true', default=False,
                     help='only stores termination values, not temporal extension ones')
     # sampler parameters
@@ -171,6 +178,8 @@ def get_args():
     # done check parameters
     parser.add_argument('--use-termination', action = 'store_true', default=False,
                     help='returns done when the option terminates')
+    parser.add_argument('--terminate-reset', action = 'store_true', default=False,
+                    help='resets the environment when the option terminates')
     parser.add_argument('--not-true-done-stopping', action = 'store_true', default=False,
                     help='if true, will NOT end episode when the environment ends the episode')
 
@@ -196,8 +205,8 @@ def get_args():
                         help='number of iterations for training (default: 2e5)')
     parser.add_argument('--pretrain-iters', type=int, default=int(2e4),
                         help='number of iterations for training (default: 2e4)')
-    parser.add_argument('--posttrain-iters', type=int, default=int(0),
-                        help='number of iterations for training after training, or after warm up for RL (default: 2e5)')
+    parser.add_argument('--inline-iters', type=int, default=int(1),
+                        help='number of iterations for training the interaction model WITHIN each normal iteration loop (default: 1)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
     parser.add_argument('--ratio', type=float, default=0.9,
@@ -308,6 +317,10 @@ def get_args():
                         help='only saves the last n timesteps (-1 if not used)')
     parser.add_argument('--record-rollouts', default="",
                         help='path to where rollouts are recorded (when adding edges, where data was recorded to compute min/max)')
+    parser.add_argument('--log-only', action ='store_true', default=False,
+                        help='record rollouts only stores logs and no state data')
+    parser.add_argument('--render', action='store_true', default=False,
+                        help='if false, does not render or save renders')
     parser.add_argument('--no-save-action', action ='store_true', default=False,
                         help='saves the highest option level action in record-rollouts')
     parser.add_argument('--graph-dir', default='./data/optgraph/',

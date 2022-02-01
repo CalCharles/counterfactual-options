@@ -357,7 +357,7 @@ class Screen(RawEnvironment):
             # self.ball.interact(self.paddle)
             # self.ball.move()
             # print(self.ball.pos[0])
-            if self.ball.paddle:
+            if self.ball.paddle and self.bounce_count < 0:
                 self.reward += self.bounce_count # the bounce count is a penalty for paddle bounces
             if (68 <= self.ball.pos[0] <= 69 and self.ball.vel[0] == 1) or (67 <= self.ball.pos[0] <= 69 and self.ball.vel[0] == 2):
                 self.used_angle= True
@@ -374,8 +374,8 @@ class Screen(RawEnvironment):
             if (self.ball.losses == 4 and pre_stop) or (self.target_mode and ((self.ball.top_wall and self.bounce_count >= 0) or self.ball.bottom_wall or self.ball.block)):
                 self.average_points_per_life = self.total_score / 5.0
                 self.done = True
-                self.reward += -20 * self.default_reward * int(not self.ball.block)
-                self.total_score += -20 * self.default_reward * int(not self.ball.block)
+                self.reward += -30 * self.default_reward * int(not self.ball.block)
+                self.total_score += -30 * self.default_reward * int(not self.ball.block)
                 self.episode_rewards.append(self.total_score)
                 self.total_score = 0
                 needs_reset = True
@@ -390,6 +390,7 @@ class Screen(RawEnvironment):
                     or (self.no_breakout and self.hit_reset > 0 and self.hit_counter == self.hit_reset)
                     or self.negative_mode == "hardscatter" and self.get_num_points() == 1):
                     needs_reset = True
+                    self.reward += 20 * self.default_reward
                     print("block_reset", self.get_num_points(), self.num_remove, len(self.blocks), self.hit_counter, self.hit_reset, self.no_breakout and self.hit_reset <= 0 and self.get_num_points() == self.num_columns + 1 and self.num_rows > 1, self.no_breakout and self.hit_reset > 0 and self.hit_counter == self.hit_reset)
                     if self.full_stopping:
                         self.done = True

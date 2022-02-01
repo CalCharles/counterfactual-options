@@ -31,6 +31,7 @@ from torch.utils.tensorboard import SummaryWriter
 import tianshou as ts
 
 if __name__ == '__main__':
+    print("pid", os.getpid())
     print(sys.argv)
     args = get_args()
     torch.cuda.set_device(args.gpu)
@@ -40,8 +41,14 @@ if __name__ == '__main__':
     print(type(args))
 
     # manage environment
-    test_environment, test_environment_model, args = initialize_environment(args, render="Test" if len(args.record_rollouts) > 0 else "")
-    environment, environment_model, args = initialize_environment(args)
+    if len(args.record_rollouts) > 0 and args.render:
+        render = "Test"
+    elif len(args.visualize_param) > 0:
+        render = "Param"
+    else:
+        render = ""
+    test_environment, test_environment_model, args = initialize_environment(args, set_save=len(args.record_rollouts) != 0, render=render)
+    environment, environment_model, args = initialize_environment(args, set_save=len(args.record_rollouts) != 0, render=render if args.visualize_param else "")
     if args.true_environment:
         args.parameterized = args.env == "Nav2D"
     else:
@@ -97,7 +104,8 @@ if __name__ == '__main__':
     if args.object == "Stick" and args.env == "RoboStick":
         dataset_model = DummyStickDatasetModel(environment_model)
         dataset_model.environment_model = environment_model
-
+    if args.env == "RoboPushing":
+        args.num_instance = args.num_obstacles
 
     if args.cuda: dataset_model.cuda()
     else: dataset_model.cpu()

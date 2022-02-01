@@ -79,6 +79,12 @@ class Option():
         if type(self.next_option) != PrimitiveOption:
             self.next_option.zero_epsilon()
 
+    def set_epsilon(self, eps):
+        if self.policy is not None:
+            self.policy.set_eps(eps)
+            self.action_map.assign_policy_map(self.policy.map_action, self.policy.reverse_map_action, self.policy.exploration_noise)
+
+
     def print_epsilons(self):
         print("epsilons", self.terminate_reward.epsilon_close, self.terminate_reward.interaction_probability, self.policy.epsilon, self.sampler.current_distance) #self.action_map.epsilon_policy)
 

@@ -35,7 +35,6 @@ class DiagGaussianForwardNetwork(Network):
 class DiagGaussianForwardPairNetwork(Network):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        kwargs["aggregate_final"] = False # don't aggregate the last layer, just convert the dim
         kwargs["output_dim"] = kwargs["object_dim"] # output the state of the object
         self.mean = PairNetwork(**kwargs) # literally only these two lines are different so there should be a way to compress this...
         self.std = PairNetwork(**kwargs)

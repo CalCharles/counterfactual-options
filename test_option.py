@@ -27,7 +27,7 @@ from Options.option_graph import OptionGraph, OptionNode, load_graph
 from Options.option import Option, PrimitiveOption, option_forms
 from Options.Reward.reward import reward_forms
 from Options.terminate_reward import TerminateReward
-from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel, DummyMultiBlockDatasetModel
+from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel, DummyVariantBlockDatasetModel, DummyNegativeRewardDatasetModel, DummyMultiBlockDatasetModel, DummyStickDatasetModel
 from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model, interaction_models
 from DistributionalModels.InteractionModels.samplers import samplers
 from Rollouts.collector import OptionCollector
@@ -37,13 +37,21 @@ import tianshou as ts
 
 
 if __name__ == '__main__':
+    print("pid", os.getpid())
+
     args = get_args()
     torch.cuda.set_device(args.gpu)
     args.concatenate_param = True
     args.normalized_actions = False
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-    environment, environment_model, args = initialize_environment(args)
+    if len(args.record_rollouts) > 0 and args.render:
+        render = "Test"
+    elif len(args.visualize_param) > 0:
+        render = "Param"
+    else:
+        render = ""
+    environment, environment_model, args = initialize_environment(args, render=render)
 
     if args.true_environment:
         args.parameterized = args.env == "Nav2D"
@@ -73,6 +81,13 @@ if __name__ == '__main__':
             dataset_model.environment_model = environment_model            
         dataset_model.sample_able.vals = np.array([dataset_model.sample_able.vals[0]]) # for some reason, there are some interaction values that are wrong
         discretize_actions = {0: np.array([-1,-1]), 1: np.array([-2,-1]), 2: np.array([-2,1]), 3: np.array([-1,1])}
+    if args.object == "Reward" and args.env == "RoboPushing":
+        dataset_model = DummyNegativeRewardDatasetModel(environment_model)
+        dataset_model.environment_model = environment_model
+        args.target_object = "Target"
+        args.num_instance = args.num_obstacles
+        args.reverse_feature_selector = dataset_model.cfnonselector[0]
+
 
     dataset_model.sample_continuous = True
     if args.sample_continuous != 0:
@@ -164,6 +179,8 @@ if __name__ == '__main__':
     policy = option.policy
     policy.option = option
     option.zero_epsilon()
+    if args.epsilon > 0:
+        option.set_epsilon(args.epsilon)
     option.sampler = sampler
 
     if args.cuda:

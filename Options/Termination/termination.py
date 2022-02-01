@@ -43,7 +43,7 @@ def compute_instance_indexes(instanced, param, inverse_mask, multi=-1):
 			diff[diff > multi] = 0
 			idxes = diff.nonzero()
 			idxes = ([0], idxes[0])
-	print(idxes, instanced, param)
+	# print(idxes, instanced, param)
 	return idxes
 		# print(instanced[idxes], param)
 
@@ -88,7 +88,7 @@ class ParameterizedStateTermination(Termination):
 		# 		return (diff - param).norm(p=1, dim=1) <= self.epsilon
 		# else:
 		if len(state.shape) == 1:
-			# print("dist", np.linalg.norm((state - param) * mask, ord  = 1), self.epsilon, state, param)
+			# print("dist", np.linalg.norm((state - param) * mask, ord  = 1), self.epsilon_close, state, param)
 			return np.linalg.norm((state - param) * mask, ord  = 1) <= self.epsilon_close
 		else:
 			return np.linalg.norm((state - param) * mask, ord =1, axis=1 ) <= self.epsilon_close

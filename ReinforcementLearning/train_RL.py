@@ -38,6 +38,7 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
         hmt = hmt[0] / (hmt[0] + hmt[1])
     print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}", f"Hit Miss train: {hmt}")
     if tensorboard_logger is not None:
+        tensorboard_logger.add_scalar("Return", mean_perf, i)
         tensorboard_logger.add_scalar("Hit Miss/Test", mean_hit, i)
         tensorboard_logger.add_scalar("Hit Miss/Train", hmt, i)
         tensorboard_logger.flush()
@@ -145,12 +146,12 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
             if not option.policy.sample_HER:
                 for j in range(50):
                     idx = (train_collector.get_buffer_idx() + (j - 100)) % args.buffer_len
-                    d, info,r, bi, a, ma, ti, p, t, nt, itr, obs, obs_n = buf[idx].done, buf[idx].info, buf[idx].rew, buf[idx].inter, buf[idx].act, buf[idx].mapped_act, buf[idx].time, buf[idx].param, buf[idx].target, buf[idx].next_target, buf[idx].inter_state, buf[idx].obs, buf[idx].obs_next
+                    d, info, tm, r, bi, a, ma, ti, p, t, nt, itr, obs, obs_n = buf[idx].done, buf[idx].info, hrb.terminate, buf[idx].rew, buf[idx].inter, buf[idx].act, buf[idx].mapped_act, buf[idx].time, buf[idx].param, buf[idx].target, buf[idx].next_target, buf[idx].inter_state, buf[idx].obs, buf[idx].obs_next
                     # print(obs.shape, rv_variance.shape, rv_mean.shape)
-                    print(j, idx, d, info["TimeLimit.truncated"], r, bi, 
-                        a, ma, option.policy.compute_Q(Batch(obs=obs, obs_next = obs_n,info=info, act=a), False), 
-                        ti, p, t, nt, itr, 
-                        obs, rv(obs), obs_n, rv(obs_n))
+                    print(j, idx, d, tmh, info["TimeLimit.truncated"], r, bi, 
+                        "\nacts", a, ma, option.policy.compute_Q(Batch(obs=obs, obs_next = obs_n,info=info, act=a), False), 
+                        "\ntar", ti, p, t, nt, itr, 
+                        "\nobs", obs, rv(obs), obs_n, rv(obs_n))
 
             if option.policy.is_her:
                 hrb = option.policy.learning_algorithm.replay_buffer
@@ -158,10 +159,11 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                     print("hindsight buffer", len(hrb), option.policy.learning_algorithm.get_buffer_idx())
                     for j in range(50):
                         idx = (option.policy.learning_algorithm.get_buffer_idx() + (j - 100)) % args.buffer_len
-                        dh, infoh, rh, ih, ah, mah, tih, ph, th, nth, itrh, obsh, obs_nh = hrb[idx].done, hrb[idx].info, hrb[idx].rew, hrb[idx].inter, hrb[idx].act, hrb[idx].mapped_act, hrb[idx].time, hrb[idx].param, hrb[idx].target, hrb[idx].next_target, hrb[idx].inter_state, hrb[idx].obs, hrb[idx].obs_next
-                        print(j, idx, dh, infoh["TimeLimit.truncated"], rh, ih, "acts\n",
-                            ah, mah, option.policy.compute_Q(Batch(obs=obsh, obs_next = obs_nh,info=infoh, act=ah), False),
-                            tih, "tar\n", ph,  th, nth, itrh, "obs\n", obsh, rv(obsh), obs_nh, rv(obs_nh))
+                        dh, infoh, tmh, rh, ih, ah, mah, tih, ph, th, nth, itrh, obsh, obs_nh = hrb[idx].done, hrb[idx].info,hrb.terminate, hrb[idx].rew, hrb[idx].inter, hrb[idx].act, hrb[idx].mapped_act, hrb[idx].time, hrb[idx].param, hrb[idx].target, hrb[idx].next_target, hrb[idx].inter_state, hrb[idx].obs, hrb[idx].obs_next
+                        print(j, idx, dh, tmh, infoh["TimeLimit.truncated"], rh, ih, 
+                            "\nacts", ah, mah, option.policy.compute_Q(Batch(obs=obsh, obs_next = obs_nh,info=infoh, act=ah), False),
+                            "\ntar",tih,  ph,  th, nth, itrh, 
+                            "\nobs", obsh, rv(obsh), obs_nh, rv(obs_nh))
         # # END PRINTOUTS
 
     if args.save_interval > 0:

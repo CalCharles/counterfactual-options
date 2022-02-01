@@ -195,7 +195,7 @@ class DummyNegativeRewardDatasetModel():
     def cpu(self):
         self.iscuda = False
 
-    def hypothesize(self, state): # gives an "interaction" when the Ball state is within a certain margin of the block
+    def hypothesize(self, state): # gives an "interaction" when the block state is within a certain margin of the target
         return np.array(0), np.array(0), np.array(0)
 
 class DummyStickDatasetModel():

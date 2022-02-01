@@ -10,7 +10,7 @@ from Environments.Pushing.screen import Pushing
 from EnvironmentModels.Gym.gym_environment_model import GymEnvironmentModel
 
 
-def initialize_environment(args, set_save=True, render=False):
+def initialize_environment(args, set_save=True, render=""):
 
     args.normalized_actions = False
     args.concatenate_param = True
@@ -53,8 +53,10 @@ def initialize_environment(args, set_save=True, render=False):
         from Environments.RobosuitePushing.robosuite_pushing import RoboPushingEnvironment
 
         args.continuous = True
-        environment = RoboPushingEnvironment(control_freq=2, horizon=args.time_cutoff, renderable=render, num_obstacles=args.num_obstacles,
-         standard_reward=-1, goal_reward=1, obstacle_reward=-2, out_of_bounds_reward=-2)
+        use_render = len(render) > 0
+        print(use_render)
+        environment = RoboPushingEnvironment(control_freq=2, horizon=args.time_cutoff, renderable=use_render, num_obstacles=args.num_obstacles,
+         standard_reward=-1, goal_reward=1, obstacle_reward=-2, out_of_bounds_reward=-2, hard_obstacles=args.hard_obstacles)
         environment.seed(args.seed)
         environment_model = RobosuitePushingEnvironmentModel(environment)
     elif args.env.find("RoboStick") != -1:
@@ -71,6 +73,8 @@ def initialize_environment(args, set_save=True, render=False):
             environment.set_save(0, args.record_rollouts + "/" + render, 10000, save_raw=True)
         else:
             environment.set_save(0, args.record_rollouts, args.save_recycle, save_raw=args.save_raw)
+        if args.log_only:
+            environment.save_path = ""
     args.environment = environment
     args.environment_model = environment_model
     return environment, environment_model, args

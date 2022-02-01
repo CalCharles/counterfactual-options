@@ -160,7 +160,7 @@ class HER(SampleRetarget):
                     # print("adding change", term_resample, timer_resample, inter_resample, self.sample_timer, total_interaction, param, self._get_mask_param(her_batch.next_target[0], mask), len(rv_search))
                     for i in range(1, len(rv_search)+1):
                         her_batch = rv_search[-i]
-                        # print("her", len(rv_search), her_batch.act, her_batch.inter_state, her_batch.target, her_batch.next_target, her_batch.rew)
+                        # print("her", len(rv_search), her_batch.terminate, her_batch.act, her_batch.inter_state, her_batch.target, her_batch.next_target, her_batch.param, her_batch.rew)
                         if self.early_stopping > 0 and np.any(her_batch.terminate):
                             early_stopping_counter -= 1
                             if early_stopping_counter == 0:
@@ -170,12 +170,12 @@ class HER(SampleRetarget):
 
                         if early_stopping_counter == 0 and self.early_stopping > 0:
                             break
-                    print("her_batch", her_batch.param)
+                    # print("her_batch", her_batch.param)
                     if self.keep_hits and last_hit: # TODO: assumes if there was a hit we should add the whole trajectory
                         for i in range(len(self.replay_queue)):
                             true_batch = self.replay_queue[i]
                             self.at, ep_rew, ep_len, ep_idx = self.replay_buffer.add(true_batch, buffer_ids=[0])
-                        print("true_batch", true_batch.param)
+                        # print("true_batch", true_batch.param)
             self.sample_timer = 0
             del self.replay_queue
             self.replay_queue = deque(maxlen=self.max_hindsight)

@@ -149,7 +149,7 @@ class Ball(animateObject):
                 self.bottom_wall = True
                 if self.reset_seed > 0:
                     np.random.seed(self.reset_seed)
-                # print(self.pos, self.vel, "dropped", intersection(self,other))
+                print(self.pos, self.vel, "dropped", intersection(self,other))
                 # self.
                 # self.pos = np.array([46, np.random.randint(20, 36)])
                 # self.vel = np.array([1, np.random.choice([-1,1])])

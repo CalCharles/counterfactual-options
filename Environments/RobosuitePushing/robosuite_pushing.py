@@ -93,7 +93,7 @@ macros.SIMULATION_TIMESTEP = 0.02
 #         return self.curr_obs["frontview_image"][::-1]
 
 class RoboPushingEnvironment(RawEnvironment):
-    def __init__(self, control_freq=2, horizon=30, renderable=False, num_obstacles=0, standard_reward=-1, goal_reward=10, obstacle_reward=-10, out_of_bounds_reward=-1, joint_mode=False):
+    def __init__(self, control_freq=2, horizon=30, renderable=False, num_obstacles=0, standard_reward=-1, goal_reward=10, obstacle_reward=-10, out_of_bounds_reward=-1, joint_mode=False, hard_obstacles=False):
         super().__init__()
         self.joint_mode = joint_mode
         controller = "JOINT_POSITION" if joint_mode else "OSC_POSE" # TODO: handles only two action spaces at the moment
@@ -115,7 +115,8 @@ class RoboPushingEnvironment(RawEnvironment):
                 standard_reward=standard_reward, 
                 goal_reward=goal_reward, 
                 obstacle_reward=obstacle_reward, 
-                out_of_bounds_reward=out_of_bounds_reward
+                out_of_bounds_reward=out_of_bounds_reward,
+                hard_obstacles=hard_obstacles
             )
 
         self.frameskip = control_freq
@@ -168,6 +169,8 @@ class RoboPushingEnvironment(RawEnvironment):
             use_act = np.concatenate([action, [0, 0, 0]])
         next_obs, reward, done, info = self.env.step(use_act)
         self.reward, self.done = reward, done
+        if reward == 0: # don't wait at the goal, just terminate
+            self.reward, self.done = 1, True
         info["TimeLimit.truncated"] = done
         # print(list(next_obs.keys()))
         # if not self.done: # repeat the last state because the next state will end up belonging to the next episode
@@ -206,13 +209,14 @@ class RoboPushingEnvironment(RawEnvironment):
     def reset(self):
         obs = self.env.reset()
         self.set_named_state(obs)
+        self.frame = obs["frontview_image"][::-1] if self.renderable else None
         # print(list(obs.keys()))
         # print(obs['robot0_eef_pos'], obs['cube_pos'], obs['goal_pos'])
         # 'robot0_joint_pos_cos', 'robot0_joint_pos_sin', 'robot0_joint_vel', 'robot0_eef_pos', 'robot0_eef_quat', 'robot0_gripper_qpos', 'robot0_gripper_qvel', 'frontview_image', 'cube_pos', 'gripper_to_cube_pos', 'goal_pos', 'gripper_to_goal_pos', 'cube_to_goal_pos', 'robot0_proprio-state', 'object-state', 'Action', 'Gripper', 'Block', 'Target', 'Reward', 'Done'
-        return self.construct_full_state(obs, obs["frontview_image"][::-1] if self.renderable else None)
+        return self.construct_full_state(obs, self.frame)
 
     def render(self):
-        return self.env.render()
+        return self.frame
 
     def toString(self, extracted_state):
         estring = "ITR:" + str(self.itr) + "\t"
