@@ -1,7 +1,7 @@
 import cv2
 import os
 import imageio as imio
-
+import sys
 
 
 
@@ -23,25 +23,31 @@ prefix = "state"
 # prefix = "intensity_"
 # prefix = "marker_"
 # prefix = "focus_img_"
+if __name__ == "__main__":
 
 
-class dummyargs():
-    def __init__(self):
-        self.record_rollouts = top_pth
-        self.num_iters = -1
+    class dummyargs():
+        def __init__(self):
+            self.record_rollouts = top_pth
+            self.num_iters = -1
 
-args = dummyargs()
+    args = dummyargs()
 
-im = cv2.imread(pth + prefix + str(start) + ".png")
-print(im, pth + prefix + str(start) + ".png")
-height, width, layers = im.shape
-video = cv2.VideoWriter(video_name, 0, fps, (width,height))
-for i in range(start,end):
-    im = cv2.imread(pth + prefix + str(i) + ".png")
-    if im is not None:
-        video.write(im)
-        cv2.imshow('frame1',im)
-        if cv2.waitKey(int(1000/fps)) & 0xFF == ord('q'):
-            break
-cv2.destroyAllWindows()
-video.release()
+    pth = sys.argv[1]
+    prefix = sys.argv[2]
+    video_name = sys.argv[3]
+    start = int(sys.argv[4])
+    end = int(sys.argv[5])
+    im = cv2.imread(pth + prefix + str(start) + ".png")
+    print(im, pth + prefix + str(start) + ".png")
+    height, width, layers = im.shape
+    video = cv2.VideoWriter(video_name, 0, fps, (width,height))
+    for i in range(start,end):
+        im = cv2.imread(pth + prefix + str(i) + ".png")
+        if im is not None:
+            video.write(im)
+            # cv2.imshow('frame1',im)
+            # if cv2.waitKey(int(1000/fps)) & 0xFF == ord('q'):
+            #     break
+    cv2.destroyAllWindows()
+    video.release()

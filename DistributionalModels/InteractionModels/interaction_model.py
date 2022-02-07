@@ -99,6 +99,8 @@ class NeuralInteractionForwardModel(nn.Module):
         self.interaction_binary = kwargs['interaction_binary']
         if len(self.interaction_binary) > 0:
             self.difference_threshold, self.forward_threshold, self.passive_threshold = self.interaction_binary
+
+        # The threshold for the interaction model output to predict an interaction
         self.interaction_prediction = kwargs['interaction_prediction']
 
         # Learn an interaction model which is based on distance to target

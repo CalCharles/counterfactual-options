@@ -144,11 +144,16 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                     rv_variance = np.array(param_variance + [84 // 2, 84 // 2, 2,1,1] + [10, 84 // 2, 2,1,1] * args.num_instance)
                     rv = lambda x: (x * rv_variance) + rv_mean
             if not option.policy.sample_HER:
+                print("itr, idx, done, term, trunc, reward, inter")
+                print("acts, action, mapped, q")
+                print("tar, time, param, target, next target, inter state")
+                print("obs, obs, rvobs, next obs, rvnext obs")
                 for j in range(50):
                     idx = (train_collector.get_buffer_idx() + (j - 100)) % args.buffer_len
-                    d, info, tm, r, bi, a, ma, ti, p, t, nt, itr, obs, obs_n = buf[idx].done, buf[idx].info, hrb.terminate, buf[idx].rew, buf[idx].inter, buf[idx].act, buf[idx].mapped_act, buf[idx].time, buf[idx].param, buf[idx].target, buf[idx].next_target, buf[idx].inter_state, buf[idx].obs, buf[idx].obs_next
+                    d, info, tm, r, bi, a, ma, ti, p, t, nt, itr, obs, obs_n = buf[idx].done, buf[idx].info, buf[idx].terminate, buf[idx].rew, buf[idx].inter, buf[idx].act, buf[idx].mapped_act, buf[idx].time, buf[idx].param, buf[idx].target, buf[idx].next_target, buf[idx].inter_state, buf[idx].obs, buf[idx].obs_next
                     # print(obs.shape, rv_variance.shape, rv_mean.shape)
-                    print(j, idx, d, tmh, info["TimeLimit.truncated"], r, bi, 
+                    
+                    print(j, idx, d, tm, info["TimeLimit.truncated"], r, bi, 
                         "\nacts", a, ma, option.policy.compute_Q(Batch(obs=obs, obs_next = obs_n,info=info, act=a), False), 
                         "\ntar", ti, p, t, nt, itr, 
                         "\nobs", obs, rv(obs), obs_n, rv(obs_n))

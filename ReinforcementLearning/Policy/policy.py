@@ -98,8 +98,11 @@ class TSPolicy(nn.Module):
             self.algo_policy.actor.device = device
             self.algo_policy.critic.device = device
         if self.algo_name in ["sac"]: # TODO: should have dependence on discrete actions 
-            self.algo_policy.actor.mu.device = device
-            self.algo_policy.actor.sigma.device = device
+            if not self.discrete_actions:
+                self.algo_policy.actor.mu.device = device
+                self.algo_policy.actor.sigma.device = device
+            else:
+                self.algo_policy.actor.last.device = device
             self.algo_policy.critic1.last.device = device
             self.algo_policy.critic2.last.device = device
             self.algo_policy.actor.device = device
@@ -266,7 +269,10 @@ class TSPolicy(nn.Module):
     ) -> torch.Tensor:
         comp = batch.obs_next if nxt else batch.obs
         if self.algo_name in ['sac']:
-            Q_val = self.algo_policy.critic1(comp, batch.act)
+            if self.discrete_actions:            
+                Q_val = self.algo_policy.critic1(comp)
+            else:
+                Q_val = self.algo_policy.critic1(comp, batch.act)
         if self.algo_name in ['ddpg']:
             # print(comp, batch.act)
             Q_val = self.algo_policy.critic(comp, batch.act)

@@ -72,8 +72,7 @@ class TemporalAggregator():
         self.current_data.info["TimeLimit.truncated"] = data.info["TimeLimit.truncated"] if "TimeLimit.truncated" in data.info else False
         self.current_data.update(time=[self.time_counter])
         self.current_data.inter = [max(data.inter[0], self.current_data.inter[0])]
-        next_data = copy.deepcopy(self.current_data)
-        self.last_true_done = next_data.true_done
+        self.last_true_done = self.current_data.true_done
         # if we just resampled (meaning temporal extension occurred)
         added = False
         # print(data.act, data.rew, data.ext_term, self.temporal_skip, data.mapped_act, data.param, data.target)
@@ -83,16 +82,16 @@ class TemporalAggregator():
             (np.any(data.ext_term) and not self.only_termination) or # going to resample a new action
             np.any(data.done)
             or np.any(data.terminate)):
+            next_data = copy.deepcopy(self.current_data)
             self.keep_next = True
             # print("keeping", self.temporal_skip, np.any(data.ext_term),np.any(data.terminate), self.current_data.obs.squeeze()[:5], self.current_data.obs_next.squeeze()[:5])
             if not self.temporal_skip:
                 added = True
                 # print(next_data.act)
-                # print("adding", 
-                #     next_data.param, next_data.obs[:10], next_data.time, 
-                #     next_data.act, next_data.mapped_act, 
-                #     next_data.rew)
-                    # next_data.done, next_data.true_done, next_data.rew, self.current_data.info[0]["TimeLimit.truncated"],
+                print("adding", 
+                    next_data.param, next_data.next_target[0][-1], next_data.time, #next_data.obs[:10], next_data.time, 
+                    # next_data.act, next_data.mapped_act, 
+                    next_data.done, next_data.true_done, next_data.rew, self.current_data.info[0]["TimeLimit.truncated"])
                     # next_data.full_state["factored_state"], next_data.next_full_state["factored_state"])
                 # print(len(buffer))
                 self.ptr, ep_rew, ep_len, ep_idx = buffer.add(
@@ -103,7 +102,7 @@ class TemporalAggregator():
             self.time_counter = 0
         self.temporal_skip = "TimeLimit.truncated" in self.current_data.info[0] and self.current_data.info[0]["TimeLimit.truncated"] and np.any(data.done)
         self.time_counter += 1
-        return next_data, skipped, added, self.ptr
+        return self.current_data, skipped, added, self.ptr
 
 class BufferWrapper():
     # wraps around the buffer components for pickleing
@@ -144,7 +143,9 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.save_path = self.environment_model.environment.save_path
         self._keep_proximity = args.keep_proximity
         self.terminate_reset = args.terminate_reset
-        self.env = args.env
+        self.env_name = args.env
+        self.counter = 0
+        self.terminate_cutoff = args.terminate_cutoff
         option_dumps = open(os.path.join(self.save_path, "option_dumps.txt"), 'w')
         param_dumps = open(os.path.join(self.save_path, "param_dumps.txt"), 'w')
         option_dumps.close()
@@ -341,7 +342,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             done, rew, term, ext_term = done, rewards[-1], terminations[-1], ext_terms[-1]
             if self.save_action: self._save_mapped_action(action_chain[-1], param, resampled, term)
 
-            cutoff = (np.array([time_cutoff]) or (true_done)) #and not term))  # treat true dones like time limits (TODO: this is not valid when learning to control true dones)
+            cutoff = (np.array([time_cutoff]) or (true_done and not self.terminate_cutoff))#(not (term and self.terminate_cutoff)))) #and not term))  # treat true dones like time limits (TODO: this is not valid when learning to control true dones)
             if type(cutoff) != bool: cutoff = cutoff.squeeze()
             info[0]["TimeLimit.truncated"] = bool(cutoff + info[0]["TimeLimit.truncated"]) # environment might send truncated itself
             self.option.update(self.buffer, done, self.data.full_state[0], act, action_chain, terminations, param, masks, not self.test)
@@ -417,12 +418,16 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()
-                if self.env == "SelfBreakout": # TODO: the visualize code only work for breakout at the moment
+                viz_param, visualize_pth = True, visualize_param
+                if visualize_param[:7] == "noparam":
+                    visualize_pth = visualize_param[7:]
+                    viz_param = False
+                if self.env_name == "SelfBreakout" and viz_param: # TODO: the visualize code only work for breakout at the moment
                     frame = visualize(frame, self.data.target[0], param, mask)
-                if visualize_param != "nosave":
-                    saveframe(frame, pth=visualize_param, count=self.counter, name="param_frame")
+                if visualize_pth != "nosave":
+                    saveframe(frame, pth=visualize_pth, count=self.counter, name="param_frame")
                     self.counter += 1
-                printframe(frame, waittime=10)
+                printframe(frame, waittime=1)
 
             # collect statistics
             step_count += len(ready_env_ids)

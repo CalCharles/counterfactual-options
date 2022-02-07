@@ -114,6 +114,7 @@ class Screen(RawEnvironment):
         self.random_exist = random_exist
         self.use_2D = not self.target_mode and not self.random_exist
         self.resetted = True
+        self.since_last_bounce = 0
         self.reset()
         self.num_remove = self.get_num_remove()
 
@@ -241,6 +242,7 @@ class Screen(RawEnvironment):
         self.hit_counter = 0
         self.bounce_counter = 0
         self.resetted = True
+        self.since_last_bounce = 0
         return self.get_state()
 
     def render(self):
@@ -334,6 +336,7 @@ class Screen(RawEnvironment):
         if self.no_breakout: self.reset_blocks()
         self.needs_ball_reset = False
         self.resetted = False
+        self.truncate = False
         for i in range(self.frameskip):
             self.actions.take_action(action)
             for obj1 in self.animate:
@@ -365,20 +368,24 @@ class Screen(RawEnvironment):
                 ani_obj.move()
             pre_stop = (self.ball.pos[0] == 77 and self.ball.vel[0] == 2) or (self.ball.pos[0] == 78 and self.ball.vel[0] == 1) or (self.ball.pos[0] == 78 and self.ball.vel[0] == 2)
             if pre_stop and (self.drop_stopping or self.target_mode):
-                self.reward += -1 * self.default_reward * 10 # negative reward for dropping the ball since done is not triggered
-                self.total_score += -1 * self.default_reward * int(not self.ball.block) * 10
+                self.reward += -30 * self.default_reward * 10 # negative reward for dropping the ball since done is not triggered
+                self.total_score += -30 * self.default_reward * int(not self.ball.block) * 10
                 self.done = True
                 self.needs_ball_reset = True
                 print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
+                self.since_last_bounce = 0
+                self.truncate = True
                 break
             if (self.ball.losses == 4 and pre_stop) or (self.target_mode and ((self.ball.top_wall and self.bounce_count >= 0) or self.ball.bottom_wall or self.ball.block)):
                 self.average_points_per_life = self.total_score / 5.0
                 self.done = True
-                self.reward += -30 * self.default_reward * int(not self.ball.block)
-                self.total_score += -30 * self.default_reward * int(not self.ball.block)
+                self.reward += -1 * self.default_reward * int(not self.ball.block)
+                self.total_score += -1 * self.default_reward * int(not self.ball.block)
                 self.episode_rewards.append(self.total_score)
                 self.total_score = 0
+                self.since_last_bounce = 0
                 needs_reset = True
+                self.truncate = True
                 break
 
             if hit:
@@ -395,10 +402,17 @@ class Screen(RawEnvironment):
                     if self.full_stopping:
                         self.done = True
                     break
+            self.since_last_bounce += 1
+            if self.since_last_bounce > 1000:
+                needs_reset = True
+                print("stuck reset")
+            if self.ball.paddle:
+                self.since_last_bounce = 0
             if self.bounce_reset > 0 and self.ball.paddle:
                 self.bounce_counter += 1
                 if self.bounce_counter == self.bounce_reset:
                     needs_reset = True
+                    self.truncate=True
                     print("bounce_reset", self.get_num_points(), self.num_remove, len(self.blocks), self.hit_counter, self.hit_reset, self.no_breakout and self.hit_reset <= 0 and self.get_num_points() == self.num_columns + 1 and self.num_rows > 1, self.no_breakout and self.hit_reset > 0 and self.hit_counter == self.hit_reset)
                     if self.full_stopping:
                         self.done = True
@@ -415,7 +429,7 @@ class Screen(RawEnvironment):
                 object_dumps.close()
             self.write_objects(extracted_state, frame.astype(np.uint8))
         if needs_reset: self.reset()
-        return {"raw_state": frame, "factored_state": extracted_state}, self.reward, self.done, {"lives": lives, "TimeLimit.truncated": False}
+        return {"raw_state": frame, "factored_state": extracted_state}, self.reward, self.done, {"lives": lives, "TimeLimit.truncated": self.truncate}
 
     def run(self, policy, iterations = 10000, render=False, save_path = "runs/", save_raw = True, duplicate_actions=1, angle_mode=False, visualize=False):
         self.set_save(0, save_path, -1, save_raw)

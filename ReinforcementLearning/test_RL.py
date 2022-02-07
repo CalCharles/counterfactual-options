@@ -15,7 +15,6 @@ from file_management import save_to_pickle
 
 def testRL(args, test_collector, environment, environment_model, option, names, graph):
     test_perf, suc = deque(maxlen=200), deque(maxlen=200)
-    option.zero_epsilon()
     total_steps = 0
     for i in range(args.num_iters):
         print("testing collection")
