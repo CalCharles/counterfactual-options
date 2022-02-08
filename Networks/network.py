@@ -277,7 +277,7 @@ class BasicConvNetwork(Network): # basic 1d conv network
         x = self.model(x)
         return x
 
-class Basic2DConvNetwork(Network): # basic 1d conv network
+class Basic2DConvNetwork(Network): # basic 1d conv network 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.hs = kwargs['hidden_sizes']
@@ -297,7 +297,7 @@ class Basic2DConvNetwork(Network): # basic 1d conv network
             x = int(( x + 2 * self.padding - (self.kernel - 1) - 1) / self.stride + 1)
             y = int(( y + 2 * self.padding - (self.kernel - 1) - 1) / self.stride + 1)
         last_num = self.hs[-1] if not include_last else self.output_dim
-        self.reduce_size = x * y * last_num
+        self.reduce_size = x * y * last_num 
 
         if len(self.hs) == 0:
             layers = [nn.Conv2d(self.channels, self.output_dim, self.kernel, self.stride, self.padding)]
@@ -310,7 +310,6 @@ class Basic2DConvNetwork(Network): # basic 1d conv network
                       + [nn.Conv2d(self.hs[-2], self.hs[-1], self.kernel, self.stride, self.padding), nn.ReLU(inplace=True)])
             if include_last: # if we include last, we need a relu after second to last. If we do not include last, we assume that there is a layer afterwards so we need a relu after the second to last
                 layers += [nn.Conv2d(self.hs[-1], self.output_dim, self.kernel, self.stride, self.padding)]
-
         self.conv = nn.Sequential(*layers)
         self.model = nn.ModuleList([self.conv])
         self.final = None
@@ -328,7 +327,7 @@ class Basic2DConvNetwork(Network): # basic 1d conv network
         return x
 
 class PairConvNetwork(Network):
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs): 
         super().__init__(**kwargs)
         self.first_dim = kwargs["first_obj_dim"]
         self.input_dims = kwargs["input_dims"]
@@ -403,7 +402,6 @@ class PointNetwork(Network):
 
         return x
 
-# Tensor of shape (batch_size, flattened_inputs)
 class PairNetwork(Network):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -422,7 +420,7 @@ class PairNetwork(Network):
         if kwargs["aggregate_final"] and kwargs['post_dim'] > 0:
             self.output_dim = self.hs[-1] * 2
             kwargs["include_last"] = False
-        elif kwargs["aggregate_final"] and kwargs['post_dim'] <= 0:
+        elif kwargs["aggregate_final"] and kwargs['post_dim'] <= 0: 
             self.output_dim = self.hs[-1]
             kwargs["include_last"] = False
         else:
@@ -444,7 +442,7 @@ class PairNetwork(Network):
             kwargs["include_last"] = True
             kwargs["num_inputs"] = self.output_dim
             kwargs["num_outputs"] = self.num_outputs
-            kwargs["hidden_sizes"] = [256, 128, 128] # TODO: hardcoded final hidden sizes for now
+            kwargs["hidden_sizes"] = [256] # TODO: hardcoded final hidden sizes for now
             self.MLP = BasicMLPNetwork(**kwargs)
             layers.append(self.MLP)
         self.model = layers
@@ -453,20 +451,28 @@ class PairNetwork(Network):
 
     def slice_input(self, x):
         fx, px = None, None
+        # input of shape: [batch size, ..., flattened state shape]
         batch_size = x.shape[0] if len(x.shape) > 1 else 1
         output_shape = x.shape[-1] - self.first_obj_dim  - self.post_dim
         if self.post_dim > 0:
+            # cut out the "post" component, which is sent through a different channel
             px = torch.cat([x[...,:self.first_obj_dim], x[..., x.shape[-1]-self.post_dim:]], dim=-1)
             px = px.view(-1, px.shape[-1])
         if self.first_obj_dim > 0:
+            # cut out the "pre" component, which is appended to every object
             fx = x[..., :self.first_obj_dim] # TODO: always assumes first object dim is the first dimensions
-            x = x[..., self.first_obj_dim:x.shape[-1]-self.post_dim]
             fx = fx.view(-1, self.first_obj_dim)
+            # cut out the object components
+            x = x[..., self.first_obj_dim:x.shape[-1]-self.post_dim]
+        print(self.first_obj_dim, self.object_dim)
         nobj = x.shape[-1] // self.object_dim
+        # reshape the object components
         x = x.view(-1, nobj, self.object_dim)
         if self.first_obj_dim > 0 and not self.drop_first:
+            # append the pre components to every object and reshape
             broadcast_fx = torch.stack([fx.clone() for i in range(nobj)], dim=len(fx.shape) - 1)
             x = torch.cat((broadcast_fx, x), dim=-1)
+        # transpose because conv-nets have reversed dimensions
         x = x.transpose(-1,-2)
         return x, fx, px, batch_size
 
@@ -501,9 +507,7 @@ class PairNetwork(Network):
 
 
     def forward(self, x):
-        print(x.shape)
         x, fx, px, batch_size = self.slice_input(x)
-        print(x.shape, batch_size)
         x = self.run_networks(x, px, batch_size)
         return x
 

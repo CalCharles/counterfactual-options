@@ -16,7 +16,7 @@ class BreakoutGymWrapper():
         elif args.observation_type == 'image':
             self.observation_space = spaces.Box(low=0, high=255, shape=(84, 84))
             self.env_wrapper_fn = self.image_observation_wrapper
-        elif args.observation_type == 'multi-block-encoding':
+        elif args.observation_type in ['multi-block-encoding', 'full-encoding']:
             dim = 15 + env.num_blocks * 5 # paddle + ball + delta + blocks
             self.observation_space = spaces.Box(low=-84, high=84, shape=(dim,))
             self.env_wrapper_fn = self.multi_block_observation_wrapper
@@ -49,12 +49,13 @@ class BreakoutGymWrapper():
 
         blocks = []
 
-        for curr in range(self.env.num_blocks):
-            blocks.append(np.array(factored_state[f'Block{curr}']))
+        if self.env.num_blocks == 1:
+            blocks.append(np.array(factored_state['Block']))
+        else:
+            for curr in range(self.env.num_blocks):
+                blocks.append(np.array(factored_state[f'Block{curr}']))
 
         flattened_array = np.concatenate([factored_state['Paddle'], factored_state['Ball'], delta] + blocks)
-
-        print(flattened_array.shape)
         return flattened_array
 
 

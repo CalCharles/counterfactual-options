@@ -52,7 +52,7 @@ class TSNet(nn.Module):
         if self.bound_output != 0:
             logits = torch.tanh(logits)
             logits = (1 - logits) * -self.bound_output
-        return logits, state
+        return logits
 
 
 class BasicNetwork(TSNet):
@@ -107,15 +107,17 @@ class PixelNetwork(TSNet): # no relation to pixelnet, just a network that operat
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # TODO: assumes images of size 84x84, make general
-        self.num_stack = 4
-        factor = self.factor
+        self.num_stack = 1
+        self.viewsize = 7
+
+        # factor = self.factor
         self.conv = nn.Sequential(
             nn.Conv2d(self.num_stack, kwargs["hidden_sizes"][0], 8, stride=4), nn.ReLU(inplace=True),
             nn.Conv2d(kwargs["hidden_sizes"][0], kwargs["hidden_sizes"][1], 4, stride=2), nn.ReLU(inplace=True),
             nn.Conv2d(kwargs["hidden_sizes"][1], kwargs["hidden_sizes"][2], 3, stride=1), nn.ReLU(inplace=True),
         )
         self.model = nn.Sequential(
-            nn.Linear(2 * kwargs["hidden_sizes"][2] * self.viewsize * self.viewsize, kwargs["hidden_sizes"][3]), nn.ReLU(inplace=True),
+            nn.Linear(kwargs["hidden_sizes"][2] * self.viewsize * self.viewsize, kwargs["hidden_sizes"][3]), nn.ReLU(inplace=True),
             nn.Linear(kwargs["hidden_sizes"][3], kwargs["num_outputs"])
         )
 
@@ -137,12 +139,14 @@ class PixelNetwork(TSNet): # no relation to pixelnet, just a network that operat
         # self.layers.append(self.conv1)
         # self.layers.append(self.conv2)
         # self.layers.append(self.conv3)
-        self.reset_parameters()
+
+        # self.reset_parameters()
 
     def forward(self, obs, state=None, info={}):
         batch_size= obs.shape[0]
         instate = self.conv(obs / 255.0)
-        instate.view(batch_size, -1)
+        instate = instate.view(batch_size, -1)
+
         return super().forward(instate, state=state, info={})
 
 class GridWorldNetwork(TSNet):

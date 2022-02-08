@@ -7,6 +7,7 @@ from torch import nn
 from tianshou.utils.net.discrete import NoisyLinear
 
 from Networks.network import Basic2DConvNetwork, PairNetwork
+from Networks.tianshou_networks import PixelNetwork
 
 class DQN(nn.Module):
     """Reference: Human-level control through deep reinforcement learning.
@@ -29,7 +30,7 @@ class DQN(nn.Module):
 
         observation_type = observation_info['observation-type']
 
-        if observation_type == "delta":
+        if observation_type in ["delta", "full-encoding"]:
             self.obs_dim = self.obs_dim[0]
             self.net = nn.Sequential(
                 nn.Linear(self.obs_dim, 256), nn.ReLU(inplace=True),
@@ -37,22 +38,31 @@ class DQN(nn.Module):
                 nn.Linear(256, self.output_dim)
             )
         elif observation_type == "image":
-            kwargs = { 'hidden_sizes' : [32, 64, 64],
-                       'kernel' : 5,
-                       'use_layer_norm' : True,
-                       'input_dims' : self.obs_dim,
-                       'stride' : 2,
-                       'padding' : 0,
-                       'output_dim' : self.output_dim,
-                       'reduce': True,
-                       'include_last' : False,
-                       'num_inputs' : 0,
-                       'num_outputs' : 0,
-                       'init_form': "xnorm",
-                       'activation' : 'relu'
-                       }
+            # kwargs = { 'hidden_sizes' : [32, 64, 128],
+            #            'kernel' : 5,
+            #            'use_layer_norm' : True,
+            #            'input_dims' : self.obs_dim,
+            #            'stride' : 1,
+            #            'padding' : 0,
+            #            'output_dim' : self.output_dim,
+            #            'reduce': True,
+            #            'include_last' : False,
+            #            'num_inputs' : 0,
+            #            'num_outputs' : self.output_dim,
+            #            'init_form': "xnorm",
+            #            'activation' : 'relu'
+            #            }
 
-            self.net = Basic2DConvNetwork(**kwargs)
+            # self.net = Basic2DConvNetwork(**kwargs)
+
+            kwargs = {
+                "hidden_sizes" : [32, 64, 64, 128],
+                "cuda" : True,
+                "bound_output" : 0,
+                "num_outputs" : self.output_dim
+            }
+
+            self.net = PixelNetwork(**kwargs)
         elif observation_type == "multi-block-encoding":
             first_obj_dim = observation_info['first-obj-dim']
             object_dim = observation_info['obj-dim']
@@ -65,12 +75,13 @@ class DQN(nn.Module):
                        'post_dim' : 0,
                        'output_dim' : self.output_dim,
                        'num_inputs' : 0,
-                       'num_outputs' : 0,
+                       'num_outputs' : self.output_dim,
                        'init_form': "xnorm",
                        'activation' : 'relu',
             }
 
             self.net = PairNetwork(**kwargs)
+
 
     def forward(
         self,
