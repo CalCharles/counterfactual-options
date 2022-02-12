@@ -5,22 +5,26 @@ from EnvironmentModels.environment_model import EnvironmentModel
 class BreakoutEnvironmentModel(EnvironmentModel):
     def __init__(self, breakout_environment):
         super().__init__(breakout_environment)
-
-        self.using_target_mode = breakout_environment.target_mode
-
         self.object_names = ["Action", "Paddle", "Ball", "Block", 'Done', "Reward"] # TODO: Reward missing from the objects
         self.object_sizes = {"Action": 5, "Paddle": 5, "Ball": 5, "Block": 5, 'Done': 1, "Reward": 1}
-
-        if self.using_target_mode:
+        num_blocks = breakout_environment.num_blocks
+        if breakout_environment.target_mode:
             self.object_num = {"Action": 1, "Paddle": 1, "Ball": 1, "Block": 1, 'Done': 1, "Reward": 1}
+            self.state_size = sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])
+            self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [1], "done": [1]}
+            self.enumeration = {"Action": [0,1], "Paddle": [1,2], "Ball": [2,3], "Block": [3,4], 'Done':[4,5], "Reward":[5,6]}
         else:
-            self.object_num = {"Action": 1, "Paddle": 1, "Ball": 1, "Block": 100, 'Done': 1, "Reward": 1}
-
-        self.state_size = sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])
-        self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [1], "done": [1]}
-        self.enumeration = {"Action": [0,1], "Paddle": [1,2], "Ball": [2,3], "Block": [3,103], 'Done':[103,104], "Reward":[104,105]}
+            self.object_num = {"Action": 1, "Paddle": 1, "Ball": 1, "Block": num_blocks, 'Done': 1, "Reward": 1}
+            self.state_size = sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])
+            self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [1], "done": [1], "info": [1]}
+            self.enumeration = {"Action": [0,1], "Paddle": [1,2], "Ball": [2,3], "Block": [3,3+num_blocks], 'Done':[103,104], "Reward":[104,105]}
         self.param_size = self.state_size
         self.set_indexes()
+
+    def get_info(self, full_state):
+        factored_state = full_state['factored_state']
+        return factored_state['Done']
+
 
     def get_interaction_trace(self, name):
         trace = []
@@ -37,7 +41,6 @@ class BreakoutEnvironmentModel(EnvironmentModel):
 
     def get_factored_state(self, instanced = False): # "instanced" indicates if a single type can have multiple instances (true), or if all of the same type is grouped into a single vector
         factored_state = {n: [] for n in self.object_names}
-
         if not instanced:
             for o in self.environment.objects:
                 for n in self.object_names:
@@ -50,55 +53,40 @@ class BreakoutEnvironmentModel(EnvironmentModel):
             factored_state = {o.name: np.array(o.pos.tolist() + o.vel.tolist() + [o.attribute]) for o in self.environment.objects}
         factored_state["Done"] = np.array([float(self.environment.done)])
         factored_state["Reward"] = np.array([float(self.environment.reward)])
-
         return factored_state
 
-    def get_raw_state(self, state):
-        return state['raw_state']
+    # def flatten_factored_state(self, factored_state, instanced=False, names=None):
+    #     if names is None:
+    #         names = self.object_names
+    #     if type(factored_state) == np.ndarray or type(factored_state) == torch.Tensor: # already flattened
+    #         return factored_state
+    #     if instanced:
+    #         if type(factored_state) == list:
+    #             flattened_state = list()
+    #             for f in factored_state:
+    #                 flat = list()
+    #                 for n in names:
+    #                     if self.object_num[n] > 1:
+    #                         for i in range(self.object_num[n]):
+    #                             flat += f[n+str(i)]
+    #                 flattened_state += flat
+    #             flattened_state = np.array(flattened_state)
+    #         else:
+    #             flattened_state = list()
+    #             for n in names:
+    #                 if self.object_num[n] > 1:
+    #                     for i in range(self.object_num[n]):
+    #                         flattened_state += factored_state[n+str(i)]
+    #                 else:
+    #                     flattened_state += factored_state[n]
 
-    def flatten_factored_state(self, factored_state, instanced=False, names=None):
-        '''
-        generates an nxdim state from a list of factored states. Overloaded to accept single factored states as well
-        This is in the environment model because the order shoud follow the order of the object names
-        if the input state is not flattened, return
-        '''
-        if names is None:
-            names = self.object_names
-        if type(factored_state) == np.ndarray or type(factored_state) == torch.Tensor: # already flattened
-            return factored_state
-        if instanced:
-            if type(factored_state) == list:
-                flattened_state = list()
-                for f in factored_state:
-                    flat = list()
-                    for n in names:
-                        if self.object_num[n] > 1:
-                            for i in range(self.object_num[n]):
-                                flat += self.append_shapes(f[n+str(i)])
-                    flattened_state += flat
-                flattened_state = np.array(flattened_state)
-            else:
-                flattened_state = list()
-                for n in names:
-                    if self.object_num[n] <= 1:
-                        flattened_state += self.append_shapes(factored_state[n])
-                    else:
-                        for i in range(self.object_num[n]):
-                           flattened_state += self.append_shapes(factored_state[n+str(i)])
-
-
-                flattened_state = np.array(flattened_state)
-
-                if len(factored_state[names[0]].shape) == 2 and len(flattened_state.shape) == 1:
-                    flattened_state = np.expand_dims(flattened_state, axis=0)
-        else:
-            if type(factored_state) == list:
-                flattened_state = np.array([np.concatenate([factored_state[i][f] for f in names], axis=1) for i in range(factored_state)])
-            else:
-                # print(factored_state)
-                flattened_state = np.array(np.concatenate([factored_state[f] for f in names], axis=0))
-
-        return flattened_state
+    #             flattened_state = np.array(flattened_state)
+    #     else:
+    #         if type(factored_state) == list:
+    #             flattened_state = np.array([np.concatenate([factored_state[i][f] for f in names], axis=1) for i in range(factored_state)])
+    #         else:
+    #             flattened_state = np.array(np.concatenate([factored_state[f] for f in names], axis=0))
+    #     return flattened_state
 
     # def unflatten_state(self, flattened_state, vec=False, instanced=False, names=None):
     #     if names is None:
