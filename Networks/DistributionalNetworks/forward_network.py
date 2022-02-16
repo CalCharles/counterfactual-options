@@ -12,17 +12,19 @@ class DiagGaussianForwardNetwork(Network):
         self.std = BasicMLPNetwork(**kwargs)
         self.normalization = kwargs['normalization_function']
         self.model = [self.mean, self.std]
-        self.base_variance = kwargs['base_variance']
+        self.base_variance = pytorch_model.wrap(kwargs['base_variance'])
 
         self.train()
         self.reset_parameters()
 
     def cpu(self):
         super().cpu()
+        self.base_variance = pytorch_model.wrap(self.base_variance, cuda=False)
         self.normalization.cpu()
     
     def cuda(self):
         super().cuda()
+        self.base_variance = pytorch_model.wrap(self.base_variance, cuda=True)
         self.normalization.cuda()
 
 
@@ -40,17 +42,19 @@ class DiagGaussianForwardPairNetwork(Network):
         self.std = PairNetwork(**kwargs)
         self.normalization = kwargs['normalization_function']
         self.model = [self.mean, self.std]
-        self.base_variance = kwargs['base_variance']
+        self.base_variance = pytorch_model.wrap(kwargs['base_variance'])
 
         self.train()
         self.reset_parameters()
 
     def cpu(self):
         super().cpu()
+        self.base_variance = pytorch_model.wrap(self.base_variance, cuda=False)
         self.normalization.cpu()
     
     def cuda(self):
         super().cuda()
+        self.base_variance = pytorch_model.wrap(self.base_variance, cuda=True)
         self.normalization.cuda()
 
 
@@ -65,14 +69,17 @@ class BinaryNetwork(Network):
         kwargs["aggregate_final"] = False # don't aggregate the last layer, just convert the dim
         kwargs["output_dim"] = 1 # output the state of the object
         self.normalization = kwargs['normalization_function']
-        self.base_variance = kwargs['base_variance']
+        self.base_variance = pytorch_model.wrap(kwargs['base_variance'])
 
     def cpu(self):
         super().cpu()
+        self.base_variance = pytorch_model.wrap(self.base_variance, cuda=False)
         self.normalization.cpu()
+
     
     def cuda(self):
         super().cuda()
+        self.base_variance = pytorch_model.wrap(self.base_variance, cuda=True)
         self.normalization.cuda()
 
     def forward(self, x):
@@ -128,7 +135,7 @@ class OutputPairNetwork(Network):
         self.binaries = PairNetwork(**kwargs) # only these two lines are different so there should be a way to compress this...
         self.normalization = kwargs['normalization_function']
         self.model = [self.binaries]
-        self.base_variance = kwargs['base_variance']
+        self.base_variance = pytorch_model.wrap(kwargs['base_variance'])
         self.value = kwargs['value']
 
         self.train()
@@ -136,10 +143,13 @@ class OutputPairNetwork(Network):
 
     def cpu(self):
         super().cpu()
+        self.base_variance = pytorch_model.wrap(self.base_variance, cuda=False)
         self.normalization.cpu()
+
     
     def cuda(self):
         super().cuda()
+        self.base_variance = pytorch_model.wrap(self.base_variance, cuda=True)
         self.normalization.cuda()
 
 

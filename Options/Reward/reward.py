@@ -222,7 +222,7 @@ class DistanceInstancedReward(Reward):
 				dist = np.linalg.norm(param_pos-hit, ord=1) 
 				# print(param_pos, hit, hi, dist)
 				# print("rew", dist, (np.exp(-dist/ self.max_distance_epsilon) - .1) * self.plmbda)
-				rews.append((np.exp(-dist) - .1) * self.plmbda)
+				rews.append((np.exp(-dist/self.max_distance_epsilon) - .1) * self.plmbda)
 			# print(rews, max(rews))
 			return max(rews)
 		return 0

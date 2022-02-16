@@ -56,7 +56,7 @@ def initialize_environment(args, set_save=True, render=""):
         use_render = len(render) > 0
         print(use_render)
         environment = RoboPushingEnvironment(control_freq=2, horizon=args.time_cutoff, renderable=use_render, num_obstacles=args.num_obstacles,
-         standard_reward=-1, goal_reward=1, obstacle_reward=-2, out_of_bounds_reward=-2, hard_obstacles=args.hard_obstacles)
+         standard_reward=-1, goal_reward=1, obstacle_reward=-2, out_of_bounds_reward=-2, hard_obstacles=args.hard_obstacles, planar_mode=args.planar_mode)
         environment.seed(args.seed)
         environment_model = RobosuitePushingEnvironmentModel(environment)
     elif args.env.find("RoboStick") != -1:

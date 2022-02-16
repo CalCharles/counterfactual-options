@@ -1,6 +1,6 @@
 # Feature Search Function
 import numpy as np
-import os, cv2, time, copy
+import os, cv2, time, copy, psutil
 import torch
 from collections import Counter
 from file_management import read_obj_dumps, load_from_pickle, save_to_pickle
@@ -9,6 +9,8 @@ from Rollouts.rollouts import merge_rollouts
 from DistributionalModels.InteractionModels.interaction_model import interaction_models, default_model_args, nf5, nflen
 from Networks.input_norm import InterInputNorm, PointwiseNorm, PointwiseConcatNorm
 from EnvironmentModels.environment_normalization import hardcode_norm, position_mask
+from DistributionalModels.InteractionModels.InteractionTraining.train_full import train_full
+from DistributionalModels.InteractionModels.InteractionTraining.assessment_functions import assess_error
 
 class FeatureExplorer():
     def __init__(self, graph, controllable_feature_selectors, environment_model, model_args):
@@ -17,7 +19,7 @@ class FeatureExplorer():
         self.model_args = model_args
         self.graph = graph
 
-    def search(self, rollouts, train_args):
+    def search(self, train, test, train_args):
         # only search between entities (so that it's easier)
         gamma_size = 1
         delta_size = 1
@@ -50,7 +52,6 @@ class FeatureExplorer():
             target_names = [train_args.train_pair[-1]]
         else:
             target_names = self.em.object_names
-
         cfslist.reverse()
         print("controllable objects", [c for c in cfslist])
         # HACKED LINE TO SPEED UP TRAINING
@@ -65,13 +66,13 @@ class FeatureExplorer():
                     for name in target_names:
                         if name != controllable_entity and name not in delta_tested and (controllable_entity, name) not in self.graph.edges:
                             print(cfsdict)
-                            model, test, gamma_new, delta_new = self.train(cfs, cfsdict[cfs], additional_feature, rollouts, train_args, name)
+                            model, test, gamma_new, delta_new = self.train(cfs, cfsdict[cfs], additional_feature, train, test, train_args, name)
                             comb_passed, combined = self.pass_criteria(train_args, model, test, train_args.model_error_significance)
                             gamma_comb = gamma_new
                             delta_comb = delta_new
                             # must include the delta as an input
                             # entity_selection = self.em.create_entity_selector([controllable_entity])
-                            # model, test, gamma_new, delta_new = self.train(cfs, rollouts, train_args, entity_selection, name)
+                            # model, test, gamma_new, delta_new = self.train(cfs, cfsdict[cfs], additional_feature, train, test, train_args, entity_selection, name)
                             # sep_passed, sep = self.pass_criteria(model, test, train_args.model_error_significance)
                             # if sep_passed or comb_passed:
                             if comb_passed:
@@ -97,16 +98,16 @@ class FeatureExplorer():
         return model, gamma, delta
 
     def pass_criteria(self, args, model, test, model_error_significance): # TODO: using difference from passive is not a great criteria since the active follows a difference loss once interaction is added in
-        forward_error, passive_error = model.assess_error(test, passive_error_cutoff=args.passive_error_cutoff)
+        forward_error, passive_error = assess_error(model, test, passive_error_cutoff=args.passive_error_cutoff)
         passed = forward_error < (passive_error - model_error_significance)
         print("comparison", forward_error, passive_error, model_error_significance, passed)
         return passed, forward_error-passive_error
 
-    def train(self, cfs, cfss, additional_object, rollouts, train_args, target):
+    def train(self, cfs, cfss, additional_object, train, test, train_args, target):
         print("Edge ", cfs, "-> ", target)
         aosize = 0
         model_name = cfs + "->"+ target
-        train_args.position_mask = position_mask(train_args)
+        train_args.position_mask = position_mask(train_args.env)
         if len(additional_object) > 0: 
             self.model_args['additional_dim'] = 0
             self.model_args['last_additional'] = self.em.object_sizes[additional_object[-1]] # TODO: only the last additional object can be multi_instanced
@@ -170,11 +171,11 @@ class FeatureExplorer():
                 input_norm_fun.assign_mean_var(*gamma_norm)
                 delta_norm_fun.assign_mean_var(*delta_norm)
         else:
-            input_norm_fun.compute_input_norm(entity_selection(rollouts.get_values("state")))
-            delta_norm_fun.compute_input_norm(self.model_args['delta'](rollouts.get_values("state")))
+            input_norm_fun.compute_input_norm(entity_selection(train.get_values("state")))
+            delta_norm_fun.compute_input_norm(self.model_args['delta'](train.get_values("state")))
         self.model_args['normalization_function'] = input_norm_fun#nflen(nin)
         self.model_args['delta_normalization_function'] = delta_norm_fun#nflen(nout) if not train_args.predict_dynamics else nf5
-        self.model_args['base_variance'] = train_args.base_variance
+        self.model_args['base_variance'] = train_args.base_variance[0] if len(train_args.base_variance) == 1 else train_args.base_variance
         print(train_args.base_variance)
         print(entity_selection.output_size())
         self.model_args['num_inputs'] = self.model_args['gamma'].output_size()
@@ -186,17 +187,8 @@ class FeatureExplorer():
         model = interaction_models[self.model_args['model_type']](**self.model_args)
         print(model)
         print(self.model_args)
-        if not train_args.load_intermediate:
-            train, test = rollouts.split_train_test(train_args.ratio)
-            train.cpu(), test.cpu()
-        else:
-            train = load_from_pickle("data/temp/train.pkl")
-            test = load_from_pickle("data/temp/test.pkl")
-        if train_args.save_intermediate:
-            save_to_pickle("data/temp/train.pkl", train)
-            save_to_pickle("data/temp/test.pkl", test)
-        print(train.filled, rollouts.filled)
+        print(train.filled, test.filled)
         train.cuda(), test.cuda()
-        model.train(train, test, train_args, control=cfs, controllers=cfss, target_name=target)
+        train_full(model, train, test, train_args, control=cfs, controllers=cfss, target_name=target)
         return model, test, self.model_args['gamma'], self.model_args['delta']
 

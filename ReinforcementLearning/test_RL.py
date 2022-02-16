@@ -14,7 +14,7 @@ from ReinforcementLearning.Policy.policy import pytorch_model
 from file_management import save_to_pickle
 
 def testRL(args, test_collector, environment, environment_model, option, names, graph):
-    test_perf, suc = deque(maxlen=200), deque(maxlen=200)
+    test_perf, suc, assessment = deque(maxlen=200), deque(maxlen=200), deque(maxlen=100)
     total_steps = 0
     for i in range(args.num_iters):
         print("testing collection")
@@ -24,15 +24,16 @@ def testRL(args, test_collector, environment, environment_model, option, names, 
         miss_count = list()
         for j in range(args.test_trials):
             if args.max_steps > 0: result = test_collector.collect(n_episode=1, n_term=None if args.test_episode else 1, n_step=args.max_steps, visualize_param=args.visualize_param)
-            print(result["n/st"])
+            print(result["n/st"], result["assessment"])
             total_steps += result["n/st"]
             hit_count.append(result['n/h'])
             miss_count.append(result['n/m'])
             test_perf.append(result["rews"].mean())
+            assessment.append(result["assessment"])
             suc.append(float(result["terminate"]))
         print("Iters: ", i, "Steps: ", total_steps)
         mean_hit = sum(hit_count)/ max(1, sum(miss_count) + sum(hit_count))
-        print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}", f"Hit Miss: {mean_hit}")
+        print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}", f"Hit Miss: {mean_hit}", f"Assessment: {assessment}")
         test_collector.reset_env() # because test collector and train collector share the same environment
 
 

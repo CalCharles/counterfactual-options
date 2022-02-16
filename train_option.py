@@ -1,4 +1,4 @@
-import os, sys
+import os, sys, psutil
 import torch
 import numpy as np
 from arguments import get_args
@@ -130,6 +130,15 @@ if __name__ == '__main__':
         sample_schedule=args.sample_schedule, environment_model=environment_model, init_state=init_state, 
         no_combine_param_mask=args.no_combine_param_mask, sample_distance=args.sample_distance, target_object=args.target)
 
+    # add in the sampler to the environments if necessary
+    if args.object == "Block" and args.env == "SelfBreakout" and args.breakout_variant == "proximity":
+        test_environment.sampler = samplers[args.sampler_type](dataset_model=dataset_model, 
+            sample_schedule=args.sample_schedule, environment_model=test_environment_model, init_state=init_state, 
+            no_combine_param_mask=args.no_combine_param_mask, sample_distance=args.sample_distance, target_object=args.target)
+        environment.sampler = samplers[args.sampler_type](dataset_model=dataset_model, 
+            sample_schedule=args.sample_schedule, environment_model=environment_model, init_state=init_state, 
+            no_combine_param_mask=args.no_combine_param_mask, sample_distance=args.sample_distance, target_object=args.target)
+
     # initialize state extractor
     option_name = dataset_model.name.split("->")[0].split("+")[0] # TODO: assumes only one option in the tail for now
     full_tail = dataset_model.name.split("->")[0].split("+")
@@ -254,6 +263,7 @@ if __name__ == '__main__':
     torch.set_printoptions(precision=2)
     np.set_printoptions(precision=3, linewidth = 150, threshold=200, suppress=True)
     
+    print("pre buffer", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
     # TODO: only initializes with ReplayBuffer, prioritizedReplayBuffer at the moment, but could extend to vector replay buffer if multithread possible
     if len(args.prioritized_replay) > 0:
         trainbuffer = ParamPriorityReplayBuffer(args.buffer_len, stack_num=1, alpha=args.prioritized_replay[0], beta=args.prioritized_replay[1])
@@ -277,6 +287,7 @@ if __name__ == '__main__':
 
     tensorboard_logger = SummaryWriter(log_dir=os.path.join(args.record_rollouts, "logs") if len(args.record_rollouts) > 0 else "./logs/temp/")
 
+    print("pre train", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
     trained = trainRL(args, train_collector, test_collector, environment, environment_model, option, names, graph, tensorboard_logger)
     tensorboard_logger.close()
     if trained and not args.true_environment: # if trained, add control feature to the graph

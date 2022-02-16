@@ -93,7 +93,9 @@ macros.SIMULATION_TIMESTEP = 0.02
 #         return self.curr_obs["frontview_image"][::-1]
 
 class RoboPushingEnvironment(RawEnvironment):
-    def __init__(self, control_freq=2, horizon=30, renderable=False, num_obstacles=0, standard_reward=-1, goal_reward=10, obstacle_reward=-10, out_of_bounds_reward=-1, joint_mode=False, hard_obstacles=False):
+    def __init__(self, control_freq=2, horizon=30, renderable=False, num_obstacles=0, 
+        standard_reward=-1, goal_reward=10, obstacle_reward=-10, out_of_bounds_reward=-1, 
+        joint_mode=False, hard_obstacles=False, planar_mode=False):
         super().__init__()
         self.joint_mode = joint_mode
         controller = "JOINT_POSITION" if joint_mode else "OSC_POSE" # TODO: handles only two action spaces at the moment
@@ -116,10 +118,12 @@ class RoboPushingEnvironment(RawEnvironment):
                 goal_reward=goal_reward, 
                 obstacle_reward=obstacle_reward, 
                 out_of_bounds_reward=out_of_bounds_reward,
-                hard_obstacles=hard_obstacles
+                hard_obstacles=hard_obstacles,
+                keep_gripper_in_cube_plane=planar_mode
             )
 
         self.frameskip = control_freq
+        self.planar_mode = planar_mode # TODO: planar mode does not change the action space, but just makes the agent agnostic to the z axis action
 
         low, high = self.env.action_spec
         limit = 7 if self.joint_mode else 3
@@ -166,7 +170,10 @@ class RoboPushingEnvironment(RawEnvironment):
         if self.joint_mode:
             use_act = action
         else: # OSC mode
-            use_act = np.concatenate([action, [0, 0, 0]])
+            if self.planar_mode:
+                use_act = np.concatenate([action[:2], [0,0,0,0]])
+            else:
+                use_act = np.concatenate([action, [0, 0, 0]])
         next_obs, reward, done, info = self.env.step(use_act)
         self.reward, self.done = reward, done
         if reward == 0: # don't wait at the goal, just terminate

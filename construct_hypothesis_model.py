@@ -21,10 +21,15 @@ from Counterfactual.passive_active_dataset import HackedPassiveActiveDataset
 from Options.option_graph import OptionGraph, OptionNode, load_graph, OptionEdge, graph_construct_load
 from Options.option import Option, PrimitiveOption
 from DistributionalModels.InteractionModels.interaction_model import default_model_args, load_hypothesis_model
+from DistributionalModels.InteractionModels.InteractionTraining.active_determination import determine_active_set, determine_range
+from DistributionalModels.InteractionModels.InteractionTraining.assessment_functions import assess_error
+from DistributionalModels.InteractionModels.InteractionTraining.sampling import collect_samples
+from DistributionalModels.InteractionModels.InteractionTraining.traces import generate_interaction_trace
 from DistributionalModels.InteractionModels.feature_explorer import FeatureExplorer
 from Networks.network import pytorch_model
 import numpy as np
 import sys
+import psutil
 
 if __name__ == '__main__':
     print("pid", os.getpid())
@@ -47,21 +52,32 @@ if __name__ == '__main__':
             graph.nodes[cfs.object()].option.policy.set_eps(0)
     
     # commented section BELOW
-    data = read_obj_dumps(args.record_rollouts, i=-1, rng = args.num_frames, filename='object_dumps.txt')
-    rollouts = ModelRollouts(len(data), environment_model.shapes_dict)
     if not args.load_intermediate:
+        print("generating data")
+        print("pre loaded", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
+        data = read_obj_dumps(args.record_rollouts, i=-1, rng = args.num_frames, filename='object_dumps.txt')
+        print("read", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
+        rollouts = ModelRollouts(len(data), environment_model.shapes_dict)
+        print("rollouts", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
         i=0
         for data_dict, next_data_dict in zip(data, data[1:]):
+            # print(data_dict)
             insert_dict, last_state, skip = environment_model.get_insert_dict(data_dict, next_data_dict, last_state, instanced=True, action_shift = args.action_shift)
             if not skip:
                 # print(np.array(data_dict["Gripper"] + data_dict["Block"]+ next_data_dict["Block"] + (np.array(next_data_dict["Block"]) - np.array(data_dict["Block"])).tolist() ) )
                 # print(np.array(data_dict["Paddle"] + data_dict["Ball"]+ next_data_dict["Ball"]))
                 rollouts.append(**insert_dict)
             i += 1
+            if i % 10000 == 0:
+                print("loaded", i, psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
         if args.save_intermediate:
             # save_to_pickle("data/temp/rollouts.pkl", rollouts)
             save_to_pickle("/hdd/datasets/counterfactual_data/temp/rollouts.pkl", rollouts)
+        del data
+        print("del", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
+
     else:
+        print("loading intermediate")
         # rollouts = load_from_pickle("data/temp/rollouts.pkl")
         rollouts = load_from_pickle("/hdd/datasets/counterfactual_data/temp/rollouts.pkl")
         if args.cuda:
@@ -86,8 +102,26 @@ if __name__ == '__main__':
             model_args['controllable'], model_args['environment_model'] = controllable_feature_selectors, environment_model
             print(model_args)
             feature_explorer = FeatureExplorer(graph, controllable_feature_selectors, environment_model, model_args) # args should contain the model args, might want subspaces for arguments or something since args is now gigantic
-            print(rollouts.filled)
-            exploration = feature_explorer.search(rollouts, args) # again, args contains the training parameters, but we might want subsets since this is a ton of parameters more 
+            print("rollouts filled", rollouts.filled)
+
+            print("pre train test", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
+            if not args.load_intermediate:
+                train, test = rollouts.split_train_test(args.ratio)
+                train.cpu(), test.cpu()
+            else:
+                train = load_from_pickle("data/temp/train.pkl")
+                test = load_from_pickle("data/temp/test.pkl")
+            if args.save_intermediate:
+                save_to_pickle("data/temp/train.pkl", train)
+                save_to_pickle("data/temp/test.pkl", test)
+            print("train test", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
+            rollouts.cpu()
+            torch.cuda.empty_cache()
+            del rollouts
+            print("del rols", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
+
+
+            exploration = feature_explorer.search(train, test, args) # again, args contains the training parameters, but we might want subsets since this is a ton of parameters more 
             if exploration is None:
                 print("FAILED TO LOCATE RELATED FEATURES")
                 success = False
@@ -107,7 +141,12 @@ if __name__ == '__main__':
         hypothesis_model.cpu()
         hypothesis_model.cuda()
 
-        forward_error, passive_error = hypothesis_model.assess_error(rollouts, passive_error_cutoff=args.passive_error_cutoff)
+        trace = None
+        if args.load_intermediate: trace = load_from_pickle("data/temp/trace.pkl").cpu().cuda()
+        else: trace = generate_interaction_trace(hypothesis_model, rollouts, [hypothesis_model.control_feature.object()], [hypothesis_model.target_name])
+        if args.save_intermediate:
+            save_to_pickle("data/temp/trace.pkl", trace)
+        forward_error, passive_error = assess_error(hypothesis_model, rollouts, passive_error_cutoff=args.passive_error_cutoff, trace=trace)
         passed = forward_error < (passive_error - args.model_error_significance)
         print("comparison", forward_error, passive_error, args.model_error_significance, passed)
 
@@ -122,8 +161,8 @@ if __name__ == '__main__':
         # controllable_feature_selectors = [ControllableFeature(afs, [0,environment.num_actions],1)]
         # if args.hardcode_norm[0] == "RoboPushing":
         #     hardcode_norm = (np.array([-.31, -.31, .83]), np.array([.10, .21, .915])) 
-        hypothesis_model.determine_active_set(rollouts, feature_step=args.feature_step)
-        hypothesis_model.collect_samples(rollouts, use_trace=args.interaction_iters > 0)
+        determine_active_set(hypothesis_model, rollouts, feature_step=args.feature_step)
+        collect_samples(hypothesis_model, rollouts, use_trace=args.interaction_iters > 0)
         hypothesis_model.cpu()
         hypothesis_model.save(args.save_dir)
         print(hypothesis_model.selection_binary)

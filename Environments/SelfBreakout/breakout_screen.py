@@ -16,43 +16,44 @@ ball_vels = [np.array([-1.,-1.]).astype(np.int), np.array([-2.,-1.]).astype(np.i
 
 # default settings for normal variants, args in order: 
 # target_mode (1)/edges(2)/center(3), scatter (4), num rows, num_columns, no_breakout (value for hit_reset), negative mode, bounce_count
-breakout_variants = {"default": (0,5, 20, -1, "", 0),
-                     "row":  (0,1,10,-1,"", 0),
-                     "small": (0,2,10,-1,"", 0), 
-                    "row_nobreak": (0,1,10,10,"", 0), 
-                    "small_nobreak": (0,2,10,15,"", 0),
-                    "full_nobreak": (0,5,20,115,"", 0),
-                    "big_block": (1,1,1,-1,"",0),
-                    "single_block": (1,1,1,-1,"",-1),
-                    "negative_split_full": (0,5,20,75,"side",0),
-                    "negative_split_small": (0,2,10,15,"side",0),
-                    "negative_split_row": (0,1,10,5,"side",0),
-                    "negative_center_full": (0,5,20,75,"center",0),
-                    "negative_center_small": (0,2,10,15,"center",0),
-                    "negative_center_row": (0,1,10,10,"center",0),
-                    "negative_edge_full": (0,5,20,75,"edge",0),
-                    "negative_edge_small": (0,2,10,15,"edge",0),
-                    "negative_edge_row": (0,1,10,10,"edge",0),
-                    "negative_checker_row": (0,1,10,10,"checker",0),
-                    "negative_rand_row": (0,1,10,5,"rand",0),
-                    "negative_double": (1,1,1,-1,"rand",-1),
-                    "negative_multi": (1,1,1,-1,"rand",-1),
-                    "negative_top_full": (0,5,20,40,"top",0),
-                    "negative_top_small": (0,2,10,7,"top",0),
-                    "breakout_priority_small": (0,2,10,-1,"",-2),
-                    "breakout_priority_medium": (0,3,10,-1,"",-2),
-                    "breakout_priority_full": (0,5,20,-1,"",-2),
-                    "edges_full": (2,5,20,-1,"",-1),
-                    "edges_small": (2,2,10,-1,"",-1),
-                    "center_small": (3,2,10,-1,"",-1),
-                    "center_medium": (3,3,15,-1,"",-1),
-                    "center_full": (3,5,20,-1,"",-1),
-                    "harden_single": (4,3,10,-1,"",-1)}
+breakout_variants = {"default": (0,5, 20, -1, "", 0,0, 0),
+                     "row":  (0,1,10,-1,"", 0,0, 0),
+                     "small": (0,2,10,-1,"", 0,0, 0), 
+                    "row_nobreak": (0,1,10,10,"", 0,0, 0), 
+                    "small_nobreak": (0,2,10,15,"", 0,0, 0),
+                    "full_nobreak": (0,5,20,115,"", 0,0, 0),
+                    "big_block": (1,1,1,-1,"",0,0, 0),
+                    "single_block": (1,1,1,-1,"",-1,0, 0),
+                    "negative_split_full": (0,5,20,75,"side",0,0, 0),
+                    "negative_split_small": (0,2,10,15,"side",0,0, 0),
+                    "negative_split_row": (0,1,10,5,"side",0,0, 0),
+                    "negative_center_full": (0,5,20,75,"center",0,0, 0),
+                    "negative_center_small": (0,2,10,15,"center",0,0, 0),
+                    "negative_center_row": (0,1,10,10,"center",0,0, 0),
+                    "negative_edge_full": (0,5,20,75,"edge",0,0, 0),
+                    "negative_edge_small": (0,2,10,15,"edge",0,0, 0),
+                    "negative_edge_row": (0,1,10,10,"edge",0,0, 0),
+                    "negative_checker_row": (0,1,10,10,"checker",0,0, 0),
+                    "negative_rand_row": (0,1,10,5,"rand",0,0, 0),
+                    "negative_double": (1,1,1,-1,"rand",-1,0, 0),
+                    "negative_multi": (1,1,1,-1,"rand",-1,0, 0),
+                    "negative_top_full": (0,5,20,40,"top",0,0,0),
+                    "negative_top_small": (0,2,10,7,"top",0,0,0),
+                    "breakout_priority_small": (0,2,10,-1,"",-2,0, 1),
+                    "breakout_priority_medium": (0,3,10,-1,"",-2,0, 5),
+                    "breakout_priority_full": (0,5,20,-1,"",-2,0, 20),
+                    "edges_full": (2,5,20,-1,"",-1,0, 20),
+                    "edges_small": (2,2,10,-1,"",-1,0, 1),
+                    "center_small": (3,2,10,-1,"",-1,0, 1),
+                    "center_medium": (3,3,15,-1,"",-1,0, 5),
+                    "center_full": (3,5,20,-1,"",-2, 0,20),
+                    "harden_single": (4,3,10,-1,"",-1,10,0),
+                    "proximity": (0,5,20,100,"", 0,0, 0)}
 
 class Screen(RawEnvironment):
     def __init__(self, frameskip = 1, drop_stopping=True, target_mode = False, angle_mode=False,
                 num_rows = 5, num_columns = 20, max_block_height=4, no_breakout=False,
-                negative_mode="", random_exist=-1, hit_reset=-1, breakout_variant="", bounce_count=0):
+                negative_mode="", random_exist=-1, hit_reset=-1, breakout_variant="", bounce_cost=0, bounce_reset=0, sampler=None):
         super(Screen, self).__init__()
         self.num_actions = 4
         self.action_space = spaces.Discrete(self.num_actions)
@@ -61,8 +62,11 @@ class Screen(RawEnvironment):
         self.variant = breakout_variant
 
         bounce_reset = -1
+        bounce_cost = 0
+        bounce_reset = 0
+        self.completion_reward = 0
         if len(breakout_variant) > 0: # overrides any existing arguments
-            var_form, num_rows, num_columns, hit_reset, negative_mode, bounce_count = breakout_variants[breakout_variant]
+            var_form, num_rows, num_columns, hit_reset, negative_mode, bounce_cost, bounce_reset, completion_reward = breakout_variants[breakout_variant]
             target_mode = (var_form == 1)
             if var_form == 2:
                 negative_mode = "hardedge"
@@ -70,14 +74,17 @@ class Screen(RawEnvironment):
                 negative_mode = "hardcenter"
             if var_form == 4:
                 negative_mode = "hardscatter"
-                bounce_reset = 10
             no_breakout = hit_reset > 0
+            # self.completion_reward = completion_reward
 
-        self.full_stopping = bounce_count < 0 or hit_reset > 0 or bounce_reset > 0
+        self.sampler = sampler
+        self.full_stopping = bounce_cost < 0 or hit_reset > 0 or bounce_reset > 0
+        self.assessment_stat = 0 # a measure of performance specific to the variant
         self.drop_stopping = drop_stopping
         self.target_mode = target_mode
-        self.bounce_count = bounce_count
-        self.default_reward = 1 if self.bounce_count == 0 else 1
+        self.bounce_reset = bounce_reset
+        self.bounce_cost = bounce_cost
+        self.default_reward = 1 if self.bounce_reset == 0 else 1
         self.num_rows = num_rows # must be a factor of 10
         self.num_columns = num_columns # must be a factor of 60
         self.max_block_height = max_block_height
@@ -117,6 +124,29 @@ class Screen(RawEnvironment):
         self.since_last_bounce = 0
         self.reset()
         self.num_remove = self.get_num_remove()
+
+    def assign_assessment_stat(self):
+        if self.dropped:
+            self.assessment_stat = -1000
+        elif self.variant == "big_block":
+            if self.ball.block: self.assessment_stat = 1
+        elif self.variant == "default":
+            if self.ball.block: self.assessment_stat += 1
+        elif self.variant == "negative_rand_row":
+            if self.reward > 0: self.assessment_stat += 1
+        elif self.variant == "center_full":
+            if self.ball.paddle: self.assessment_stat -= 1
+        elif self.variant == "breakout_priority_full":
+            if self.ball.paddle: self.assessment_stat -= 1
+        elif self.variant == "harden_single": 
+            if self.ball.paddle: self.assessment_stat -= 1
+        elif self.variant == "single_block": 
+            if self.ball.paddle: self.assessment_stat -= 1
+        elif self.variant == "proximity":
+            if self.ball.block:
+                self.assessment_stat = (self.assessment_stat[0] + 1, self.assessment_stat + np.linalg.norm(self.sampler.param - self.ball.block_id.get_midpoint(), p=1))
+            if self.done:
+                self.assessment_stat = self.assessment_stat[1] / self.assessment_stat[0]
 
 
     def ball_reset(self):
@@ -173,12 +203,13 @@ class Screen(RawEnvironment):
 
 
     def reset(self):
+        self.assessment_stat = 0
         if self.seed_counter > 0:
             self.seed_counter += 1
             np.random.seed(self.seed_counter)
         vel= np.array([np.random.randint(1,2), np.random.choice([-1,1])])
         # self.ball = Ball(np.array([52, np.random.randint(14, 70)]), 1, vel)
-        self.ball = Ball(np.array([np.random.randint(38, 45), np.random.randint(14, 70)]), 1, vel, top_reset=self.target_mode and self.bounce_count >= 0)
+        self.ball = Ball(np.array([np.random.randint(38, 45), np.random.randint(14, 70)]), 1, vel, top_reset=self.target_mode and self.bounce_cost == 0)
         self.ball.hard_mode = self.hard_mode
         self.ball.reset_pos(self.target_mode)
         self.ball.losses = 0
@@ -187,7 +218,7 @@ class Screen(RawEnvironment):
         self.blocks = []
         self.blocks2D = list()
         if self.target_mode:
-            if self.bounce_count: # target mode with small blocks
+            if self.bounce_cost != 0: # target mode with small blocks
                 pos_block = Block(np.array([int(17 + np.random.rand() * 20),int(15 + np.random.rand() * 51)]), 1, -1, (0,0), size = 2)
                 self.block_width = pos_block.width
                 self.block_height = pos_block.height
@@ -337,6 +368,7 @@ class Screen(RawEnvironment):
         self.needs_ball_reset = False
         self.resetted = False
         self.truncate = False
+        self.dropped = False
         for i in range(self.frameskip):
             self.actions.take_action(action)
             for obj1 in self.animate:
@@ -360,23 +392,25 @@ class Screen(RawEnvironment):
             # self.ball.interact(self.paddle)
             # self.ball.move()
             # print(self.ball.pos[0])
-            if self.ball.paddle and self.bounce_count < 0:
-                self.reward += self.bounce_count # the bounce count is a penalty for paddle bounces
+            if self.ball.paddle and self.bounce_cost < 0:
+                self.reward += self.bounce_cost # the bounce count is a penalty for paddle bounces
             if (68 <= self.ball.pos[0] <= 69 and self.ball.vel[0] == 1) or (67 <= self.ball.pos[0] <= 69 and self.ball.vel[0] == 2):
                 self.used_angle= True
             for ani_obj in self.animate:
                 ani_obj.move()
             pre_stop = (self.ball.pos[0] == 77 and self.ball.vel[0] == 2) or (self.ball.pos[0] == 78 and self.ball.vel[0] == 1) or (self.ball.pos[0] == 78 and self.ball.vel[0] == 2)
             if pre_stop and (self.drop_stopping or self.target_mode):
-                self.reward += -30 * self.default_reward * 10 # negative reward for dropping the ball since done is not triggered
-                self.total_score += -30 * self.default_reward * int(not self.ball.block) * 10
+                self.reward += -10 * self.default_reward # negative reward for dropping the ball since done is not triggered
+                self.total_score += -10 * self.default_reward * int(not self.ball.block)
                 self.done = True
                 self.needs_ball_reset = True
                 print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
                 self.since_last_bounce = 0
                 self.truncate = True
+                self.dropped = True
+
                 break
-            if (self.ball.losses == 4 and pre_stop) or (self.target_mode and ((self.ball.top_wall and self.bounce_count >= 0) or self.ball.bottom_wall or self.ball.block)):
+            if (self.ball.losses == 4 and pre_stop) or (self.target_mode and ((self.ball.top_wall and self.bounce_cost == 0) or self.ball.bottom_wall or self.ball.block)):
                 self.average_points_per_life = self.total_score / 5.0
                 self.done = True
                 self.reward += -1 * self.default_reward * int(not self.ball.block)
@@ -385,7 +419,7 @@ class Screen(RawEnvironment):
                 self.total_score = 0
                 self.since_last_bounce = 0
                 needs_reset = True
-                self.truncate = True
+                self.truncate = not self.ball.block and not (self.target_mode and ((self.ball.top_wall and self.bounce_cost == 0)))
                 break
 
             if hit:
@@ -397,7 +431,7 @@ class Screen(RawEnvironment):
                     or (self.no_breakout and self.hit_reset > 0 and self.hit_counter == self.hit_reset)
                     or self.negative_mode == "hardscatter" and self.get_num_points() == 1):
                     needs_reset = True
-                    self.reward += 20 * self.default_reward
+                    self.reward += self.completion_reward * self.default_reward
                     print("block_reset", self.get_num_points(), self.num_remove, len(self.blocks), self.hit_counter, self.hit_reset, self.no_breakout and self.hit_reset <= 0 and self.get_num_points() == self.num_columns + 1 and self.num_rows > 1, self.no_breakout and self.hit_reset > 0 and self.hit_counter == self.hit_reset)
                     if self.full_stopping:
                         self.done = True
@@ -428,8 +462,10 @@ class Screen(RawEnvironment):
                 object_dumps = open(os.path.join(self.save_path, "object_dumps.txt"), 'w') # create file if it does not exist
                 object_dumps.close()
             self.write_objects(extracted_state, frame.astype(np.uint8))
+        self.assign_assessment_stat() # bugs occur if using frame skipping
+        assessment_stat = self.assessment_stat
         if needs_reset: self.reset()
-        return {"raw_state": frame, "factored_state": extracted_state}, self.reward, self.done, {"lives": lives, "TimeLimit.truncated": self.truncate}
+        return {"raw_state": frame, "factored_state": extracted_state}, self.reward, self.done, {"lives": lives, "TimeLimit.truncated": self.truncate, "assessment": assessment_stat}
 
     def run(self, policy, iterations = 10000, render=False, save_path = "runs/", save_raw = True, duplicate_actions=1, angle_mode=False, visualize=False):
         self.set_save(0, save_path, -1, save_raw)

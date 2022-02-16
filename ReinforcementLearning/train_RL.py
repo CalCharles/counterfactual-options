@@ -5,9 +5,10 @@ from Rollouts.collector import BufferWrapper
 from tianshou.data import Batch
 import os
 import copy
+import psutil
 
 
-def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss, hit_miss_train, random=False, option=None, tensorboard_logger=None):
+def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss, hit_miss_train, assessment_test, assessment_train, random=False, option=None, tensorboard_logger=None):
     '''
     collect trials with the test collector
     the environment is reset before starting these trials
@@ -27,20 +28,27 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
         test_perf.append(result["rews"].mean())
         suc.append(float(result["terminate"]))
         hit_miss.append(result['n/h'])
+        assessment_test.append(result['assessment'])
     if random:
         print("Initial trials: ", trials)
     else:
         print("Iters: ", i, "Steps: ", total_steps)
-    mean_perf, mean_suc, mean_hit = np.array(test_perf).mean(), np.array(suc).mean(), sum(hit_miss)/ max(1, len(hit_miss))
+    mean_perf, mean_suc, mean_hit, mean_assessment = np.array(test_perf).mean(), np.array(suc).mean(), sum(hit_miss)/ max(1, len(hit_miss)), np.array(assessment).mean()
     hmt = 0.0
     if len(list(hit_miss_train)) > 0:
         hmt = np.sum(np.array(list(hit_miss_train)), axis=0)
         hmt = hmt[0] / (hmt[0] + hmt[1])
-    print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}", f"Hit Miss train: {hmt}")
+    if len(list(assessment_train)) > 0:
+        mean_train_assess = np.array(mean_train_assess)
+        mean_train_assess = mean_train_assess[mean_train_assess != -10000]
+        mean_train_assess = mean_train_assess.mean()
+    print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}", f"Hit Miss train: {hmt}", f"Assess: {mean_assessment}", f"Assess Train: {mean_train_assess}")
     if tensorboard_logger is not None:
         tensorboard_logger.add_scalar("Return", mean_perf, i)
         tensorboard_logger.add_scalar("Hit Miss/Test", mean_hit, i)
         tensorboard_logger.add_scalar("Hit Miss/Train", hmt, i)
+        tensorboard_logger.add_scalar("Assessment/Test", mean_assessment, i)
+        tensorboard_logger.add_scalar("Assessment/Train", mean_train_assess, i)
         tensorboard_logger.flush()
     if args.object == "Block" and args.env == "SelfBreakout"  and not args.target_mode:
         test_collector.option.sampler.current_environment_model = orig_env_model
@@ -55,12 +63,14 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     '''
     Run the RL train loop
     '''
-    test_perf, suc = deque(maxlen=2000), deque(maxlen=2000)
+    test_perf, suc, assessment_test, assessment_train = deque(maxlen=2000), deque(maxlen=2000), deque(maxlen=100), deque(maxlen=100)
 
     
     # collect initial random actions
+    print("pre pretrain", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
     if not len(args.load_pretrain) > 0:
-        train_collector.collect(n_step=args.pretrain_iters, random=True, visualize_param=args.visualize_param) # param doesn't matter with random actions
+        train_collector.collect(n_step=args.pretrain_iters, random=True, visualize_param=args.visualize_param, no_fulls=True) # param doesn't matter with random actions
+    print("post pretrain", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
     if args.input_norm: option.policy.compute_input_norm(train_collector.buffer)
     if len(args.save_pretrain) > 0:
         her_at = option.policy.learning_algorithm.at if option.policy.learning_algorithm is not None else 0
@@ -69,8 +79,9 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                                         train_collector.full_at, train_collector.full_buffer,
                                         her_at, her_buffer)
         save_to_pickle(os.path.join(args.save_pretrain,"pretrain_collector.pkl"), buffer_wrapper)
+    print("pre save pretrain", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
     # collect initial test trials
-    initial_perf, initial_suc, initial_hit = _collect_test_trials(args, test_collector, 0, 0, list(), list(), list(), list(), random=True, option=option, tensorboard_logger=tensorboard_logger)
+    initial_perf, initial_suc, initial_hit = _collect_test_trials(args, test_collector, 0, 0, list(), list(), list(), list(), list(), list(), random=True, option=option, tensorboard_logger=tensorboard_logger)
 
     total_steps = 0
     hit_miss_queue_test = deque(maxlen=2000)
@@ -79,16 +90,21 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
 
 
     for i in range(args.num_iters):  # total step
+        print(i, "collect", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
         collect_result = train_collector.collect(n_step=args.num_steps, visualize_param=args.visualize_param) # TODO: make n-episode a usable parameter for collect
+        # print("collected", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
         total_steps = collect_result['n/st'] + total_steps
         # once if the collected episodes' mean returns reach the threshold,
         # or every 1000 steps, we test it on test_collector
+        assessment_train.append(collect_result)
         hit_miss_queue_train.append([collect_result['n/h'], collect_result['n/m']])
 
         if i % args.log_interval == 0:
             print("testing collection")
             _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss_queue_test, hit_miss_queue_train, option=option, tensorboard_logger=tensorboard_logger)
         # train option.policy with a sampled batch data from buffer
+        # print("pre update", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
+
         losses = option.policy.update(args.batch_size, train_collector.buffer)
         cumul_losses.append(losses)
         for lk in losses.keys():
@@ -159,12 +175,16 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                         "\nobs", obs, rv(obs), obs_n, rv(obs_n))
 
             if option.policy.is_her:
+                print("itr, idx, done, term, trunc, reward, inter")
+                print("acts, action, mapped, q")
+                print("tar, time, param, target, next target, inter state")
+                print("obs, obs, rvobs, next obs, rvnext obs")
                 hrb = option.policy.learning_algorithm.replay_buffer
                 if len(hrb) > 10:
                     print("hindsight buffer", len(hrb), option.policy.learning_algorithm.get_buffer_idx())
                     for j in range(50):
                         idx = (option.policy.learning_algorithm.get_buffer_idx() + (j - 100)) % args.buffer_len
-                        dh, infoh, tmh, rh, ih, ah, mah, tih, ph, th, nth, itrh, obsh, obs_nh = hrb[idx].done, hrb[idx].info,hrb.terminate, hrb[idx].rew, hrb[idx].inter, hrb[idx].act, hrb[idx].mapped_act, hrb[idx].time, hrb[idx].param, hrb[idx].target, hrb[idx].next_target, hrb[idx].inter_state, hrb[idx].obs, hrb[idx].obs_next
+                        dh, infoh, tmh, rh, ih, ah, mah, tih, ph, th, nth, itrh, obsh, obs_nh = hrb[idx].done, hrb[idx].info, hrb[idx].terminate, hrb[idx].rew, hrb[idx].inter, hrb[idx].act, hrb[idx].mapped_act, hrb[idx].time, hrb[idx].param, hrb[idx].target, hrb[idx].next_target, hrb[idx].inter_state, hrb[idx].obs, hrb[idx].obs_next
                         print(j, idx, dh, tmh, infoh["TimeLimit.truncated"], rh, ih, 
                             "\nacts", ah, mah, option.policy.compute_Q(Batch(obs=obsh, obs_next = obs_nh,info=infoh, act=ah), False),
                             "\ntar",tih,  ph,  th, nth, itrh, 

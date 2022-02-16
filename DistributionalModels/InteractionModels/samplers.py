@@ -486,6 +486,7 @@ class BreakoutRandomSampler(Sampler):
         value = np.zeros((5,))
         value[4] = 0
         value[:2] = pos
+        self.param, self.mask = value, mask
         return value, mask
 
 

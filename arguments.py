@@ -35,6 +35,8 @@ def get_args():
                         help='name of a specialized variant of breakout')
     parser.add_argument('--joint-mode', action='store_true', default=False,
                     help='in robosuite, changes the action space to be joint level control')
+    parser.add_argument('--planar-mode', action='store_true', default=False,
+                    help='in robosuite, changes the action space to be joint level control')
     parser.add_argument('--hard-obstacles', action='store_true', default=False,
                     help='in robosuite, changes the obstacles from soft negative reward regions to physical blocks ')    
     # # optimization hyperparameters
@@ -91,6 +93,8 @@ def get_args():
 
     parser.add_argument('--relative-action', type=float, default=-1,
                     help='the model computes actions relative to the current object position (-1 is not used)')
+    parser.add_argument('--max-critic', type=float, default=-1,
+                    help='bounds the critic values between -max-critic and max-critic (-1 is not used)')
     parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256],
                         help='sizes of the internal hidden layers')
     parser.add_argument('--init-form', default="none",
@@ -138,7 +142,8 @@ def get_args():
                     help='uses exp (-steps/epsilon-schedule) to compute epsilon at a given step, -1 for no schedule')
     # termination set parameters
     parser.add_argument('--max-distance-epsilon', type=float, default=-1,
-                    help='minimum distance for multi-instanced reward/termination (default: -1)')
+                    help='minimum distance for multi-instanced reward/termination (default: -1)'+
+                        'OVERLOADED to the maximum proximity to be considered proximal')
     parser.add_argument('--param-norm', type=int, default=1,
                     help='p-norm p value to use for the norm (default 1)')
     parser.add_argument('--epsilon-close', type=float, default=0.1,
@@ -151,6 +156,10 @@ def get_args():
                     help='minimum distance for states to be considered the same')
     parser.add_argument('--no-pretrain-active', action = 'store_true', default=False,
                     help='pretrain the active model with the passive model')
+    parser.add_argument('--intrain-passive', action = 'store_true', default=False,
+                    help='trains the passive model on its own bad states')
+    parser.add_argument('--passive-weight-interaction-iters', type=int, default=-1,
+                        help='if positive, the number of steps to use the passive error as a proxy for training the interaction model (default: -1 (not used))')
     parser.add_argument('--param-interaction', action = 'store_true', default=False,
                     help='Only terminates when the param and interaction co-occur')
     parser.add_argument('--max-steps', type=int, default=-1,
@@ -159,8 +168,8 @@ def get_args():
                     help='probability of choosing the same param after termination')
     parser.add_argument('--norm-variance', type=float, default=5.0,
                     help='variance used for normalization')
-    parser.add_argument('--base-variance', type=float, default=1e-2,
-                    help='add a small variance to limit overfitting to easy to predict parts')
+    parser.add_argument('--base-variance', type=float, nargs='*', default=[1e-2],
+                    help='add a small variance to limit overfitting to easy to predict parts, if a single value, uses the same for all dimensions, if multiple, must be the size of the vector')
     parser.add_argument('--multi-instanced', action = 'store_true', default=False,
                     help='if interaction trains to predict a vector')
     parser.add_argument('--instanced-additional', action = 'store_true', default=False,
@@ -246,6 +255,8 @@ def get_args():
     parser.add_argument('--interaction-iters', type=int, default=0,
                         help='number of iterations for training the interaction network with true values (default: 0)' +
                             'overloaded to use trace instead of interaction model for predicting samples if > 0')
+    parser.add_argument('--compare-trace', action='store_true', default=False,
+                        help='compares with the trace without training an interaction model')
     parser.add_argument('--interaction-distance', type=int, default=0,
                         help='number of steps within to predict interaction (default: 0)')
     parser.add_argument('--interaction-binary', type=float, nargs='+', default=list(),
@@ -258,6 +269,8 @@ def get_args():
                         help='additional sampling weight in range defined by local (should be odd) (default: 0)')
     parser.add_argument('--interaction-probability', type=float, default=1,
                         help='the minimum probability needed to use interaction as termination 1 means interaction is never (solely) used for termination (default: 1)')
+    parser.add_argument('--interaction-boosting', type=float, default=-1,
+                        help='weights the interaction sampler with states where the interaction model performs better than interaction-prediction to avoid false positives (default -1)')
     parser.add_argument('--interaction-prediction', type=float, default=0,
                         help=('the minimum distance to define the active set (default: 0.3)' + 
                             'overloaded to also represent the decay rate for interaction probability for termination per step until interaction-probability from 1'))

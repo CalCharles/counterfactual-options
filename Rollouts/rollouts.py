@@ -294,7 +294,7 @@ class Rollouts():
             rollout.cuda()
         for n in self.names:
             if self.values[n] is not None:
-                rollout.values[n] = self.values[n][idxes.tolist()].clone().detach()
+                rollout.values[n].copy_(self.values[n][idxes.tolist()].detach())
         rollout.filled = len(idxes)
         return rollout
 

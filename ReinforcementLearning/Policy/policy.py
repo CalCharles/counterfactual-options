@@ -9,6 +9,7 @@ import copy, os, cv2
 from file_management import default_value_arg
 from Networks.network import Network, pytorch_model
 from Networks.tianshou_networks import networks
+from Networks.critic import BoundedDiscreteCritic, BoundedContinuousCritic
 from tianshou.utils.net.continuous import Actor, Critic, ActorProb
 cActor, cCritic = Actor, Critic
 from tianshou.utils.net.discrete import Actor, Critic
@@ -120,9 +121,11 @@ class TSPolicy(nn.Module):
 
     def init_networks(self, args, input_shape, action_shape, discrete_actions, max_action = 1):
         if discrete_actions:
+            use_critic = BoundedDiscreteCritic if args.max_critic > 0 else dCritic# TODO: the actual value of max_critic is irrelevant in this case
             Actor, Critic = dActor, dCritic
         else:
-            Actor, Critic = cActor, cCritic
+            use_critic = BoundedContinuousCritic if args.max_critic > 0 else cCritic# TODO: the actual value of max_critic is irrelevant in this case
+            Actor, Critic = cActor, use_critic
         print(input_shape, action_shape, max_action, discrete_actions)
         actor, critic, critic2 = None, None, None
         actor_optim, critic_optim, critic2_optim = None, None, None

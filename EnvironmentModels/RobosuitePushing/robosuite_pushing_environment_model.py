@@ -8,9 +8,9 @@ class RobosuitePushingEnvironmentModel(EnvironmentModel):
         self.action_dim = 7 if env.joint_mode else 3
         self.enumeration = {"Action": [0,1], "Gripper": [1,2], "Block": [2,3], 'Target': [3 + env.num_obstacles,4 + env.num_obstacles], 
                         'Done':[4 + env.num_obstacles,5 + env.num_obstacles], "Reward":[5 + env.num_obstacles,6 + env.num_obstacles]}
-        self.object_names = ["Action", "Gripper", "Block", 'Obstacle', 'Target', 'Done', "Reward"]
-        self.object_sizes = {"Action": self.action_dim, "Gripper": 3, "Block": 3, 'Obstacle': 3, 'Target': 3, 'Done': 1, "Reward": 1}
-        self.object_num = {"Action": 1, "Gripper": 1, "Block": 1, 'Obstacle': env.num_obstacles, 'Target': 1, 'Done': 1, "Reward": 1}
+        self.object_names = ["Action", "Gripper", "Block", 'Target', 'Done', "Reward"]
+        self.object_sizes = {"Action": self.action_dim, "Gripper": 3, "Block": 3, 'Target': 3, 'Done': 1, "Reward": 1}
+        self.object_num = {"Action": 1, "Gripper": 1, "Block": 1, 'Target': 1, 'Done': 1, "Reward": 1}
         if env.num_obstacles > 0:
             self.object_names = ["Action", "Gripper", "Block", 'Obstacle', 'Target', 'Done', "Reward"]
             self.object_sizes["Obstacle"] = 3
