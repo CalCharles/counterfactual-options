@@ -107,7 +107,7 @@ class PixelNetwork(TSNet): # no relation to pixelnet, just a network that operat
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # TODO: assumes images of size 84x84, make general
-        self.num_stack = 1
+        self.num_stack = 4
         self.viewsize = 7
 
         # factor = self.factor

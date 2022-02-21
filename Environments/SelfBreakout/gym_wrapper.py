@@ -2,6 +2,7 @@ import gym
 from Environments.SelfBreakout.breakout_screen import Screen
 from gym import spaces
 import numpy as np
+import collections
 
 class BreakoutGymWrapper():
     def __init__(self, env, args):
@@ -14,8 +15,14 @@ class BreakoutGymWrapper():
             self.observation_space = spaces.Box(low=-84, high=84, shape=(5,))
             self.env_wrapper_fn = self.delta_observation_wrapper
         elif args.observation_type == 'image':
+            self.num_frames = 4
             self.observation_space = spaces.Box(low=0, high=255, shape=(84, 84))
             self.env_wrapper_fn = self.image_observation_wrapper
+
+            self.frame_buffer = collections.deque(maxlen=self.num_frames)
+            for _ in range(self.num_frames):
+                self.frame_buffer.append(np.zeros((1, 84, 84)))
+
         elif args.observation_type in ['multi-block-encoding', 'full-encoding']:
             dim = 15 + env.num_blocks * 5 # paddle + ball + delta + blocks
             self.observation_space = spaces.Box(low=-84, high=84, shape=(dim,))
@@ -35,13 +42,16 @@ class BreakoutGymWrapper():
         factored_state = obs['factored_state']
         delta = np.array(factored_state['Paddle']) - np.array(factored_state['Ball'])
 
-        # Possibly add Ball and Paddle too?
         return delta
 
     # Returns uint8_image
     def image_observation_wrapper(self, obs):
         # Needed to add single channel for torch image processing (Expects channels, h, w)
-        return np.expand_dims(obs['raw_state'], axis=0)
+
+        self.frame_buffer.append(np.expand_dims(obs['raw_state'], axis=0))
+
+        ret = np.concatenate(self.frame_buffer, axis=0)
+        return ret
 
     def multi_block_observation_wrapper(self, obs):
         factored_state = obs['factored_state']

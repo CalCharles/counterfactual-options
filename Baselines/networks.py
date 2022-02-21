@@ -56,7 +56,7 @@ class DQN(nn.Module):
             # self.net = Basic2DConvNetwork(**kwargs)
 
             kwargs = {
-                "hidden_sizes" : [32, 64, 64, 128],
+                "hidden_sizes" : [32, 64, 128],
                 "cuda" : True,
                 "bound_output" : 0,
                 "num_outputs" : self.output_dim
@@ -151,3 +151,65 @@ class Rainbow(DQN):
             logits = q
         y = logits.softmax(dim=2)
         return y, state
+
+class SACNet(nn.Module):
+    def __init__(
+        self,
+        obs_dim,
+        output_dim,
+        device,
+        observation_info,
+    ) -> None:
+        super().__init__()
+        self.device = device
+
+        self.obs_dim = obs_dim
+        self.output_dim = output_dim
+
+        observation_type = observation_info['observation-type']
+
+        if observation_type in ["delta", "full-encoding"]:
+            self.obs_dim = self.obs_dim[0]
+            self.net = nn.Sequential(
+                nn.Linear(self.obs_dim, 256), nn.ReLU(inplace=True),
+                nn.Linear(256, 256), nn.ReLU(inplace=True),
+                nn.Linear(256, self.output_dim)
+            )
+        elif observation_type == "image":
+            kwargs = {
+                "hidden_sizes" : [32, 64, 128],
+                "cuda" : True,
+                "bound_output" : 0,
+                "num_outputs" : self.output_dim
+            }
+
+            self.net = PixelNetwork(**kwargs)
+        elif observation_type == "multi-block-encoding":
+            first_obj_dim = observation_info['first-obj-dim']
+            object_dim = observation_info['obj-dim']
+
+            kwargs = { 'hidden_sizes' : [128, 128, 128],
+                       'first_obj_dim' : first_obj_dim,
+                       'object_dim' : object_dim,
+                       'aggregate_final' : True,
+                       'use_layer_norm' : False,
+                       'post_dim' : 0,
+                       'output_dim' : self.output_dim,
+                       'num_inputs' : 0,
+                       'num_outputs' : self.output_dim,
+                       'init_form': "xnorm",
+                       'activation' : 'relu',
+            }
+
+            self.net = PairNetwork(**kwargs)
+
+
+    def forward(
+        self,
+        x: Union[np.ndarray, torch.Tensor],
+        state: Optional[Any] = None,
+        info: Dict[str, Any] = {},
+    ) -> Tuple[torch.Tensor, Any]:
+        r"""Mapping: x -> Q(x, \*)."""
+        x = torch.as_tensor(x, device=self.device, dtype=torch.float32)
+        return self.net(x), state

@@ -17,7 +17,7 @@ from tianshou.utils.net.common import Net
 from tianshou.utils.net.discrete import Actor, Critic
 
 from Baselines.shared_train import make_breakout_env, make_breakout_env_fn, VideoCollector
-from Baselines.networks import DQN, Rainbow
+from Baselines.networks import DQN, Rainbow, SACNet
 from Baselines.env_args import add_env_args
 
 
@@ -60,9 +60,9 @@ def get_args():
     parser.add_argument('--alpha-lr', type=float, default=3e-4)
     parser.add_argument('--tau', type=float, default=0.005)
     parser.add_argument('--auto-alpha', action="store_true", default=False)
-    parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[128, 128])
     parser.add_argument('--rew-norm', action="store_true", default=False)
     parser.add_argument('--n-step', type=int, default=1)
+    parser.add_argument('--encoded-state-dim', type=int, default=128)
 
 
     # Shared Arguments
@@ -153,7 +153,7 @@ def test(args=get_args()):
                 weight_norm=not args.no_weight_norm
             )
 
-        log_path = os.path.join(args.logdir, args.observation_type, 'rainbow', f'variant{args.variant}-seed{args.seed}')
+        log_path = os.path.join(args.logdir, args.variant, args.observation_type, f'rainbow-seed{args.seed}')
     elif args.algorithm == 'dqn':
         observation_info = { 'observation-type' : args.observation_type,
                              'obj-dim' : env.block_dimension,
@@ -178,19 +178,24 @@ def test(args=get_args()):
             ignore_obs_next=True,
         )
 
-        log_path = os.path.join(args.logdir, args.observation_type, 'dqn', f'variant{args.variant}-seed{args.seed}')
+        log_path = os.path.join(args.logdir, args.variant, args.observation_type, f'dqn-seed{args.seed}')
     elif args.algorithm == 'sac':
-        # TODO: Modify SAC networks to deal w different env types
-        net = Net(*args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
+        observation_info = { 'observation-type' : args.observation_type,
+                             'obj-dim' : env.block_dimension,
+                             'first-obj-dim' : env.ball_paddle_info_dim
+                             }
+
+        net = SACNet(args.state_shape, args.encoded_state_dim, args.device, observation_info)
         actor = Actor(net, args.action_shape, softmax_output=False, device=args.device).to(args.device)
 
         actor_optim = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
 
-        net_c1 = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
+        net_c1 = SACNet(args.state_shape, args.encoded_state_dim, args.device, observation_info)
         critic1 = Critic(net_c1, last_size=args.action_shape,
                         device=args.device).to(args.device)
         critic1_optim = torch.optim.Adam(critic1.parameters(), lr=args.critic_lr)
-        net_c2 = Net(args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
+
+        net_c2 = SACNet(args.state_shape, args.encoded_state_dim, args.device, observation_info)
         critic2 = Critic(net_c2, last_size=args.action_shape,
                         device=args.device).to(args.device)
         critic2_optim = torch.optim.Adam(critic2.parameters(), lr=args.critic_lr)
@@ -217,7 +222,7 @@ def test(args=get_args()):
         )
 
         buffer = VectorReplayBuffer(args.buffer_size, buffer_num=len(train_envs))
-        log_path = os.path.join(args.logdir, 'breakout', 'sac', f'seed{args.seed}')
+        log_path = os.path.join(args.logdir, args.variant, args.observation_type, f'sac-seed{args.seed}')
     else:
         raise("Must specify valid algorithm to offline baseline trainer")
 
