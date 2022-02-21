@@ -54,11 +54,11 @@ def _passive_logging(full_model, train_args, i, batchvals, target, passive_predi
                         # "\nal: ", active_loss,
                         # "\npl: ", passive_loss
                         )
-                    if not train_args.no_pretrain_active:
+                    if train_args.pretrain_active > 0:
                         print("aoutput", pytorch_model.unwrap(full_model.rv(prediction_params[0])[j]),
                             "\nal: ", pytorch_model.unwrap(active_loss[j]))
         active_str = ""
-        if not train_args.no_pretrain_active:
+        if train_args.pretrain_active > 0:
             active_str = ", al: " +  str(active_loss.mean().detach().cpu().numpy())
         print("Iters", i, ", pl: ", passive_loss.mean().detach().cpu().numpy(), active_str,
             )
@@ -84,7 +84,7 @@ def train_passive(full_model, rollouts, train_args, batchvals, active_optimizer,
 
         # optimize active and passive models
         prediction_params, active_loss = None, None
-        if not train_args.no_pretrain_active:
+        if train_args.pretrain_active > 0 and i < train_args.pretrain_active:
             prediction_params = full_model.forward_model(full_model.gamma(batchvals.values.state))
             active_loss = - full_model.dist(*prediction_params).log_prob(target)
             if full_model.multi_instanced: active_loss = full_model.split_instances(active_loss).sum(dim=2) * done_flags

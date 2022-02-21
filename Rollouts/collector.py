@@ -92,7 +92,7 @@ class TemporalAggregator():
                 # print("adding", 
                 #     next_data.param, next_data.next_target[0][-1], next_data.time, #next_data.obs[:10], next_data.time, 
                 #     # next_data.act, next_data.mapped_act, 
-                #     next_data.done, next_data.true_done, next_data.rew, self.current_data.info[0]["TimeLimit.truncated"])
+                    # next_data.done, next_data.true_done, next_data.rew, self.current_data.info[0]["TimeLimit.truncated"])
                     # next_data.full_state["factored_state"], next_data.next_full_state["factored_state"])
                 # print(len(buffer))
                 self.ptr, ep_rew, ep_len, ep_idx = buffer.add(
@@ -421,16 +421,24 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                     pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()), 
                     param, self.data.mapped_act.squeeze(), act, next_target, 
                     inter_state, obs)
-                # print("post update", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
+                print("post update", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
 
             # debugging and visualization
+            # if 68 <= self.data.full_state['factored_state']['Ball'][0][0] <= 74:
+            #     if self.data.next_full_state['factored_state']['Ball'][0][2] != self.data.full_state['factored_state']['Ball'][0][2]:
+            #         if inter > .1:
+            #             print("interaction hit", self.data.full_state['factored_state']['Ball'][0], inter, term)
+            #         else:
+            #             print("false negative", self.data.full_state['factored_state']['Ball'][0], inter, term)                  
+            #     elif inter[0] >= 0.1:
+            #         print("false positive", self.data.full_state['factored_state']['Ball'][0], inter, term)
             # print(obs[5:10], self.data.full_state['factored_state']['Ball'])
             # if self.test: print(self.data.target.squeeze(), self.data.next_target.squeeze(), self.data.param.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # print(self.data.mapped_act, self.data.inter_state, self.data.param, self.data.obs)
             # if self.test: print(step_count, self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # if self.test and resampled: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # if self.test: print(self.data.obs.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
-            # if self.test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
+            if self.test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()
@@ -454,6 +462,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 term_done, timer, true = self._done_check(term, true_done)
                 term_end = term and not time_cutoff
                 if np.any(done):
+                    # print("episode count elapsed")
                     episode_count += int(np.any(done))
             if np.any(true_done) or (np.any(term) and self.terminate_reset):
                 if "assessment" in info[0]: assessment = info[0]["assessment"]
@@ -481,10 +490,13 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
 
             # controls termination
             if (n_step and step_count >= n_step):
+                # print("step exit")
                 break
             if (n_episode and episode_count >= n_episode):
+                # print("episode exit")
                 break
             if (n_term and term_count >= n_term):
+                # print("terminate exit")
                 break
         # print(rews)
         # generate statistics

@@ -154,8 +154,8 @@ def get_args():
                     help='minimum distance to end for ring schedule')
     parser.add_argument('--epsilon-close-schedule', type=float, default=0.0,
                     help='minimum distance for states to be considered the same')
-    parser.add_argument('--no-pretrain-active', action = 'store_true', default=False,
-                    help='pretrain the active model with the passive model')
+    parser.add_argument('--pretrain-active', type=int, default=-1,
+                    help='pretrain the active model with the passive model for the given number of iterations (-1 not used)')
     parser.add_argument('--intrain-passive', action = 'store_true', default=False,
                     help='trains the passive model on its own bad states')
     parser.add_argument('--passive-weight-interaction-iters', type=int, default=-1,

@@ -176,7 +176,8 @@ def train_combined(full_model, rollouts, test_rollout, train_args, batchvals, ha
     trace, weights, use_weights, passive_error_all, interaction_schedule, ratio_lambda,
     active_optimizer, passive_optimizer, interaction_optimizer,
     idxes_sets=None, keep_outputs=False, proximal=None):
-    inline_iter_schedule = lambda x: max(1, int(train_args.inline_iters - 1.5*train_args.inline_iters/(1+np.exp((x // train_args.num_iters)))))
+    inline_iter_schedule = lambda x: max(1, int(train_args.inline_iters - 2*train_args.inline_iters/(1+np.exp((x // train_args.num_iters)))))
+    inline_iters = 1 if train_args.inline_iters == 1 else inline_iter_schedule(0)
     outputs = list()
     inter_loss = nn.BCELoss()
     weight_lambda = ratio_lambda
@@ -315,9 +316,11 @@ def train_combined(full_model, rollouts, test_rollout, train_args, batchvals, ha
                 _, use_weights, live, dead, ratio_lambda = get_weights(passive_error_all, ratio_lambda=weight_lambda, 
                     passive_error_cutoff=train_args.passive_error_cutoff, temporal_local=train_args.interaction_local, use_proximity=proximal)
                 interaction_values = get_interaction_vals(full_model, rollouts)
-                
-                if i > 0 and train_args.interaction_boosting > 0: alt_weights = get_weights(interaction_values, ratio_lambda=weight_lambda, passive_error_cutoff=full_model.interaction_prediction)
-
+                print(interaction_values.shape)
+                if i > 0 and train_args.interaction_boosting > 0: _, alt_weights, live, dead, ratio_lambda = get_weights(interaction_values, ratio_lambda=weight_lambda / 2, passive_error_cutoff=full_model.interaction_prediction)
+                print(alt_weights.shape)
+            if train_args.interaction_iters <= 0:
+                print("inline iters", inline_iters)
         if train_args.interaction_iters <= 0:
             inline_iters = 1 if train_args.inline_iters == 1 else inline_iter_schedule(i)
             for ii in range(train_args.inline_iters):

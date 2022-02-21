@@ -10,6 +10,7 @@ class TerminateReward():
         self.dataset_model = args.dataset_model
         self.multi_instanced = self.dataset_model.multi_instanced
         self.true_interaction = args.true_interaction
+        self.confirm_interaction = args.confirm_interaction
         # self.init_term = args.init_term # whether to be terminated on the first state after a reset, false except for primitive terminate reward
 
         self.time_cutoff = args.time_cutoff# + int(args.env_reset) # plus 1 is to adjust for environment resets
@@ -63,6 +64,10 @@ class TerminateReward():
         # compute the interaction value
         if not self.true_interaction:
             inter, pred, var = self.dataset_model.hypothesize(inter_state)
+            last_target = self.state_extractor.get_target(full_state)
+            if hasattr(self, "confirm_interaction") and self.confirm_interaction: # checks for nonzero post-interaction dynamics to verify that an interaction actually occurred
+                if np.sum(np.abs(last_target * mask - target_state * mask)) == 0:
+                    inter[0] = 0
             # if self.multi_instanced:
             #     inst_inter = self.dataset_model.hypothesize_multi(inter_state)
             # else:

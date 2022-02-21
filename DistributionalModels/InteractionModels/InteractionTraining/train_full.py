@@ -93,7 +93,7 @@ def train_full(full_model, rollouts, test_rollout, train_args, control, controll
     print("post passive", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
     if train_args.save_intermediate and train_args.pretrain_iters > 0:
         torch.save(full_model.passive_model, "data/temp/passive_model.pt")
-        if not train_args.no_pretrain_active:
+        if train_args.pretrain_active > 0:
             torch.save(full_model.forward_model, "data/temp/active_model.pt")
 
     # generate the trace
@@ -128,7 +128,7 @@ def train_full(full_model, rollouts, test_rollout, train_args, control, controll
         full_model.passive_model = torch.load("data/temp/passive_model.pt")
         full_model.passive_model.cpu()
         full_model.passive_model.cuda()
-        if not train_args.no_pretrain_active:
+        if train_args.pretrain_active > 0:
             full_model.forward_model = torch.load("data/temp/active_model.pt")
             full_model.forward_model.cpu()
             full_model.forward_model.cuda()

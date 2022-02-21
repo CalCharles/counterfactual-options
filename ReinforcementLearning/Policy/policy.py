@@ -122,7 +122,7 @@ class TSPolicy(nn.Module):
     def init_networks(self, args, input_shape, action_shape, discrete_actions, max_action = 1):
         if discrete_actions:
             use_critic = BoundedDiscreteCritic if args.max_critic > 0 else dCritic# TODO: the actual value of max_critic is irrelevant in this case
-            Actor, Critic = dActor, dCritic
+            Actor, Critic = dActor, use_critic
         else:
             use_critic = BoundedContinuousCritic if args.max_critic > 0 else cCritic# TODO: the actual value of max_critic is irrelevant in this case
             Actor, Critic = cActor, use_critic
@@ -153,6 +153,7 @@ class TSPolicy(nn.Module):
             critic = PolicyType(num_inputs=cinp_shape, num_outputs=cout_shape, action_dim=ainp_dim, aggregate_final=True, continuous_critic=True, **args)
             if discrete_actions: critic = Critic(critic, last_size=action_shape, device=device).to(device)
             else: critic = Critic(critic, device=device).to(device)
+            if args.max_critic > 0: critic.max_critic = args.max_critic
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
             if self.algo_name in _double_critic:
                 if discrete_actions: actor = Actor(actor, action_shape, device=device).to(device)
@@ -160,6 +161,7 @@ class TSPolicy(nn.Module):
                 critic2 = PolicyType(num_inputs=cinp_shape, num_outputs=cout_shape, action_dim=ainp_dim, aggregate_final=True, continuous_critic=True, **args)
                 if discrete_actions: critic2 = Critic(critic2, last_size=action_shape, device=device).to(device)
                 else: critic2 = Critic(critic2, device=device).to(device)
+                if args.max_critic > 0: critic2.max_critic = args.max_critic
                 critic2_optim = torch.optim.Adam(critic2.parameters(), lr=args.critic_lr)
             else:
                 actor = Actor(actor, action_shape, device=device, max_action=max_action).to(device)
@@ -172,6 +174,7 @@ class TSPolicy(nn.Module):
         elif self.algo_name in ['dqn']:
             critic = PolicyType(num_inputs=input_shape, num_outputs=action_shape, aggregate_final=True, **args)
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
+            if args.max_critic > 0: critic.bound_output = args.max_critic
         elif self.algo_name in ['isl']:
             hsizes = args.hidden_sizes
             args.hidden_sizes = args.hidden_sizes[:-1]
@@ -180,7 +183,7 @@ class TSPolicy(nn.Module):
             actor = Actor(net, action_shape, softmax_output=False, device=device).to(device)
             actor_optim = torch.optim.Adam(set(actor.parameters()), lr=args.actor_lr)
 
-        elif self.algo_name in ['ppo']:
+        elif self.algo_name in ['ppo']: # TODO: bounded critic not implemented
             if discrete_actions:
                 hsizes = args.hidden_sizes
                 args.hidden_sizes = args.hidden_sizes[:-1]

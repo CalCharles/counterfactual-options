@@ -70,6 +70,7 @@ if __name__ == '__main__':
             dataset_model.selection_binary = pytorch_model.wrap(args.force_mask, cuda = dataset_model.iscuda)
         dataset_model.environment_model = environment_model
 
+    args.confirm_interaction = False
     if args.object == "Block" and args.env == "SelfBreakout":
         args.num_instance = environment.num_blocks
         args.no_combine_param_mask = True

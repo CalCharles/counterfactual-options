@@ -20,7 +20,7 @@ from Options.action_map import PrimitiveActionMap, ActionMap
 from Options.state_extractor import StateExtractor
 from Options.terminate_reward import TerminateReward
 from Options.temporal_extension_manager import TemporalExtensionManager
-from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel, DummyVariantBlockDatasetModel, DummyNegativeRewardDatasetModel, DummyMultiBlockDatasetModel, DummyStickDatasetModel
+from DistributionalModels.InteractionModels.dummy_models import DummyBlockDatasetModel, DummyVariantBlockDatasetModel,DummyVariantBlockHeightDatasetModel, DummyNegativeRewardDatasetModel, DummyMultiBlockDatasetModel, DummyStickDatasetModel
 from DistributionalModels.InteractionModels.interaction_model import load_hypothesis_model, interaction_models
 from DistributionalModels.InteractionModels.samplers import samplers
 from Rollouts.collector import OptionCollector
@@ -32,7 +32,7 @@ import tianshou as ts
 
 if __name__ == '__main__':
     print("pid", os.getpid())
-    print(sys.argv)
+    print(" ".join(sys.argv))
     args = get_args()
     torch.cuda.set_device(args.gpu)
     torch.manual_seed(args.seed)
@@ -72,7 +72,10 @@ if __name__ == '__main__':
     target_object = "Reward"
     args.num_instance = 1
     args.target_instanced=False
+    args.confirm_interaction = False
     if args.object == "Ball" and args.env == "SelfBreakout":
+        args.confirm_interaction = True
+        dataset_model.interaction_prediction = 0.1
         dataset_model.sample_able.vals = [np.array([0,0,-1,-1,0]).astype(float), np.array([0,0,-2,-1,0]).astype(float), np.array([0,0,-2,1,0]).astype(float), np.array([0,0,-1,1,0]).astype(float)]
     if args.object == "Block" and args.env == "SelfBreakout":
         args.num_instance = environment.num_blocks
@@ -91,6 +94,7 @@ if __name__ == '__main__':
         args.target_instanced = True
         args.no_combine_param_mask = True
         dataset_model = DummyVariantBlockDatasetModel(environment_model)
+        # dataset_model = DummyVariantBlockHeightDatasetModel(environment_model)
         dataset_model.environment_model = environment_model
         dataset_model.sample_able.vals = np.array([dataset_model.sample_able.vals[0]]) # for some reason, there are some interaction values that are wrong
         discretize_actions = {0: np.array([-1,-1]), 1: np.array([-2,-1]), 2: np.array([-2,1]), 3: np.array([-1,1])}

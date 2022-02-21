@@ -33,7 +33,7 @@ import psutil
 
 if __name__ == '__main__':
     print("pid", os.getpid())
-    print(sys.argv)
+    print(" ".join(sys.argv))
     args = get_args()
     torch.cuda.set_device(args.gpu)
     np.set_printoptions(threshold=3000, linewidth=120, precision=4, suppress=True)
