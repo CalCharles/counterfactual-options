@@ -110,6 +110,8 @@ class VideoCollector(Collector):
             episode_lens = []
             episode_start_indices = []
             saved_images = []
+            drops = []
+            assessment = []
 
             while True:
                 assert len(self.data) == len(ready_env_ids)
@@ -144,6 +146,18 @@ class VideoCollector(Collector):
                 # step in env
                 result = self.env.step(action_remap, ready_env_ids)  # type: ignore
                 obs_next, rew, done, info = result
+
+                assert(len(info) == 1)
+
+                if info[0]['assessment'] <= -1000:
+                    info[0]['assessment'] = info[0]['assessment'] + 1000
+                    drops.append(1)
+                    assessment.append(info[0]["assessment"])
+                elif info[0]["assessment"] > -900:
+                    assessment.append(info[0]["assessment"])
+                    drops.append(0)
+                else:
+                    drops.append(1)
 
                 self.data.update(obs_next=obs_next, rew=rew, done=done, info=info)
                 if self.preprocess_fn:
@@ -239,5 +253,7 @@ class VideoCollector(Collector):
                 "len": len_mean,
                 "rew_std": rew_std,
                 "len_std": len_std,
-                "saved_images" : saved_images
+                "saved_images" : saved_images,
+                "drops" : np.array(drops),
+                "assessment" : np.array(assessment),
             }

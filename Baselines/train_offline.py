@@ -14,12 +14,13 @@ from tianshou.trainer import offpolicy_trainer
 from tianshou.utils import TensorboardLogger, WandbLogger
 
 from tianshou.utils.net.common import Net
-from tianshou.utils.net.discrete import Actor, Critic
+from tianshou.utils.net.discrete import Actor
 
 from Baselines.shared_train import make_breakout_env, make_breakout_env_fn, VideoCollector
 from Baselines.networks import DQN, Rainbow, SACNet
 from Baselines.env_args import add_env_args
 
+from Networks.critic import BoundedDiscreteCritic
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -73,7 +74,9 @@ def get_args():
 
 
     parser.add_argument('--batch-size', type=int, default=32)
-    parser.add_argument('--test-num', type=int, default=10)
+    parser.add_argument('--test-num', type=int, default=5)
+    parser.add_argument('--test-steps', type=int, default=2400)
+
     parser.add_argument('--logdir', type=str, default='log')
     parser.add_argument(
         '--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu'
@@ -191,12 +194,12 @@ def test(args=get_args()):
         actor_optim = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
 
         net_c1 = SACNet(args.state_shape, args.encoded_state_dim, args.device, observation_info)
-        critic1 = Critic(net_c1, last_size=args.action_shape,
+        critic1 = BoundedDiscreteCritic(net_c1, last_size=args.action_shape,
                         device=args.device).to(args.device)
         critic1_optim = torch.optim.Adam(critic1.parameters(), lr=args.critic_lr)
 
         net_c2 = SACNet(args.state_shape, args.encoded_state_dim, args.device, observation_info)
-        critic2 = Critic(net_c2, last_size=args.action_shape,
+        critic2 = BoundedDiscreteCritic(net_c2, last_size=args.action_shape,
                         device=args.device).to(args.device)
         critic2_optim = torch.optim.Adam(critic2.parameters(), lr=args.critic_lr)
 
@@ -302,13 +305,13 @@ def test(args=get_args()):
             print("Testing agent ...")
             test_collector.reset()
             result = test_collector.collect(
-                n_episode=args.test_num, render=0.05
+                n_step=args.test_steps, render=0.05
             )
 
         rew = result["rews"].mean()
         print(f'Mean reward (over {result["n/ep"]} episodes): {rew}')
 
-        return result["saved_images"]
+        return result
 
 
     def save_checkpoint_fn(epoch, env_step, gradient_step):
@@ -321,7 +324,19 @@ def test(args=get_args()):
             torch.save({'model' : policy.state_dict()}, ckpt_path)
 
         if epoch % args.video_log_period == 0:
-            images = watch()
+            result = watch()
+            rew = result["rews"].mean()
+
+            if result["n/ep"] == 0:
+                assess = result["assessment"].mean()
+            else:
+                assess = result["assessment"] / result["n/ep"]
+
+            drops = result["drops"].sum()
+            images = result['saved_images']
+
+            logger.write("eval/env_step", env_step, {"eval/rew" : rew, "eval/assess" : assess, "eval/drops" : drops})
+
             fname = os.path.join(log_path, f'iter-{epoch}.mp4')
             writer = imageio.get_writer(fname, fps=20)
 
