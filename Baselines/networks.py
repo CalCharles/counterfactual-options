@@ -56,7 +56,7 @@ class DQN(nn.Module):
             # self.net = Basic2DConvNetwork(**kwargs)
 
             kwargs = {
-                "hidden_sizes" : [32, 64, 128],
+                "hidden_sizes" : [32, 64, 64, 128],
                 "cuda" : True,
                 "bound_output" : 0,
                 "num_outputs" : self.output_dim
@@ -177,7 +177,7 @@ class SACNet(nn.Module):
             )
         elif observation_type == "image":
             kwargs = {
-                "hidden_sizes" : [32, 64, 128],
+                "hidden_sizes" : [32, 64, 64, 128],
                 "cuda" : True,
                 "bound_output" : 0,
                 "num_outputs" : self.output_dim
