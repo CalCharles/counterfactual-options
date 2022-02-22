@@ -335,7 +335,7 @@ def test(args=get_args()):
             drops = result["drops"].sum()
             images = result['saved_images']
 
-            logger.write("eval/env_step", env_step, {"eval/rew" : rew, "eval/assess" : assess, "eval/drops" : drops})
+            logger.write("eval/env_step", env_step, {"eval/rew" : rew, "eval/assess" : assess, "eval/drops" : drops, "eval/n_ep" : result["n/ep"]})
 
             fname = os.path.join(log_path, f'iter-{epoch}.mp4')
             writer = imageio.get_writer(fname, fps=20)
