@@ -149,15 +149,19 @@ class VideoCollector(Collector):
 
                 assert(len(info) == 1)
 
-                if info[0]['assessment'] <= -1000:
-                    info[0]['assessment'] = info[0]['assessment'] + 1000
-                    drops.append(1)
-                    assessment.append(info[0]["assessment"])
-                elif info[0]["assessment"] > -900:
-                    assessment.append(info[0]["assessment"])
-                    drops.append(0)
-                else:
-                    drops.append(1)
+                if done or ((n_step and step_count >= n_step) or \
+                        (n_episode and episode_count >= n_episode)):
+                    if info[0]['assessment'] <= -1000:
+                        info[0]['assessment'] = info[0]['assessment'] + 1000
+                        drops.append(1)
+                        assessment.append(info[0]["assessment"])
+                    elif info[0]["assessment"] > -900:
+                        assessment.append(info[0]["assessment"])
+                        drops.append(0)
+                    else:
+                        info[0]['assessment'] = info[0]['assessment'] + 1000
+                        drops.append(1)
+                        assessment.append(info[0]["assessment"])
 
                 self.data.update(obs_next=obs_next, rew=rew, done=done, info=info)
                 if self.preprocess_fn:

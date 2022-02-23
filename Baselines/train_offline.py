@@ -327,11 +327,7 @@ def test(args=get_args()):
             result = watch()
             rew = result["rews"].mean()
 
-            if result["n/ep"] == 0:
-                assess = result["assessment"].mean()
-            else:
-                assess = result["assessment"] / result["n/ep"]
-
+            assess = result["assessment"].sum() / max(result["n/ep"], 1)
             drops = result["drops"].sum()
             images = result['saved_images']
 
