@@ -41,14 +41,16 @@ breakout_variants = {"default": (0,5, 20, -1, "", 0,0, 0),
                     "negative_top_small": (0,2,10,7,"top",0,0,0),
                     "breakout_priority_small": (0,2,10,-1,"",-2,0, 1),
                     "breakout_priority_medium": (0,3,10,-1,"",-2,0, 5),
+                    "breakout_priority_large": (0,4,15,-1,"",-1,0, 20),
                     "breakout_priority_full": (0,5,20,-1,"",-2,0, 20),
                     "edges_full": (2,5,20,-1,"",-1,0, 20),
                     "edges_small": (2,2,10,-1,"",-1,0, 1),
                     "center_small": (3,2,10,-1,"",-1,0, 1),
                     "center_medium": (3,3,15,-1,"",-1,0, 5),
+                    "center_large": (3,4,15,-1,"",-1, 0,20),
                     "center_full": (3,5,20,-1,"",-2, 0,20),
                     "harden_single": (4,3,10,-1,"",-1,10,0),
-                    "proximity": (0,5,15,75,"", 0,0, 0)}
+                    "proximity": (0,4,15,60,"", 0,0, 0)}
 
 class Screen(RawEnvironment):
     def __init__(self, frameskip = 1, drop_stopping=True, target_mode = False, angle_mode=False,
