@@ -466,7 +466,6 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 term_done, timer, true = self._done_check(term, true_done)
                 term_end = term and not time_cutoff
                 if np.any(done):
-                    # print("episode count elapsed")
                     episode_count += int(np.any(done))
             if np.any(true_done) or (np.any(term) and self.terminate_reset):
                 if "assessment" in info[0]: assessments.append(info[0]["assessment"])
@@ -508,10 +507,6 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.collect_step += step_count
         self.collect_episode += episode_count
         self.collect_time += max(time.time() - start_time, 1e-9)
-        if len(assessments) > 0:
-            assessment = np.mean(assessments)
-        else:
-            assessment = -10000
         return { # TODO: some of these don't return valid values
             "n/ep": episode_count,
             "n/tep": true_episode_count,
@@ -522,6 +517,6 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             "rews": rews,
             "terminate": term_end,
             "saved_fulls": saved_fulls,
-            "assessment": assessment,
+            "assessment": assessments,
             "info": info,
         }

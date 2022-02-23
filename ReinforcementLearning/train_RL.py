@@ -9,19 +9,17 @@ import psutil
 import time
 
 def add_assessment(result, assessment, drops):
-    if result["assessment"] == -10000:
-        pass
-    elif result["assessment"] <= -1000:
-        result["assessment"] = result["assessment"] + 1000
-        drops.append(1)
-        assessment.append(result["assessment"])
-    elif result["assessment"] > -900:
-        assessment.append(result["assessment"])
-        drops.append(0)
-    else:
-        drops.append(1)
-
-
+    for assesses in result["assessment"]:
+        if assesses == -1000:
+            drops.append(1)        
+        elif assesses <= -1000:
+            assesses = assesses + 1000
+            assessment.append(assesses)
+        elif assesses > -900:
+            assessment.append(assesses)
+            drops.append(0)
+        else:
+            drops.append(1)
 
 def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss, hit_miss_train, assessment_test, assessment_train, drops, train_drops, random=False, option=None, tensorboard_logger=None):
     '''
@@ -121,6 +119,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     for i in range(args.num_iters):  # total step
         # print(i, "collect", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
         collect_result = train_collector.collect(n_step=args.num_steps, visualize_param=args.visualize_param) # TODO: make n-episode a usable parameter for collect
+        # print("assessment", collect_result["assessment"])
         # print("collected", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
         total_steps = collect_result['n/st'] + total_steps
         # once if the collected episodes' mean returns reach the threshold,
