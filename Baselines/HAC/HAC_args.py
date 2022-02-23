@@ -23,6 +23,8 @@ def get_args():
                         help='optimization steps to look ahead (default: 1)')
     parser.add_argument('--input-norm', action='store_true', default=False,
                     help='normalize the inputs by the sample mean variance from the buffer')
+    parser.add_argument('--printout', action='store_true', default=False,
+                    help='debugging printouts')
     parser.add_argument('--epsilon', type=float, default=0,
                     help='percentage of random actions in epsilon greedy')
     parser.add_argument('--epsilon-schedule', type=float, default=-1,

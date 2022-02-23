@@ -8,7 +8,7 @@ import torch.optim as optim
 import copy, os, cv2
 from file_management import default_value_arg
 from Networks.network import Network, pytorch_model
-from Networks.tianshou_networks import networks
+from Networks.tianshou_networks import networks, RainbowNetwork
 from Networks.critic import BoundedDiscreteCritic, BoundedContinuousCritic
 from tianshou.utils.net.continuous import Actor, Critic, ActorProb
 cActor, cCritic = Actor, Critic
@@ -185,6 +185,10 @@ class TSPolicy(nn.Module):
             critic = PolicyType(num_inputs=input_shape, num_outputs=action_shape, aggregate_final=True, **args)
             critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
             if args.max_critic > 0: critic.bound_output = args.max_critic
+        elif self.algo_name in ['rainbow']:
+            critic = RainbowNetwork(num_inputs=input_shape, num_outputs=action_shape, aggregate_final=True, **args)
+            critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
+            if args.max_critic > 0: critic.bound_output = args.max_critic
         elif self.algo_name in ['isl']:
             hsizes = args.hidden_sizes
             args.hidden_sizes = args.hidden_sizes[:-1]
@@ -224,6 +228,11 @@ class TSPolicy(nn.Module):
         noise = GaussianNoise(sigma=args.epsilon) if args.epsilon > 0 else None
         if self.algo_name == "dqn":
             policy = ts.policy.DQNPolicy(args.critic, args.critic_optim, discount_factor=args.discount_factor, estimation_step=args.lookahead, target_update_freq=int(args.tau))
+            policy.set_eps(args.epsilon)
+        elif self.algo_name == "rainbow":
+            assert args.max_critic != 0
+            policy = ts.policy.RainbowPolicy(args.critic, args.critic_optim, discount_factor=args.discount_factor, estimation_step=args.lookahead,
+             target_update_freq=int(args.tau), v_min=-args.max_critic, v_max=args.max_critic, num_atoms=args.num_atoms)
             policy.set_eps(args.epsilon)
         elif self.algo_name == "ppo": 
             if args.discrete_actions:
@@ -294,6 +303,9 @@ class TSPolicy(nn.Module):
             Q_val = self.algo_policy.critic(comp, batch.act)
         if self.algo_name in ['dqn']:
             Q_val = self.algo_policy(batch, input="obs_next" if nxt else "obs").logits
+        if self.algo_name in ['rainbow']:
+            logits = self.algo_policy(batch, input="obs_next" if nxt else "obs").logits
+            Q_val = self.algo_policy.compute_q_value(logits, None)
         if self.algo_name in ['isl']:
             # Q_val = torch.softmax(self.algo_policy(batch, input="obs_next" if nxt else "obs").logits, dim=-1)
             Q_val = self.algo_policy(batch, input="obs_next" if nxt else "obs").logits

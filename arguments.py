@@ -71,6 +71,11 @@ def get_args():
     parser.add_argument('--label-smoothing', type=float, default=0.00,
                         help='smooths the one-hot labels for behavior cloning(default: 0.00)') 
 
+    # rainbow hyperparameters
+    parser.add_argument('--num-atoms', type=int, default=51,
+                        help='number of atoms to be used for C51 in Rainbow (default: 51)')
+    parser.add_argument('--is-dueling', action='store_true', default=False,
+                        help='using dueling DQN')
     # model hyperparameters
     parser.add_argument('--true-actions', action='store_true', default=False,
                         help='short circuits option framework to just take true actions')
@@ -312,6 +317,8 @@ def get_args():
     # logging settings
     parser.add_argument('--print-test', action='store_true', default=False,
                         help='prints out values during the test phase of training')
+    parser.add_argument('--print-buffer', action='store_true', default=False,
+                        help='prints out buffer values for debugging')
     parser.add_argument('--log-interval', type=int, default=100,
                         help='log interval, one log per n updates (default: 10)')
     parser.add_argument('--save-interval', type=int, default=-1,

@@ -109,7 +109,7 @@ class DummyMultiBlockDatasetModel():
             block_attr = state[9 + i*5]
             # print(ball_next_pos, block_pos, intersection(ball_next_pos, block_pos, (self.ball_width, self.ball_height), (self.block_width, self.block_height)), block_attr)
             if intersection(ball_next_pos, block_pos, (self.ball_width, self.ball_height), (self.block_width, self.block_height)) and block_attr != 0:
-                print(ball_pos, state[5 + i * 5: 5 + i * 5 + 5], ball_next_pos)
+                # print(ball_pos, state[5 + i * 5: 5 + i * 5 + 5], ball_next_pos)
                 self.just_hit = i
                 return np.array(1), np.array(0), np.array(0)
         return np.array(0), np.array(0), np.array(0)

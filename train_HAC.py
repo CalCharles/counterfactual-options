@@ -116,7 +116,7 @@ def train():
         
         full_state = environment.reset()
         # collecting experience in environment
-        next_state, reward, done, info, total_time = run_HAC(agent, environment_model, agent.k_level-1, full_state, goal_final, False, goal_based=goal_based, max_steps=max_steps, render=False, printout=i_episode % args.log_interval == 0)
+        next_state, reward, done, info, total_time = run_HAC(agent, environment_model, agent.k_level-1, full_state, goal_final, False, goal_based=goal_based, max_steps=max_steps, render=False, printout=args.printout)
         
         # update all levels
         losses_dict = agent.update(args.batch_size)
@@ -129,7 +129,13 @@ def train():
             agent.save(directory, filename)
         
         print("Episode: {}\t Reward: {}".format(i_episode, reward))
-        if args.log_interval > 0 and i_episode % args.log_interval == 0:
+        if args.log_interval > 0 and i_episode % args.log_interval == 0 and args.printout:
+            for k in range(agent.k_level):
+                for j in range(40):
+                    idx = (agent.buffer_at[k][0] + (j - 100)) % args.buffer_len
+                    print(k, idx, len(agent.replay_buffer[k]), agent.buffer_at[k][0])
+                    print(k, j, agent.replay_buffer[k][idx])
+
             print("losses", losses_dict)
     
 if __name__ == '__main__':

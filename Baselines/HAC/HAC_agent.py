@@ -52,7 +52,7 @@ class HAC:
         self.HAC.append(HACPolicy(input_shape[0], paction_space, action_space, max_action, False, **vars(args)))
         self.replay_buffer.append(ParamPriorityReplayBuffer(args.buffer_len, stack_num=1, alpha=args.prioritized_replay[0], beta=args.prioritized_replay[1]))
 
-
+        self.buffer_at = [0 for i in range(k_level)]
         # set some parameters
         self.keep_instanced = not args.no_keep_instanced
         self.goal_final = goal_final

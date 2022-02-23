@@ -103,7 +103,7 @@ class HER(SampleRetarget):
                     next_instances = dataset_model.split_instances(self.state_extractor.get_target(single_batch.next_full_state[0]))
                     idx = np.argwhere(np.abs(next_instances - instances).sum(axis=-1) != 0)[0].squeeze()
                     param = self._get_mask_param(next_instances[idx], mask)
-                    print(idx, next_instances.shape, next_instances[idx], instances[idx], param)
+                    # print(idx, next_instances.shape, next_instances[idx], instances[idx], param)
                 else:
                     multi_keep = False
                 # WITH HYPOTHESIS MODEL

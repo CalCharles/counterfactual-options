@@ -135,6 +135,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.env_reset = args.env_reset # if true, then the environment handles resetting
         self.full_at = 0 # the pointer for the buffer without temporal extension
         self.test = test
+        self.print_test = args.print_test
         self.full_buffer = copy.deepcopy(buffer) # TODO: make this conditional on usage?
         self.hit_miss_queue = deque(maxlen=2000) # not sure if this is the best way to record hits, but this records when a target position is reached
         self.true_interaction = args.true_interaction
@@ -166,8 +167,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         env = DummyVectorEnv([lambda: env])
         super().__init__(policy, env, buffer, preprocess_fn, exploration_noise)
 
-    def reset(self):
-        super().reset()
+    def reset(self, reset_buffer=False):
+        super().reset(False)
 
     def reset_env(self, keep_statistics: bool = False):
         full_state = self.env.reset()
@@ -309,12 +310,13 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         term_done = False # signifies if the termination was the result of a option terminal state
         term_end = False # if termination ends collection, should be True
         since_last = 0
-        assessment = -10000
+        assessments = list()
+        info = dict()
 
         while True:
             # print("loop start", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
             param, mask, new_param = self.adjust_param()
-            if self.test and new_param: print("new param", param)
+            if self.test and self.print_test and new_param: print("new param", param)
             state_chain = self.data.state_chain if hasattr(self.data, "state_chain") else None
             if no_grad:
                 with torch.no_grad():  # faster than retain_grad version
@@ -414,7 +416,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             if not self.test and self.policy_collect is not None: self.policy_collect(next_data, self.data, skipped, added)
             # print("post policy collect", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
 
-            if term: 
+            if term and self.print_test and self.test: 
                 # print("term", rew)
                 # print("term", self.data.full_state['factored_state']['Ball'], param, obs[:10], pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()),
                 #     act, self.data.mapped_act)
@@ -425,22 +427,22 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 print("post update", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
 
             # debugging and visualization
-            if 68 <= self.data.full_state['factored_state']['Ball'][0][0] <= 74:
-                if self.data.next_full_state['factored_state']['Ball'][0][2] != self.data.full_state['factored_state']['Ball'][0][2]:
-                    if inter > .1:
-                        print("interaction hit", self.data.full_state['factored_state']['Ball'][0], self.data.next_full_state['factored_state']['Ball'][0][2], inter, term)
-                    else:
-                        print("false negative", self.data.full_state['factored_state']['Ball'][0], self.data.next_full_state['factored_state']['Ball'][0][2], inter, term)                  
-                elif inter[0] >= 0.1:
-                    print("false positive", self.data.full_state['factored_state']['Ball'][0], self.data.next_full_state['factored_state']['Ball'][0][2], inter, term)
+            # if 68 <= self.data.full_state['factored_state']['Ball'][0][0] <= 74:
+            #     if self.data.next_full_state['factored_state']['Ball'][0][2] != self.data.full_state['factored_state']['Ball'][0][2]:
+            #         if inter > .1:
+            #             print("interaction hit", self.data.full_state['factored_state']['Ball'][0], self.data.next_full_state['factored_state']['Ball'][0][2], inter, term)
+            #         else:
+            #             print("false negative", self.data.full_state['factored_state']['Ball'][0], self.data.next_full_state['factored_state']['Ball'][0][2], inter, term)                  
+            #     elif inter[0] >= 0.1:
+            #         print("false positive", self.data.full_state['factored_state']['Ball'][0], self.data.next_full_state['factored_state']['Ball'][0][2], inter, term)
             # print(obs[5:10], self.data.full_state['factored_state']['Ball'])
             # if self.test: print(self.data.target.squeeze(), self.data.next_target.squeeze(), self.data.param.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # print(self.data.mapped_act, self.data.inter_state, self.data.param, self.data.obs)
             # if self.test: print(step_count, self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # if self.test and resampled: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # if self.test: print(self.data.obs.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
-            # if self.test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.true_action.squeeze(), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
-            if self.test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), self.data.full_state['factored_state']['Paddle'][0][1], np.round_(self.data.act.squeeze(), 2), self.data.true_action.squeeze(), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
+            if self.test and self.print_test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.true_action.squeeze(), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
+            # if self.test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), self.data.full_state['factored_state']['Paddle'][0][1], np.round_(self.data.act.squeeze(), 2), self.data.true_action.squeeze(), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()
@@ -467,7 +469,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                     # print("episode count elapsed")
                     episode_count += int(np.any(done))
             if np.any(true_done) or (np.any(term) and self.terminate_reset):
-                if "assessment" in info[0]: assessment = info[0]["assessment"]
+                if "assessment" in info[0]: assessments.append(info[0]["assessment"])
+
                 true_episode_count += 1
                 # if we have a true done, reset the environments and self.data
                 if self.env_reset: # the same as reset_env except it does not reset the env
@@ -505,8 +508,13 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.collect_step += step_count
         self.collect_episode += episode_count
         self.collect_time += max(time.time() - start_time, 1e-9)
+        if len(assessments) > 0:
+            assessment = np.mean(assessments)
+        else:
+            assessment = -10000
         return { # TODO: some of these don't return valid values
             "n/ep": episode_count,
+            "n/tep": true_episode_count,
             "n/tr": term_count,
             "n/st": step_count,
             "n/h": hit_count,
@@ -514,5 +522,6 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             "rews": rews,
             "terminate": term_end,
             "saved_fulls": saved_fulls,
-            "assessment": assessment
+            "assessment": assessment,
+            "info": info,
         }

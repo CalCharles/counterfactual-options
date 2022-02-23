@@ -15,12 +15,15 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
     next_state = None
     done = None
     goal_transitions = []
+
     subgoal_test_transitions = list()
     data = Batch(
         obs={}, param={}, act={}, rew={}, done={}, obs_next={}, info={}, policy={}, gamma={}
     )
     reward = 0.0
     total_time = 0
+    if goal is None: # the goal is not used at this level
+        goal = np.array(0) # use a dummy goal
     # logging updates
     
     # H attempts
@@ -99,22 +102,29 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
             # add values
             obs = agent.get_obs(i_level, full_state, goal, env_model)
             obs_next = agent.get_obs(i_level, next_full_state, goal, env_model)
+            # print(i_level, full_state['raw_state'], next_full_state['raw_state'], obs, obs_next)
 
             # hindsight action transition
             update_full_data(data, obs=obs, act=act, mapped_act=action, obs_next=obs_next, 
                 param=goal, next_target=next_target, rew =-1.0, gamma=agent.gamma, done=done, info=info)
             if goal_achieved:
                 data.update(rew=0.0, done=True)
-                agent.replay_buffer[i_level].add(data)
+                agent.buffer_at[i_level], ep_rew, ep_len, ep_idx = agent.replay_buffer[i_level].add(data)
             else:
                 data.update(rew=-1.0)
-                agent.replay_buffer[i_level].add(data)
+                agent.buffer_at[i_level], ep_rew, ep_len, ep_idx = agent.replay_buffer[i_level].add(data)
                 
             # copy for goal transition
             goal_data = copy.deepcopy(data)
             update_full_data(goal_data, obs=obs, act=act, mapped_act=action, obs_next=obs_next, 
                 param=goal, next_target=next_target, rew=-1.0, gamma=agent.gamma, done=done, info=info)
             goal_transitions.append(goal_data)
+        else: # add a transition with the environment reward
+            obs = agent.get_obs(i_level, full_state, goal, env_model)
+            obs_next = agent.get_obs(i_level, next_full_state, goal, env_model)
+            update_full_data(data, obs=obs, act=act, mapped_act=action, obs_next=obs_next, 
+                param=goal, next_target=next_target, rew =rew, gamma=agent.gamma, done=done, info=info)
+            agent.buffer_at[i_level], ep_rew, ep_len, ep_idx = agent.replay_buffer[i_level].add(data)
         if printout:
             target = agent.get_target(i_level, full_state, env_model)
             print(i, rng, i_level, act, action, target, next_target, goal)
@@ -127,7 +137,7 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
             break
 
     for transition in subgoal_test_transitions:
-        agent.replay_buffer[i_level].add(transition)
+        agent.buffer_at[i_level], ep_rew, ep_len, ep_idx = agent.replay_buffer[i_level].add(transition)
     
     
     #   <================ finish H attempts ================>
@@ -142,8 +152,9 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
             # last state is goal for all transitions
             obs = agent.get_obs(i_level, transition.full_state, param, env_model)
             obs_next = agent.get_obs(i_level, transition.next_full_state, param, env_model)
-            rew = 0.0 if agent.check_goal(transition.next_target[0], param, agent.threshold) else transition.rew
-            transition.update(obs=np.expand_dims(obs, 0), obs_next=np.expand_dims(obs_next, 0), param=np.expand_dims(param, 0), rew=rew)
-            agent.replay_buffer[i_level].add(transition)
-        
+            goal_check = agent.check_goal(transition.next_target[0], param, agent.threshold)
+            rew = 0.0 if goal_check else transition.rew
+            done = True if goal_check else transition.done
+            transition.update(obs=np.expand_dims(obs, 0), obs_next=np.expand_dims(obs_next, 0), param=np.expand_dims(param, 0), rew=rew, done=done)
+            agent.buffer_at[i_level], ep_rew, ep_len, ep_idx = agent.replay_buffer[i_level].add(transition)
     return next_full_state, reward, done, info, total_time

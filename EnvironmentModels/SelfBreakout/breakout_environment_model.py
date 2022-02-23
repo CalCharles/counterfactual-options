@@ -33,7 +33,7 @@ class BreakoutEnvironmentModel(EnvironmentModel):
 
     def get_HAC_flattened_state(self, full_state, use_instanced=True):
         paddle_ball_rel = np.array(full_state['factored_state']['Paddle']) - np.array(full_state['factored_state']['Ball'])
-        return np.concatenate([paddle_ball_rel, self.get_flattened_state(names=self.object_names[:4], use_instanced=use_instanced)])
+        return np.concatenate([paddle_ball_rel, self.flatten_factored_state(full_state['factored_state'], names=self.object_names[:4], use_instanced=use_instanced)])
 
 
     def get_interaction_trace(self, name):

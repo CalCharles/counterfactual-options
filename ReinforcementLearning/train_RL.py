@@ -34,6 +34,8 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     if random:
         trials = args.pretest_trials
     #     trials = args.test_trials * 10
+    eps = option.policy.epsilon
+    option.zero_epsilon()
     if args.object == "Block" and args.env == "SelfBreakout" and not args.target_mode:
         orig_env_model = test_collector.option.sampler.current_environment_model
         test_collector.option.sampler.current_environment_model = test_collector.environment_model
@@ -42,8 +44,9 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
         test_perf.append(result["rews"].mean())
         suc.append(float(result["terminate"]))
         hit_miss.append(result['n/h'])
-        print(result['assessment'])
         add_assessment(result, assessment_test, drops)
+    
+    option.set_epsilon(eps)
     if random:
         print("Initial trials: ", trials)
     else:
@@ -56,7 +59,7 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
         hmt = hmt[0] / (hmt[0] + hmt[1])
     mean_train_assess = 0
     if len(list(assessment_train)) > 0:
-        mean_train_assess = np.array(mean_train_assess)
+        mean_train_assess = np.array(assessment_train)
         mean_train_assess = mean_train_assess.mean()
     train_drops_num = 0
     if len(list(train_drops)) > 0:
@@ -122,6 +125,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
         # once if the collected episodes' mean returns reach the threshold,
         # or every 1000 steps, we test it on test_collector
         add_assessment(collect_result, assessment_train, train_drops)
+        print("episodes", collect_result['n/ep'], collect_result['assessment'], np.mean(assessment_train))
         hit_miss_queue_train.append([collect_result['n/h'], collect_result['n/m']])
 
         if i % args.log_interval == 0:
@@ -158,7 +162,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
             full_save(args, option, graph)
 
         # Buffer debugging printouts
-        if i % args.log_interval == 0:
+        if i % args.log_interval == 0 and args.print_buffer:
             buf = train_collector.buffer
             print("main buffer", len(buf), train_collector.get_buffer_idx())
             rv = lambda x: ""
@@ -179,7 +183,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                     num_instances = args.num_instance
                     param_mean = [32, 84 // 2, 0,0,0]
                     param_variance = [10, 84 // 2, 2,1,1]
-                    if len(args.breakout_variant) > 0 and args.breakout_variant != "harden_single":
+                    if len(args.breakout_variant) > 0 and args.breakout_variant not in ["harden_single", "proximity"]:
                         param_mean = list()
                         param_variance = list()
                     rv_mean = np.array(param_mean + [84 // 2, 84 // 2, 0,0,1] + [32, 84 // 2, 0,0,0] * args.num_instance)
@@ -220,7 +224,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     if args.save_interval > 0:
         full_save(args, option, graph)
     final_perf, final_suc = list(), list()
-    final_perf, final_suc, final_hit = _collect_test_trials(args, test_collector, 0, 0, final_perf, final_suc, list(), list(),list(),list(),list(), list(), tensorboard_logger=tensorboard_logger)
+    final_perf, final_suc, final_hit = _collect_test_trials(args, test_collector, 0, 0, final_perf, final_suc, list(), list(),list(),list(),list(), list(), option=option, tensorboard_logger=tensorboard_logger)
 
     print("performance comparison", initial_perf, final_perf)
     if initial_perf < final_perf - 2:

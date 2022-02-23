@@ -86,7 +86,9 @@ class Option():
 
 
     def print_epsilons(self):
-        print("epsilons", self.terminate_reward.epsilon_close, self.terminate_reward.interaction_probability, self.policy.epsilon, self.sampler.current_distance) #self.action_map.epsilon_policy)
+        print("epsilons",self.name, self.terminate_reward.epsilon_close, self.terminate_reward.interaction_probability, self.policy.epsilon, self.sampler.current_distance) #self.action_map.epsilon_policy)
+        if type(self.next_option) != PrimitiveOption:
+            self.next_option.print_epsilons()
 
     def _set_next_option(self, batch, mapped_act):
         param = batch['param']
