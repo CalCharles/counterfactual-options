@@ -6,6 +6,7 @@ from tianshou.data import Batch
 import os
 import copy
 import psutil
+import time
 
 def add_assessment(result, assessment, drops):
     if result["assessment"] == -10000:
@@ -92,6 +93,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     test_perf, suc, assessment_test, assessment_train, drops = deque(maxlen=2000), deque(maxlen=2000), deque(maxlen=100), deque(maxlen=100), deque(maxlen=200)
 
     
+    start = time.time()
     # collect initial random actions
     print("pre pretrain", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
     if not len(args.load_pretrain) > 0:
@@ -115,7 +117,6 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     hit_miss_queue_train = deque(maxlen=args.log_interval)
     cumul_losses = deque(maxlen=args.log_interval)
     train_drops = deque(maxlen=1000)
-
 
     for i in range(args.num_iters):  # total step
         # print(i, "collect", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
@@ -156,6 +157,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
                 total_losses[k] = total_losses[k] / len(cumul_losses)
             print("losses", total_losses)
             option.print_epsilons()
+            print("FPS: ", ((i+1) *args.num_steps + args.pretrain_iters) /(time.time() - start))
             # print("epsilons", epsilon, interaction, epsilon_close)
 
         if args.save_interval > 0 and (i+1) % args.save_interval == 0:
