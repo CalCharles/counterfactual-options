@@ -41,14 +41,16 @@ breakout_variants = {"default": (0,5, 20, -1, "", 0,0, 0),
                     "negative_top_small": (0,2,10,7,"top",0,0,0),
                     "breakout_priority_small": (0,2,10,-1,"",-2,0, 1),
                     "breakout_priority_medium": (0,3,10,-1,"",-2,0, 5),
+                    "breakout_priority_large": (0,4,15,-1,"",-1,0, 20),
                     "breakout_priority_full": (0,5,20,-1,"",-2,0, 20),
                     "edges_full": (2,5,20,-1,"",-1,0, 20),
                     "edges_small": (2,2,10,-1,"",-1,0, 1),
                     "center_small": (3,2,10,-1,"",-1,0, 1),
                     "center_medium": (3,3,15,-1,"",-1,0, 5),
+                    "center_large": (3,4,15,-1,"",-1, 0,20),
                     "center_full": (3,5,20,-1,"",-2, 0,20),
                     "harden_single": (4,3,10,-1,"",-1,10,0),
-                    "proximity": (0,5,20,100,"", 0,0, 0)}
+                    "proximity": (0,4,15,60,"", 0,0, 0)}
 
 class Screen(RawEnvironment):
     def __init__(self, frameskip = 1, drop_stopping=True, target_mode = False, angle_mode=False,
@@ -144,7 +146,10 @@ class Screen(RawEnvironment):
             if self.ball.paddle: self.assessment_stat -= 1
         elif self.variant == "proximity":
             if self.ball.block:
-                self.assessment_stat = (self.assessment_stat[0] + 1, self.assessment_stat + np.linalg.norm(self.sampler.param - self.ball.block_id.get_midpoint(), p=1))
+                # print(self.assessment_stat, self.sampler.param, self.ball.block_id.getMidpoint(), np.linalg.norm(self.sampler.param[:2] - self.ball.block_id.getMidpoint(), ord=1))
+                self.assessment_stat = (self.assessment_stat[0] + 1, self.assessment_stat[1] + np.linalg.norm(self.sampler.param[:2] - self.ball.block_id.getMidpoint(), ord=1))
+                print("hit at l1", np.linalg.norm(self.sampler.param[:2] - self.ball.block_id.getMidpoint(), ord=1), self.ball.block_id.getMidpoint(), self.sampler.param[:2])
+                # self.assessment_stat = np.linalg.norm(self.sampler.param[:2] - self.ball.block_id.getMidpoint(), ord=1)
             if self.done:
                 self.assessment_stat = self.assessment_stat[1] / self.assessment_stat[0]
 
@@ -203,7 +208,7 @@ class Screen(RawEnvironment):
 
 
     def reset(self):
-        self.assessment_stat = 0
+        self.assessment_stat = 0 if self.variant != "proximity" else (0,0)
         if self.seed_counter > 0:
             self.seed_counter += 1
             np.random.seed(self.seed_counter)
@@ -379,8 +384,12 @@ class Screen(RawEnvironment):
                         preattr = obj2.attribute
                         obj1.interact(obj2)
                         if preattr != obj2.attribute:
-                            self.reward += preattr * self.default_reward
-                            self.total_score += preattr * self.default_reward
+                            if self.variant == "proximity":
+                                dist = np.linalg.norm(np.array(obj1.getMidpoint()) - np.array(obj2.getMidpoint()), ord=1)
+                                self.reward += (np.exp(-dist/10) - .2) * 2
+                            else:
+                                self.reward += preattr * self.default_reward
+                                self.total_score += preattr * self.default_reward
                             hit = True
                             if obj2.name.find("Block") != -1 and not self.target_mode and self.use_2D:
                                 if obj2.index2D in self.exposed_blocks:
@@ -413,12 +422,13 @@ class Screen(RawEnvironment):
             if (self.ball.losses == 4 and pre_stop) or (self.target_mode and ((self.ball.top_wall and self.bounce_cost == 0) or self.ball.bottom_wall or self.ball.block)):
                 self.average_points_per_life = self.total_score / 5.0
                 self.done = True
-                self.reward += -1 * self.default_reward * int(not self.ball.block)
-                self.total_score += -1 * self.default_reward * int(not self.ball.block)
+                self.reward += -10 * self.default_reward * int(not self.ball.block)
+                self.total_score += -10 * self.default_reward * int(not self.ball.block)
                 self.episode_rewards.append(self.total_score)
                 self.total_score = 0
                 self.since_last_bounce = 0
                 needs_reset = True
+                if not self.ball.block: print("top drp", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
                 self.truncate = not self.ball.block and not (self.target_mode and ((self.ball.top_wall and self.bounce_cost == 0)))
                 break
 

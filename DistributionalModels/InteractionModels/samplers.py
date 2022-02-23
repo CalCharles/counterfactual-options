@@ -1,8 +1,21 @@
 import numpy as np
 import torch
 import copy
+import collections
+import torch.nn as nn
+import torch.optim as optim
 from Networks.network import pytorch_model
+from Networks.DistributionalNetworks.forward_network import forward_nets
 from Options.state_extractor import array_state
+from tianshou.data import Batch
+from Rollouts.param_buffer import SamplerBuffer
+from file_management import numpy_factored
+from Environments.SelfBreakout.breakout_screen import AnglePolicy
+
+
+
+def check_dict(states):
+    return type(states) == dict or type(states) == Batch or type(states) == collections.OrderedDict
 
 class Sampler():
     def __init__(self, **kwargs):
@@ -11,14 +24,16 @@ class Sampler():
         self.sample_continuous = True # kwargs["sample_continuous"] # hardcoded for now
         self.combine_param_mask = not kwargs["no_combine_param_mask"] # whether to multiply the returned param with the mask
         self.rate = 0
+        self.current_distance = 0
 
-        # specifit to CFselectors
+        # specific to CFselectors
         self.cfselectors = self.dataset_model.cfselectors
         self.lower_cfs = np.array([i for i in [cfs.feature_range[0] for cfs in self.cfselectors]])
         self.upper_cfs = np.array([i for i in [cfs.feature_range[1] for cfs in self.cfselectors]])
-        self.len_cfs = np.array([j-i for i,j in [tuple(cfs.feature_range) for cfs in self.cfselectors]])
+        self.len_cfs = np.array([j-i for i,j in [tuple(cfs.feature_range) for cfs in self.cfselectors]]) # the range of the CFS
 
         self.param, self.mask = self.sample(kwargs["init_state"])
+        print("ranges", self.lower_cfs, self.upper_cfs)
         self.iscuda = False
 
     def cuda(self, device=None):
@@ -37,7 +52,7 @@ class Sampler():
     def get_mask(self, param):
         return self.mask
 
-    def update(self, param, mask, buffer=None):
+    def update(self, param, mask, data=None):
         self.param, self.mask = param, mask
 
     def update_rates(self, masks, results):
@@ -57,10 +72,10 @@ class Sampler():
         new_states = states.copy()
         if centered:
             for f, w, cfs in zip(edited_features, self.len_cfs * weights, self.cfselectors):
-                cfs.assign_feature(new_states, w, factored=type(new_states) == dict, edit=True, clipped=True) # TODO: factored might be possible to be batch
+                cfs.assign_feature(new_states, w, factored=check_dict(states), edit=True, clipped=True) # TODO: factored might be possible to be batch
         else:
             for f, cfs in zip(edited_features, self.cfselectors):
-                cfs.assign_feature(new_states, f, factored=type(new_states) == dict)
+                cfs.assign_feature(new_states, f, factored=check_dict(states))
         return self.delta(new_states)
 
     def sample(self, states):
@@ -92,6 +107,25 @@ class Sampler():
         new_param[new_param == 1] = param
         param = new_param
         return param
+
+    def reset(self, init_state):
+        # resets internal state if needed
+        pass
+
+class TargetSampler(Sampler):
+    def __init__(self, **kwargs):
+        # a sampler that just takes the "Target" object as the "sample", assumes dim 3 with 1,1,0 mask
+        self.delta = kwargs["environment_model"].create_entity_selector([kwargs["target_object"]])
+        self.combine_param_mask = True
+        self.current_distance = 0
+        self.param, self.mask = self.sample(kwargs["init_state"])
+        self.iscuda = False
+
+    def sample(self, states):
+        states = states["factored_state"]
+        mask = np.array([1,1,0])
+        target = self.get_mask_param(self.delta(states), mask)
+        return target, np.array([1,1,0])
 
 class RawSampler(Sampler):
     # never actually samples
@@ -134,7 +168,6 @@ def find_inst_feature(state_values, sample_able, nosample, sample_exposed, envir
                 sample_able_all.append((s,h))
     # s, h = sample_able_inst[np.random.randint(len(sample_able_inst))]
     if len(sample_able_inst) == 0:
-        # print(sample_able_all, sample_able_inst, [exp.getMidpoint() for exp in environment_model.environment.exposed_blocks.values()])
         return sample_able_all[np.random.randint(len(sample_able_all))]
     return sample_able_inst[np.random.randint(len(sample_able_inst))]
 
@@ -142,12 +175,14 @@ class InstancePredictiveSampler(Sampler):
     def __init__(self, **kwargs):
         self.sampler_network = PairNetwork(**kwargs)
 
+
 class InstanceSampling(Sampler):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.nosample_epsilon = .0001
         self.environment_model = kwargs["environment_model"]
         self.sample_exposed = True
+        self.combine_param_mask = False
 
     def get_targets(self, states):
         dstates = self.dataset_model.delta(states)
@@ -165,11 +200,11 @@ class InstanceSampling(Sampler):
                 mval = val * m + inv_m * s
                 param.append(mval)
                 # idxes.append(idx)
-            return np.stack(param, axis=0)
+            return np.stack(param, axis=0), np.stack([m.copy() for _ in range(len(param))])
         elif len(values.shape) == 2:
             s, val = find_inst_feature(values, self.dataset_model.sample_able.vals, self.nosample_epsilon, self.sample_exposed, self.environment_model)
             mval = val * m + inv_m * s
-            return mval
+            return mval, m
 
     def sample(self, states):
         states = states['factored_state']
@@ -191,9 +226,7 @@ class HistoryInstanceSampling(Sampler):
         val_idx = np.random.randint(len(self.dataset_model.sample_able.vals))
         m_value = self.dataset_model.sample_able.vals[val_idx]
         val = self.dataset_model.delta(states) * inv_m + m_value * mask# TODO: does not handle multiple states
-        # print(val, m_value, val_idx, self.dataset_model.delta(states), mask)
         return val, mask
-
 
 class RandomSubsetSampling(Sampler):
     def __init__(self, **kwargs):
@@ -254,7 +287,6 @@ class HistorySampling(Sampler):
         #     value = np.array(self.dataset_model.sample_able.vals)[value]
         # else:
         value = np.random.choice(self.dataset_model.sample_able.vals)
-        # print(self.dataset_model.sample_able.vals)
         return self.weighted_samples(states, None, edited_features=value) # value.clone(), self.dataset_model.selection_binary.clone()
 
 class GaussianCenteredSampling(Sampler):
@@ -277,25 +309,50 @@ class GaussianCenteredSampling(Sampler):
 
 class LinearUniformCenteredSampling(Sampler):
     def __init__(self, **kwargs):
-        self.distance = .5 # normalized
+        self.distance = kwargs["sample_distance"] # normalized
         self.schedule_counter = 0
         self.schedule = kwargs["sample_schedule"]
-        self.current_distance = .05
+        self.current_distance = .1 if self.schedule > 0 else self.distance
         super().__init__(**kwargs)
 
-    def update(self, param, mask, buffer=None):
-        super().update(param, mask, buffer=None)
+    def update(self, param, mask, data=None):
+        super().update(param, mask, data=None)
         self.schedule_counter += 1
 
     def get_targets(self, states):
-        distance = .05
+        distance = self.current_distance
         if self.schedule > 0: # the distance changes, otherwise it is a set constant .15 of the maximum TODO: add hyperparam
             self.current_distance = self.distance - (self.distance - distance) * np.exp(-(self.schedule_counter + 1)/self.schedule)
         cfselectors = self.dataset_model.cfselectors
+
         weights = (np.random.random((len(cfselectors,))) - .5) * 2 * self.current_distance # random weight vector bounded between -distance, distance
         return self.weighted_samples(states, weights, centered=True)
 
+class LinearUniformCenteredUnclipSampling(Sampler):
+    def __init__(self, **kwargs):
+        self.distance = kwargs["sample_distance"] # normalized
+        self.schedule_counter = 0
+        self.schedule = kwargs["sample_schedule"]
+        super().__init__(**kwargs)
+        self.current_distance = .1 if self.schedule > 0 else kwargs["sample_distance"]
 
+    def update(self, param, mask, data=None):
+        super().update(param, mask, data=None)
+        self.schedule_counter += 1
+
+    def get_targets(self, states):
+        distance = self.current_distance
+        if self.schedule > 0: # the distance changes, otherwise it is set to kwargs.sample_distance
+            self.current_distance = self.distance - (self.distance - distance) * np.exp(-(self.schedule_counter + 1)/self.schedule)
+        cfselectors = self.dataset_model.cfselectors
+
+        weights = [] 
+        for cfslen, cfs in zip(self.len_cfs, cfselectors):
+            lower, upper = cfs.relative_range(states, factored=check_dict(states))
+            lw, uw = lower / cfslen, upper / cfslen
+            weights.append(-lw + np.random.random() * (uw+lw))
+        weights = np.array(weights) * self.current_distance
+        return self.weighted_samples(states, weights, centered=True)
 
 class GaussianOffCenteredSampling(Sampler):
     def __init__(self, **kwargs):
@@ -319,9 +376,350 @@ class GaussianOffCenteredSampling(Sampler):
         else: # sample discrete with weights
             return
 
+class PathSampler(Sampler):
+    # a sampler that returns the path to the goal as samples
+    def __init__(self, **kwargs):
+        self.path_fn = kwargs["path_fn"]
+        self.table_offset = kwargs["environment_model"].environment.env.table_offset
+        self.spawn_size = kwargs["environment_model"].environment.env.SPAWN_AREA_SIZE * 2
+        self.obstacle_half_sidelength = kwargs["environment_model"].environment.env.OBSTACLE_HALF_SIDELENGTH
+        self.grid_resolution = kwargs["environment_model"].environment.env.OBSTACLE_GRID_RESOLUTION
+        self.current_samples = list()
+        self.reset(kwargs["init_state"])
+        self.repeat_param = self.current_samples[-1]
+        super().__init__(**kwargs)
+
+    def _get_obstacles(self, factored_state):
+        obs = list()
+        for k in factored_state.keys():
+            if k.find("Obstacle") != -1:
+                obs.append(factored_state[k])
+        return np.stack(obs, axis=0).squeeze()
+
+    def reset(self, init_state):
+        obstacles = init_state["factored_state"]
+        block = init_state["factored_state"]["Block"]
+        target = init_state["factored_state"]["Target"]
+        self.current_samples = self.path_fn(self._get_obstacles(obstacles), self.table_offset, self.spawn_size, self.obstacle_half_sidelength, self.grid_resolution, block, target)[1]
+        print(self.current_samples)
+        
+    def sample(self, states):
+        param = self.current_samples.pop(0) if len(self.current_samples) > 0 else self.repeat_param
+        if len(self.current_samples) == 0:
+            self.repeat_param = param
+        # print(states, param)
+        if type(states) == dict:
+            state_len = len(states["factored_state"]["Action"].shape)
+        else:
+            state_len = len(states.shape)
+        # pad_vals = [(0, 0)] * len(states.shape) - 1
+        # pad_vals += [(0,1)]
+        # param = np.pad(param, pad_width=pad_vals, mode='constant', constant_values=0)
+        mask = np.array([1.,1.,0.])
+        for i in range(state_len - 1):
+            mask = np.expand_dims(mask, 0)
+            param = np.expand_dims(param, 0)
+        return param * mask, mask
+
+class BreakoutTargetSampler(Sampler):
+    def __init__(self, **kwargs):
+        self.current_environment_model = kwargs['environment_model']
+        self.internal_environment_model = copy.deepcopy(kwargs['environment_model'])
+        self.angle_policy = AnglePolicy(4)
+        self.param, self.mask = self.sample(kwargs['init_state'])
+        super().__init__(**kwargs)
+        self.combine_param_mask = False
+
+    def sample(self, states):
+        # is only able to return current samples, should be ok though
+        mask = np.zeros((5,))
+        mask[4] = 1
+        self.internal_environment_model = copy.deepcopy(self.current_environment_model)
+        targets = list()
+        rem_block = list()
+        for block in self.current_environment_model.environment.blocks:
+            if block.attribute == 1:
+                rem_block.append(block)
+        if len(rem_block) > 1:
+
+            for i in range(4):
+                current_model = copy.deepcopy(self.internal_environment_model)
+                block_hit = False
+                action = self.angle_policy.act(current_model.environment, angle=i, force=True)
+                max_count = 0 
+                while not block_hit and max_count < 150:
+                    action = self.angle_policy.act(current_model.environment, angle=i)
+                    current_model.step(action)
+                    block_hit = current_model.environment.ball.block
+                    max_count += 1
+                if block_hit:
+                    idx = int(current_model.environment.ball.block_id.name[5:]) 
+                    targets.append(current_model.environment.ball.block_id.getMidpoint())
+            value = np.zeros((5,))
+            value[4] = 0
+            if len(targets) > 0:
+                value[:2] = targets[np.random.randint(len(targets))]
+                return value, mask
+        block = rem_block[np.random.randint(len(rem_block))]
+        pos = block.getMidpoint()
+        value = np.zeros((5,))
+        value[4] = 0
+        value[:2] = pos
+        return value, mask
+
+class BreakoutRandomSampler(Sampler):
+    def __init__(self, **kwargs):
+        self.current_environment_model = kwargs["environment_model"]
+        super().__init__(**kwargs)
+        self.combine_param_mask = False
+
+    def sample(self, states):
+        mask = np.zeros((5,))
+        mask[4] = 1
+        targets = list()
+        rem_block = list()
+        for block in self.current_environment_model.environment.blocks:
+            if block.attribute > 0:
+                rem_block.append(block)
+        block = rem_block[np.random.randint(len(rem_block))]
+        pos = block.getMidpoint()
+        value = np.zeros((5,))
+        value[4] = 0
+        value[:2] = pos
+        self.param, self.mask = value, mask
+        return value, mask
+
+
+
+PREDICT_BINARY = 0
+PREDICT_VALUE = 1
+class PredictiveSampling(Sampler):
+    def __init__(self, **kwargs):
+        self.action_prediction = kwargs["action_prediction"] if "action_prediction" in kwargs else 0
+        self.value = 10
+        kwargs["value"] = 10
+        self.noise_actions = kwargs["noise_actions"] if "noise_actions" in kwargs else 0
+
+        self.selector = kwargs["entity_selector"]
+        self.target_selector = kwargs["target_selector"]
+        self.num_actions = kwargs["num_actions"]
+        self.object_dim = kwargs["object_dim"]
+        self.has_params = kwargs["has_params"]
+        self.iscuda=False
+        self.input_size = self.get_input(kwargs["init_state"], 0).shape[0]
+        # self.append_instance_binary = kwargs["append_instance_binary"]
+        self.diff_binary = kwargs["diff_binary"]
+        kwargs["num_inputs"] = self.get_input(kwargs["init_state"], 0).shape[0]
+        kwargs["num_outputs"] = self.get_output(kwargs["init_state"], 0).shape[0]
+        kwargs["post_dim"] = 0
+        kwargs["obs"] = self.get_input(kwargs["init_state"], 0)
+        print(kwargs["num_inputs"], kwargs["num_outputs"])
+        kwargs["aggregate_final"] = False
+        kwargs["output_dim"] = 1
+        self.network = forward_nets[kwargs["sampler_type"]](**kwargs)
+        self.train_rate = kwargs["sampler_train_rate"]
+        self.update_counter = 0
+        self.buffer = SamplerBuffer(kwargs["buffer_len"], stack_num=1)
+        self.test_buffer = SamplerBuffer(kwargs["buffer_len"], stack_num=1)
+        self.grad_steps = kwargs["sampler_grad_epoch"]
+        if self.action_prediction == PREDICT_BINARY:
+            self.inter_loss = nn.BCELoss()
+        elif self.action_prediction == PREDICT_VALUE:
+            self.inter_loss = nn.MSELoss()
+        self.optimizer = optim.Adam(self.network.parameters(), 1e-4, eps=1e-5, betas=(.9,.999), weight_decay=0)
+        self.batch_size = 128
+        self.last_done = True
+        self.added_since_last = False
+        self.mask = kwargs["mask"]
+        self.param, self.mask = self.sample(kwargs["init_state"])
+        init_batch = self.assign_data({'factored_state': numpy_factored(kwargs["init_state"]["factored_state"])}, 0)
+        self.use_obs = init_batch.obs
+        self.next_use_obs = init_batch.obs
+        self.last_done_obs = init_batch.obs
+        self.last_target = init_batch.target
+        self.hit_since_last = False
+        self.check_on_binary = kwargs["check_on_binary"] if "check_on_binary" in kwargs else False
+
+        self.train_test = .9
+
+    def cuda(self):
+        self.network.cuda()
+        self.iscuda=True
+
+    def cpu(self):
+        self.network.cpu()
+        self.iscuda=False
+
+    def hot_action(self, act):
+        v = np.zeros(self.num_actions)
+        v[int(act)] = 1
+        return v
+
+    def get_binary(self, states):
+        selection_binary = self.sample_subset(self.mask)
+        if len(self.target_selector(states).shape) > 1: # if a stack, duplicate mask for all
+            return pytorch_model.unwrap(torch.stack([selection_binary.clone() for _ in range(new_states.size(0))], dim=0))
+        return pytorch_model.unwrap(selection_binary.clone())
+
+    def run_optimizer(self, optimizer, model, loss):
+        optimizer.zero_grad()
+        (loss.mean()).backward()
+        torch.nn.utils.clip_grad_norm_(self.network.parameters(), 0.5)
+        optimizer.step()
+
+    def get_input(self, full_state, act=0):
+        act = self.hot_action(act)
+        obs = self.selector(full_state["factored_state"])
+        if self.action_prediction == PREDICT_BINARY:
+            obs = np.concatenate([act, obs])
+        return obs
+
+    def get_output(self, full_state, act=0):
+        if self.action_prediction == PREDICT_BINARY: 
+            target = self.target_selector(full_state["factored_state"])
+            final_instances = self.split_instances(target)
+            out_val = self.split_binary(final_instances)
+        elif self.action_prediction == PREDICT_VALUE:
+            out_val = self.hot_action(act) * self.value
+        return out_val
+
+    def check_last_binary(self, target):
+        return np.sum(self.split_binary(self.split_instances(target), start_instances=self.split_instances(self.last_target))) > 0
+
+
+    def aggregate(self, data, first=False):
+        # given a data point, add
+        if self.last_done:
+            self.data = copy.deepcopy(data)
+        if self.check_on_binary:
+            if self.check_last_binary(data.target):
+                self.next_use_obs = data.obs
+                self.hit_since_last = True
+        else:
+            self.use_obs = self.data.obs
+            self.next_use_obs = self.data.obs
+        if data.act != -1 and not self.added_since_last:
+            act = self.hot_action(data.act)
+            if self.action_prediction == PREDICT_BINARY:
+                obs = np.concatenate([act, self.use_obs])
+            elif self.action_prediction == PREDICT_VALUE:
+                obs = self.use_obs
+            act = data.act
+            if self.noise_actions > 0:
+                act = np.random.randint(self.num_actions) if np.random.rand() < self.noise_actions else data.act
+            self.data.update(obs=obs, act=act, true_act=data.act)
+            self.added_since_last = True
+            self.start_instances = self.split_instances(data.target)
+        if self.last_done:
+            self.last_done = False
+            self.last_done_obs = copy.deepcopy(self.data.obs)
+            print(self.last_done_obs)
+        print(data.obs[:5], self.data.obs[:9], data.act, self.added_since_last)
+        if (data.done or data.terminate) and not first:
+            final_instances = self.split_instances(data.target)
+            instance_binary = self.split_binary(final_instances, start_instances=self.start_instances)
+            self.data.update(done=data.done, target=data.target, instance_binary=instance_binary)
+            if not self.hit_since_last:
+                self.data.obs = self.last_done_obs
+            print(self.data, data.done, data.true_done, self.has_params, np.sum(instance_binary) >= 0, len(self.data.obs), self.input_size, len(self.buffer))
+            if len(self.data.obs) == self.input_size and (self.has_params and np.sum(instance_binary) >= 0): 
+                if np.random.rand() < self.train_test: self.buffer.add(self.data)
+                else: 
+                    self.data.act = self.data.true_act
+                    self.test_buffer.add(self.data)
+            self.last_done = True
+            self.added_since_last = False
+            self.use_obs = self.next_use_obs
+            self.hit_since_last = False
+        self.last_target = data.target # used to check differences with the last target
+
+    def split_binary(self, instances, start_instances=None):
+        if self.diff_binary and start_instances is not None:
+            return start_instances[...,-1] - instances[...,-1]
+        else:
+            return 1-instances[...,-1]
+
+    def split_instances(self, state, obj_dim=-1):
+        # split up a state or batch of states into instances
+        if obj_dim < 0:
+            obj_dim = self.object_dim
+        nobj = state.shape[-1] // obj_dim
+        if len(state.shape) == 1:
+            state = state.reshape(nobj, obj_dim)
+        elif len(state.shape) == 2:
+            state = state.reshape(-1, nobj, obj_dim)
+        return state
+
+    def assign_data(self, state, act):
+        factored_state = state['factored_state']
+        new_data = Batch()
+        new_data.update(true_done=factored_state["Done"], obs=self.selector(factored_state), target=self.target_selector(factored_state), act = act, done=factored_state["Done"], rew=0,)
+        
+        return new_data
+
+    def combine_act(self, obs, act):
+        act = np.stack([self.hot_action(a) for a in act], axis=0)
+        return np.concatenate([act, obs])
+
+    def predict(self, batch):
+        obs = pytorch_model.wrap(batch.obs, cuda=self.iscuda)
+        return self.network(obs) # outputs [batch_size, num_instances]
+
+    def compute_loss(self, batch):
+        obs = pytorch_model.wrap(batch.obs, cuda=self.iscuda)
+        predicted = self.network(obs) # outputs [batch_size, num_instances]
+        if self.action_prediction == PREDICT_BINARY:
+            target = pytorch_model.wrap(batch.instance_binary, cuda=self.iscuda)
+            target.needs_grad = False
+            if len(predicted.shape) > len(target.shape):
+                target = target.unsqueeze(-1)
+            # print(target.sum())
+            loss = self.inter_loss(predicted, target) # TODO: use target if predicting distancenot instance binary
+        elif self.action_prediction == PREDICT_VALUE:
+            instance_binary = batch.instance_binary
+            target = pytorch_model.wrap(instance_binary * (self.value + 1) - 1, cuda=self.iscuda)
+            # print(target, predicted, predicted[np.stack([np.arange(len(predicted)), batch.act])])
+            # print(target.shape, predicted[np.stack([np.arange(len(predicted)), batch.act])].shape)
+            loss = self.inter_loss(target, predicted[np.stack([batch.act, np.arange(len(predicted))])].unsqueeze(1))
+        return loss, predicted, target, pytorch_model.wrap(batch.act, cuda=self.iscuda).unsqueeze(-1), pytorch_model.wrap(batch.true_act, cuda=self.iscuda).unsqueeze(-1)
+
+    def assess_test(self):
+        batch, indice = self.test_buffer.sample(0)
+        return self.compute_loss(batch)
+
+
+    def update(self, param, mask, data=None):
+        # updates param and mask accordingly
+        super().update(param, mask, data=data)
+        # adds in the data if necessary
+        if data is not None: self.aggregate(data)
+        # updates the sampling model if necessary
+        total_loss = 0 
+        if self.update_counter % self.train_rate == 0:
+            for i in range(self.grad_steps):
+                batch, indice = self.buffer.sample(self.batch_size)
+                loss, predicted, target, act, true_act = self.compute_loss(batch)
+                self.run_optimizer(self.optimizer, self.network, loss)
+                total_loss += loss
+            total_loss = total_loss.mean()
+        self.update_counter += 1
+        return total_loss, predicted, target, act, true_act
+
+    def sample(self, states):
+        obs = self.get_input(states, act=np.random.randint(self.num_actions))
+        # print(self.action_prediction, self.hot_action(0), PREDICT_BINARY)
+        # if self.action_prediction == PREDICT_BINARY or self.action_prediction == PREDICT_VALUE:
+        #     print(obs.shape, self.hot_action(0))
+        #     obs = np.concatenate([self.hot_action(np.random.randint(4)), obs], axis=-1)
+        #     pytorch_model.wrap(obs, cuda=self.iscuda)
+        
+        predicted_binaries = pytorch_model.unwrap(self.network(obs))
+        return np.array(1), np.array(1)
+
 # class ReachedSampling
 
 mask_samplers = {"rans": RandomSubsetSampling, "pris": PrioritizedSubsetSampling} # must be 4 characters
-samplers = {"uni": LinearUniformSampling, "cuni": LinearUniformCenteredSampling, 
+samplers = {"uni": LinearUniformSampling, "cuni": LinearUniformCenteredSampling, 'cuuni': LinearUniformCenteredUnclipSampling,
             "gau": GaussianCenteredSampling, "hst": HistorySampling, 'inst': InstanceSampling,
-            "hstinst": HistoryInstanceSampling}
+            "hstinst": HistoryInstanceSampling, 'tar': TargetSampler, 'path': PathSampler, "block": BreakoutTargetSampler,
+            'randblock': BreakoutRandomSampler}  
