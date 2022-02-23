@@ -426,7 +426,7 @@ class Screen(RawEnvironment):
                 self.total_score = 0
                 self.since_last_bounce = 0
                 needs_reset = True
-                print("top drp", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
+                if not self.ball.block: print("top drp", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
                 self.truncate = not self.ball.block and not (self.target_mode and ((self.ball.top_wall and self.bounce_cost == 0)))
                 break
 

@@ -304,8 +304,9 @@ class TSPolicy(nn.Module):
         if self.algo_name in ['dqn']:
             Q_val = self.algo_policy(batch, input="obs_next" if nxt else "obs").logits
         if self.algo_name in ['rainbow']:
-            logits = self.algo_policy(batch, input="obs_next" if nxt else "obs").logits
-            Q_val = self.algo_policy.compute_q_value(logits, None)
+            probs = self.algo_policy(batch, input="obs_next" if nxt else "obs").logits
+            # print(logits.shape, logits)
+            Q_val = self.algo_policy.compute_q_value(probs, None)
         if self.algo_name in ['isl']:
             # Q_val = torch.softmax(self.algo_policy(batch, input="obs_next" if nxt else "obs").logits, dim=-1)
             Q_val = self.algo_policy(batch, input="obs_next" if nxt else "obs").logits

@@ -35,7 +35,7 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
         trials = args.pretest_trials
     #     trials = args.test_trials * 10
     eps = option.policy.epsilon
-    option.zero_epsilon()
+    option.set_epsilon(.02) # small epsilon
     if args.object == "Block" and args.env == "SelfBreakout" and not args.target_mode:
         orig_env_model = test_collector.option.sampler.current_environment_model
         test_collector.option.sampler.current_environment_model = test_collector.environment_model
@@ -118,14 +118,14 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
 
 
     for i in range(args.num_iters):  # total step
-        print(i, "collect", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
+        # print(i, "collect", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
         collect_result = train_collector.collect(n_step=args.num_steps, visualize_param=args.visualize_param) # TODO: make n-episode a usable parameter for collect
         # print("collected", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
         total_steps = collect_result['n/st'] + total_steps
         # once if the collected episodes' mean returns reach the threshold,
         # or every 1000 steps, we test it on test_collector
         add_assessment(collect_result, assessment_train, train_drops)
-        print("episodes", collect_result['n/ep'], collect_result['assessment'], np.mean(assessment_train))
+        # print("episodes", collect_result['n/ep'], collect_result['assessment'], np.mean(assessment_train))
         hit_miss_queue_train.append([collect_result['n/h'], collect_result['n/m']])
 
         if i % args.log_interval == 0:

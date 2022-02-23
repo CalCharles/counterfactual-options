@@ -137,7 +137,7 @@ class RainbowNetwork(TSNet):
         else:
             logits = q
         probs = logits.softmax(dim=2) # not certain how compatible this is
-        return logits, state
+        return probs, state
 
 class PixelNetwork(TSNet): # no relation to pixelnet, just a network that operates on pixels
     def __init__(self, **kwargs):
