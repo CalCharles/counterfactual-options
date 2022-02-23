@@ -4,9 +4,20 @@ from gym import spaces
 import numpy as np
 import collections
 
+breakout_action_norm = (np.array([0,0,0,0,1.5]), np.array([1,1,1,1,1.5]))
+breakout_paddle_norm = (np.array([72, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
+breakout_state_norm = (np.array([84 // 2, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
+breakout_block_norm = (np.array([32, 84 // 2, 0,0,1]), np.array([84 // 2, 84 // 2, 2,1,1]))
+breakout_relative_norm = (np.array([0,0,0,0,0]), np.array([84 // 2, 84 // 2,2,1,1]))
+breakout_paddle_ball_norm = (np.array([20,0,1.5,0,0]), np.array([84 // 2, 84 // 2,2,1,1]))
+breakout_ball_block_norm = (np.array([20,0,-1.5,0,0]), np.array([84 // 2, 84 // 2,2,1,1]))
+
 class BreakoutGymWrapper():
-    def __init__(self, env, args):
+    def __init__(self, env, args, normalize=True):
         self.env = env
+
+        # Note, normalization not supported on images b/c PixelNet already normalizes
+        self.normalize = normalize
 
         # include observation logic
         self.action_space = spaces.Discrete(env.num_actions)
@@ -37,10 +48,15 @@ class BreakoutGymWrapper():
         self.block_dimension = 5
         self.ball_paddle_info_dim = 15
 
+    def normalize_data(self, data, mean, var):
+        return (data - mean) / var
+
     # Relative position between paddle and ball
     def delta_observation_wrapper(self, obs):
         factored_state = obs['factored_state']
         delta = np.array(factored_state['Paddle']) - np.array(factored_state['Ball'])
+        if self.normalize:
+            delta = self.normalize_data(delta, *breakout_relative_norm)
 
         return delta
 
@@ -56,7 +72,8 @@ class BreakoutGymWrapper():
     def multi_block_observation_wrapper(self, obs):
         factored_state = obs['factored_state']
         delta = np.array(factored_state['Paddle']) - np.array(factored_state['Ball'])
-
+        paddle = factored_state['Paddle']
+        ball = factored_state['Ball']
         blocks = []
 
         if self.env.num_blocks == 1:
@@ -65,7 +82,15 @@ class BreakoutGymWrapper():
             for curr in range(self.env.num_blocks):
                 blocks.append(np.array(factored_state[f'Block{curr}']))
 
-        flattened_array = np.concatenate([factored_state['Paddle'], factored_state['Ball'], delta] + blocks)
+        if self.normalize:
+            delta = self.normalize_data(delta, *breakout_relative_norm)
+            paddle = self.normalize_data(paddle, *breakout_paddle_norm)
+            ball = self.normalize_data(ball, *breakout_state_norm)
+            for i in range(len(blocks)):
+                blocks[i] = self.normalize_data(blocks[i], *breakout_block_norm)
+
+        flattened_array = np.concatenate([paddle, ball, delta] + blocks)
+
         return flattened_array
 
 
