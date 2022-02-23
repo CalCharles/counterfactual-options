@@ -11,6 +11,7 @@ from Networks.network import ConstantNorm, pytorch_model
 from tianshou.data import Collector, Batch, ReplayBuffer
 from DistributionalModels.InteractionModels.InteractionTraining.train_utils import run_optimizer, get_weights, get_targets
 from DistributionalModels.InteractionModels.InteractionTraining.compute_errors import assess_losses, get_interaction_vals
+from DistributionalModels.InteractionModels.InteractionTraining.assessment_functions import assess_error
 from Rollouts.rollouts import ObjDict, merge_rollouts
 
 def _combined_logging(full_model, train_args, rollouts, test_rollout, i, batchvals,
@@ -24,10 +25,10 @@ def _combined_logging(full_model, train_args, rollouts, test_rollout, i, batchva
     # error
     if i % (train_args.log_interval * 10) == 0 and i != 0:
         print("assessing full train")
-        assess_losses(full_model, rollouts)
-        # assess_error(rollouts, passive_error_cutoff=train_args.passive_error_cutoff)
-        print("assessing test rollouts")
-        assess_losses(full_model, test_rollout)
+        # assess_losses(full_model, rollouts)
+        assess_error(full_model, rollouts, passive_error_cutoff=train_args.passive_error_cutoff, trace=trace)
+        # print("assessing test rollouts")
+        # # assess_losses(full_model, test_rollout)
         # assess_error(test_rollout, passive_error_cutoff=train_args.passive_error_cutoff)
     if full_model.multi_instanced: 
         split_target = full_model.split_instances(target)
@@ -81,7 +82,7 @@ def _combined_logging(full_model, train_args, rollouts, test_rollout, i, batchva
             # print(test_idxes.shape, test_binaries.shape)
             intbint = torch.cat([interaction_likelihood, likelihood_binaries, interaction_binaries, true_binaries, forward_error, passive_error], dim=1).squeeze()
         else:
-            passive_binaries = (passive_l2 > train_args.passive_error_cutoff).float().unsqueeze(1)
+            passive_binaries = (passive_error > train_args.passive_error_cutoff).float()
             test_binaries = (interaction_binaries.squeeze() + likelihood_binaries.squeeze())# + passive_binaries.squeeze())
             print([interaction_likelihood.shape, likelihood_binaries.shape, interaction_binaries.shape, true_binaries.shape, test_binaries.shape, forward_error.shape, passive_error.shape])
             if train_args.compare_trace: test_binaries += true_binaries.squeeze()
@@ -176,7 +177,7 @@ def train_combined(full_model, rollouts, test_rollout, train_args, batchvals, ha
     trace, weights, use_weights, passive_error_all, interaction_schedule, ratio_lambda,
     active_optimizer, passive_optimizer, interaction_optimizer,
     idxes_sets=None, keep_outputs=False, proximal=None):
-    inline_iter_schedule = lambda x: max(1, int(train_args.inline_iters - 2*train_args.inline_iters/(1+np.exp((x // train_args.num_iters)))))
+    inline_iter_schedule = lambda x: max(1, int(train_args.inline_iters - 2*train_args.inline_iters/(1+np.exp((3*x / train_args.num_iters)))))
     inline_iters = 1 if train_args.inline_iters == 1 else inline_iter_schedule(0)
     outputs = list()
     inter_loss = nn.BCELoss()
@@ -310,7 +311,7 @@ def train_combined(full_model, rollouts, test_rollout, train_args, batchvals, ha
                 print(weight_lambda)
                 _, use_weights, live, dead, ratio_lambda = get_weights(ratio_lambda=weight_lambda, weights=trw, temporal_local=train_args.interaction_local)
             elif train_args.passive_weighting:
-                rwlb = 5 if proximal is not None else 1 
+                rwlb = 3 if proximal is not None else 1 
                 weight_lambda = train_args.passive_weighting * np.exp(-i/train_args.num_iters * rwlb)
                 print("weight lambda", weight_lambda)
                 _, use_weights, live, dead, ratio_lambda = get_weights(passive_error_all, ratio_lambda=weight_lambda, 

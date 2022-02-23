@@ -12,14 +12,13 @@ from tianshou.data import Collector, Batch, ReplayBuffer
 from DistributionalModels.InteractionModels.InteractionTraining.traces import get_proximal_indexes, generate_interaction_trace, adjust_interaction_trace
 from DistributionalModels.InteractionModels.InteractionTraining.train_passive import train_passive
 from DistributionalModels.InteractionModels.InteractionTraining.train_interaction import train_interaction
-from DistributionalModels.InteractionModels.InteractionTraining.train_combined import train_combined
 from DistributionalModels.InteractionModels.InteractionTraining.compute_errors import get_target_magnitude, get_prediction_error, get_error, get_interaction_vals, get_binaries
 from DistributionalModels.InteractionModels.InteractionTraining.train_utils import get_weights, get_targets
 
 from Rollouts.rollouts import ObjDict, merge_rollouts
 
 
-def compute_interaction_stats(full_model, rollouts, trace=None, passive_error_cutoff=2):
+def compute_interaction_stats(full_model, rollouts, trace=None, passive_error_cutoff=2, max_distance_epsilon=0, position_mask=None):
     ints = get_interaction_vals(full_model, rollouts, multi=True)
     bins, fe, pe = get_binaries(full_model, rollouts)
     # if full_model.multi_instanced: bins = torch.max(bins, )
@@ -31,7 +30,11 @@ def compute_interaction_stats(full_model, rollouts, trace=None, passive_error_cu
         intsidx = np.max(ints, axis=1)[0].squeeze()
     trace = pytorch_model.unwrap(trace)
     passive_error = get_prediction_error(full_model, rollouts)
-    # weights, use_weights, total_live, total_dead, ratio_lambda = get_weights(passive_error, ratio_lambda=1, passive_error_cutoff=passive_error_cutoff, use_proximity=proximal_indexes)     
+    proximal = None
+    if max_distance_epsilon > 0:
+        proximal, non_proximal = get_proximal_indexes(full_model, position_mask, rollouts, max_distance_epsilon)
+        non_proximal_weights = non_proximal / np.sum(non_proximal)
+    weights, use_weights, total_live, total_dead, ratio_lambda = get_weights(passive_error, ratio_lambda=1, passive_error_cutoff=passive_error_cutoff, use_proximity=proximal)     
     print(ints.shape, bins.shape, trace.shape, fe.shape, pe.shape)
     pints, ptrace = np.zeros(ints.shape), np.zeros(trace.shape)
     pints[ints > .7] = 1
@@ -58,7 +61,7 @@ def compute_interaction_stats(full_model, rollouts, trace=None, passive_error_cu
     dstate = pytorch_model.unwrap(full_model.gamma(rollouts.get_values("state")))
     dnstate = pytorch_model.unwrap(full_model.delta(get_targets(full_model.predict_dynamics, rollouts)))
     print("int false positives", np.concatenate((dstate[int_error > 0], dnstate[int_error > 0], ints[int_error > 0], trace[int_error > 0], fe[int_error>0], pe[int_error>0]), axis=-1)[:100])
-    print("int false negatives", np.concatenate((dstate[int_error < 0], dnstate[int_error < 0], ints[int_error < 0], trace[int_error < 0], fe[int_error<0], pe[int_error<0]), axis=-1))
+    print("int false negatives", np.concatenate((dstate[int_error < 0], dnstate[int_error < 0], ints[int_error < 0], trace[int_error < 0], fe[int_error<0], pe[int_error<0]), axis=-1)[:100])
 
     comb_error = bins.squeeze() + int_bin.squeeze()
     comb_error[comb_error > 1] = 1
@@ -81,10 +84,10 @@ def compute_interaction_stats(full_model, rollouts, trace=None, passive_error_cu
     del bin_false_negatives
     del comb_error
 
-def assess_error(full_model, test_rollout, passive_error_cutoff=2, trace=None):
+def assess_error(full_model, test_rollout, passive_error_cutoff=2, trace=None, max_distance_epsilon=0, position_mask=None):
     print("assessing_error", test_rollout.filled)
     if full_model.env_name == "Breakout": 
-        compute_interaction_stats(full_model, test_rollout, passive_error_cutoff=passive_error_cutoff, trace=trace)
+        compute_interaction_stats(full_model, test_rollout, passive_error_cutoff=passive_error_cutoff, trace=trace, max_distance_epsilon=max_distance_epsilon, position_mask=position_mask)
     rv = full_model.output_normalization_function.reverse
     states = test_rollout.get_values("state")
     interaction, forward, passive = list(), list(), list()

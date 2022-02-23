@@ -63,8 +63,8 @@ class EnvironmentModel():
     def cuda_factored(self, factored_state):
         return {n: [state.cuda() for state in factored_state[n]] for n in factored_state.keys()}
 
-    def get_flattened_state(self, names=None):
-        return self.flatten_factored_state(self.get_factored_state(), names=names)
+    def get_flattened_state(self, names=None, use_instanced=False):
+        return self.flatten_factored_state(self.get_factored_state(), names=names, use_instanced=use_instanced)
 
     def append_shapes(self, addv):
         if type(addv) != np.ndarray:
@@ -75,7 +75,7 @@ class EnvironmentModel():
             return [addv.tolist()]
         return addv.tolist()
 
-    def flatten_factored_state(self, factored_state, instanced=False, names=None):
+    def flatten_factored_state(self, factored_state, instanced=False, use_instanced=True, names=None):
         ''' 
         generates an nxdim state from a list of factored states. Overloaded to accept single factored states as well 
         This is in the environment model because the order shoud follow the order of the object names
@@ -107,10 +107,10 @@ class EnvironmentModel():
                 flattened_state = np.array(flattened_state)
         else:
             if type(factored_state) == list:
-                flattened_state = np.array([np.concatenate([factored_state[i][f] for f in names], axis=1) for i in range(factored_state)])
+                flattened_state = np.array([np.concatenate([factored_state[i][f] for f in names if self.object_num[f] <= 1 or use_instanced], axis=1) for i in range(factored_state)])
             else:
                 # print(factored_state)
-                flattened_state = np.array(np.concatenate([factored_state[f] for f in names], axis=0))
+                flattened_state = np.array(np.concatenate([factored_state[f] for f in names if self.object_num[f] <= 1 or use_instanced], axis=0))
         return flattened_state
 
 

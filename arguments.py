@@ -190,7 +190,9 @@ def get_args():
     parser.add_argument('--terminate-reset', action = 'store_true', default=False,
                     help='resets the environment when the option terminates')
     parser.add_argument('--terminate-cutoff', action = 'store_true', default=False,
-                    help='prevents time cutoff when true done')
+                    help='prevents time cutoff when true done IF the envrionment does not send it')
+    parser.add_argument('--no-truncate', action = 'store_true', default=False,
+                    help='prevents truncation in all cases')
     parser.add_argument('--not-true-done-stopping', action = 'store_true', default=False,
                     help='if true, will NOT end episode when the environment ends the episode')
 

@@ -75,7 +75,7 @@ if __name__ == '__main__':
     args.confirm_interaction = False
     if args.object == "Ball" and args.env == "SelfBreakout":
         args.confirm_interaction = True
-        dataset_model.interaction_prediction = 0.1
+        dataset_model.interaction_prediction = 0.05
         dataset_model.sample_able.vals = [np.array([0,0,-1,-1,0]).astype(float), np.array([0,0,-2,-1,0]).astype(float), np.array([0,0,-2,1,0]).astype(float), np.array([0,0,-1,1,0]).astype(float)]
     if args.object == "Block" and args.env == "SelfBreakout":
         args.num_instance = environment.num_blocks

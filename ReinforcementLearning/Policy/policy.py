@@ -35,6 +35,16 @@ class TSPolicy(nn.Module):
 
     '''
     def __init__(self, input_shape, paction_space, action_space, max_action, discrete_actions, **kwargs):
+        '''
+        @param input shape is the shape of the input to the network
+        @param paction space is a gym.space corresponding to the ENVIRONMENT action space
+        @param action space is the action space of the agent
+        @param max action is the maximum action for continuous
+        @param discrete actions is when the action space is discrete
+        kwargs includes:
+            learning type, lookahead, input norm, sample merged, option, epsilon_schedule, epsilon, object dim, first_obj_dim, parameterized, grad epoch
+            network args: max critic, cuda, policy type, gpu (device), hidden sizes, actor_lr, critic_lr, aggregate final, post dim, 
+        '''
         super().__init__()
         args = ObjDict(kwargs)
         self.algo_name = kwargs["learning_type"] # the algorithm being used
@@ -166,7 +176,7 @@ class TSPolicy(nn.Module):
             else:
                 actor = Actor(actor, action_shape, device=device, max_action=max_action).to(device)
             actor_optim = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
-            if args.sac_alpha == -1 and self.algo_name == "sac":
+            if self.algo_name == "sac" and args.sac_alpha == -1:
                 target_entropy = -np.prod(self.action_space.shape)
                 log_alpha = torch.zeros(1, requires_grad=True, device=device)
                 alpha_optim = torch.optim.Adam([log_alpha], lr=1e-4) # TODO alpha learning rate not hardcoded

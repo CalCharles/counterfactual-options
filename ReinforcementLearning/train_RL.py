@@ -49,6 +49,7 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     else:
         print("Iters: ", i, "Steps: ", total_steps)
     mean_perf, mean_suc, mean_hit, mean_assessment = np.array(test_perf).mean(), np.array(suc).mean(), sum(hit_miss)/ max(1, len(hit_miss)), np.array(assessment_test).mean()
+    total_drops = np.sum(np.array(drops))
     hmt = 0.0
     if len(list(hit_miss_train)) > 0:
         hmt = np.sum(np.array(list(hit_miss_train)), axis=0)
@@ -57,7 +58,14 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     if len(list(assessment_train)) > 0:
         mean_train_assess = np.array(mean_train_assess)
         mean_train_assess = mean_train_assess.mean()
-    print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", f"Hit Miss: {mean_hit}", f"Hit Miss train: {hmt}", f"Assess: {mean_assessment}", f"Assess Train: {mean_train_assess}")
+    train_drops_num = 0
+    if len(list(train_drops)) > 0:
+        train_drops = np.array(train_drops)
+        train_drops_num = np.sum(train_drops)
+    print(f'Test mean returns: {mean_perf}', f"Success: {mean_suc}", 
+        f"Hit Miss: {mean_hit}", f"Hit Miss train: {hmt}", 
+        f"Assess: {mean_assessment}", f"Assess Train: {mean_train_assess}", 
+        f"Drops: {total_drops}", f"Train drops: {train_drops_num}")
     if tensorboard_logger is not None:
         tensorboard_logger.add_scalar("Return", mean_perf, i)
         tensorboard_logger.add_scalar("Hit Miss/Test", mean_hit, i)
@@ -78,7 +86,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     '''
     Run the RL train loop
     '''
-    test_perf, suc, assessment_test, assessment_train, drops, train_drops = deque(maxlen=2000), deque(maxlen=2000), deque(maxlen=100), deque(maxlen=100), deque(maxlen=100), deque(maxlen=1000)
+    test_perf, suc, assessment_test, assessment_train, drops = deque(maxlen=2000), deque(maxlen=2000), deque(maxlen=100), deque(maxlen=100), deque(maxlen=200)
 
     
     # collect initial random actions
@@ -103,6 +111,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     hit_miss_queue_test = deque(maxlen=2000)
     hit_miss_queue_train = deque(maxlen=args.log_interval)
     cumul_losses = deque(maxlen=args.log_interval)
+    train_drops = deque(maxlen=1000)
 
 
     for i in range(args.num_iters):  # total step
@@ -118,6 +127,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
         if i % args.log_interval == 0:
             print("testing collection")
             _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss_queue_test, hit_miss_queue_train, assessment_test, assessment_train, drops,  train_drops, option=option, tensorboard_logger=tensorboard_logger)
+            train_drops = deque(maxlen=1000)
         # train option.policy with a sampled batch data from buffer
         # print("pre update", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
 

@@ -15,7 +15,7 @@ from ReinforcementLearning.train_RL import add_assessment
 from file_management import save_to_pickle
 
 def testRL(args, test_collector, environment, environment_model, option, names, graph):
-    test_perf, suc, assessment, drops = deque(maxlen=200), deque(maxlen=200), deque(maxlen=100), deque(maxlen=100)
+    test_perf, suc, assessment, drops = deque(maxlen=200), deque(maxlen=200), deque(maxlen=100), deque(maxlen=10000)
     total_steps = 0
     for i in range(args.num_iters):
         print("testing collection")
@@ -36,6 +36,7 @@ def testRL(args, test_collector, environment, environment_model, option, names, 
         mean_hit = sum(hit_count)/ max(1, sum(miss_count) + sum(hit_count))
         print(f'Test mean returns: {np.array(test_perf).mean()}', f"Success: {np.array(suc).mean()}", f"Hit Miss: {mean_hit}", f"Assessment: {np.mean(assessment)}", f"Drops: {np.sum(drops)}")
         test_collector.reset_env() # because test collector and train collector share the same environment
+        drops = deque(maxlen=10000)
 
 
 # def testRL(args, rollouts, logger, environment, environment_model, option, names, graph):

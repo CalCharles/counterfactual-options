@@ -428,6 +428,7 @@ class PairNetwork(Network):
             self.output_dim = kwargs['output_dim']
         kwargs['output_dim'] = self.output_dim
         layers = list()
+        print("object, first object", kwargs['object_dim'], kwargs['first_obj_dim'])
         self.conv = BasicConvNetwork(**kwargs)
         layers.append(self.conv)
         if kwargs['post_dim'] > 0:

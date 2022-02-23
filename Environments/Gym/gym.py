@@ -30,6 +30,7 @@ class Gym(RawEnvironment): # wraps openAI gym environment
         self.action_space = self.env.action_space
         self.action_shape = self.action_space.shape
         self.observation_space = self.env.observation_space
+        self.state_space = self.env.observation_space
         self.observation_shape = self.observation_space.shape
         self.num_actions = 1
         self.done = 0
@@ -68,7 +69,7 @@ class Gym(RawEnvironment): # wraps openAI gym environment
         #     self.extracted_state["Action"] = action
             # print("FINISHED AN EPISODE")
         # print(self.extracted_state)
-        return {"raw_state": frame, "factored_state": extracted_state}, self.reward, int(self.done), info
+        return {"raw_state": frame, "factored_state": extracted_state}, self.reward, bool(self.done), info
 
     def extracted_state_dict(self):
         return dc(self.extracted_state)

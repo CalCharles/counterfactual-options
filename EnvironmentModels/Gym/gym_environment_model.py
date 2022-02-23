@@ -18,7 +18,12 @@ class GymEnvironmentModel(EnvironmentModel):
         self.enumeration = {"Action": [0,1], "State": [1,2], "Frame": [2,3], "Object": [3,4], "Done": [4,5], "Reward": [5,6]}
         self.param_size = self.state_size
         self.set_indexes()
-        
+        self.flat_rel_space = gym_environment.state_space
+        self.reduced_flat_rel_space = gym_environment.state_space
+
+    def get_HAC_flattened_state(self, full_state, use_instanced=True):
+        return self.get_flattened_state(names=self.object_names[:1])
+
     def get_raw_state(self, full_state):
         # print(state)
         return full_state['raw_state']

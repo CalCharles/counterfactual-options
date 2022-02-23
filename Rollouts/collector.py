@@ -147,6 +147,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         self.env_name = args.env
         self.counter = 0
         self.terminate_cutoff = args.terminate_cutoff
+        self.no_truncate = args.no_truncate # ignores all timelimit truncated
         option_dumps = open(os.path.join(self.save_path, "option_dumps.txt"), 'w')
         param_dumps = open(os.path.join(self.save_path, "param_dumps.txt"), 'w')
         option_dumps.close()
@@ -352,7 +353,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
 
             cutoff = (np.array([time_cutoff]) or (true_done and not self.terminate_cutoff))#(not (term and self.terminate_cutoff)))) #and not term))  # treat true dones like time limits (TODO: this is not valid when learning to control true dones)
             if type(cutoff) != bool: cutoff = cutoff.squeeze()
-            info[0]["TimeLimit.truncated"] = bool(cutoff + info[0]["TimeLimit.truncated"]) # environment might send truncated itself
+            info[0]["TimeLimit.truncated"] = bool(cutoff + info[0]["TimeLimit.truncated"]) and not self.no_truncate # environment might send truncated itself
             self.option.update(self.buffer, done, self.data.full_state[0], act, action_chain, terminations, param, masks, not self.test)
 
             # update hit-miss values
@@ -424,21 +425,22 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 print("post update", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
 
             # debugging and visualization
-            # if 68 <= self.data.full_state['factored_state']['Ball'][0][0] <= 74:
-            #     if self.data.next_full_state['factored_state']['Ball'][0][2] != self.data.full_state['factored_state']['Ball'][0][2]:
-            #         if inter > .1:
-            #             print("interaction hit", self.data.full_state['factored_state']['Ball'][0], inter, term)
-            #         else:
-            #             print("false negative", self.data.full_state['factored_state']['Ball'][0], inter, term)                  
-            #     elif inter[0] >= 0.1:
-            #         print("false positive", self.data.full_state['factored_state']['Ball'][0], inter, term)
+            if 68 <= self.data.full_state['factored_state']['Ball'][0][0] <= 74:
+                if self.data.next_full_state['factored_state']['Ball'][0][2] != self.data.full_state['factored_state']['Ball'][0][2]:
+                    if inter > .1:
+                        print("interaction hit", self.data.full_state['factored_state']['Ball'][0], self.data.next_full_state['factored_state']['Ball'][0][2], inter, term)
+                    else:
+                        print("false negative", self.data.full_state['factored_state']['Ball'][0], self.data.next_full_state['factored_state']['Ball'][0][2], inter, term)                  
+                elif inter[0] >= 0.1:
+                    print("false positive", self.data.full_state['factored_state']['Ball'][0], self.data.next_full_state['factored_state']['Ball'][0][2], inter, term)
             # print(obs[5:10], self.data.full_state['factored_state']['Ball'])
             # if self.test: print(self.data.target.squeeze(), self.data.next_target.squeeze(), self.data.param.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # print(self.data.mapped_act, self.data.inter_state, self.data.param, self.data.obs)
             # if self.test: print(step_count, self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # if self.test and resampled: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # if self.test: print(self.data.obs.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
-            if self.test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
+            # if self.test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.true_action.squeeze(), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
+            if self.test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), self.data.full_state['factored_state']['Paddle'][0][1], np.round_(self.data.act.squeeze(), 2), self.data.true_action.squeeze(), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()

@@ -1,8 +1,12 @@
 import torch
 import gym
-import asset
+import sys
+import os
 import numpy as np
-from HAC import HAC
+from Baselines.HAC.HAC_args import get_args
+from Baselines.HAC.HAC_agent import HAC
+from Baselines.HAC.HAC_collector import run_HAC
+from Environments.environment_initializer import initialize_environment
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -15,7 +19,7 @@ def train():
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    environment, environment_model, args = initialize_environment(args, set_save=len(args.record_rollouts) != 0, render=render if args.visualize_param else "")
+    environment, environment_model, args = initialize_environment(args, set_save=len(args.record_rollouts) != 0, render=False)
 
     # ACCOUNTED FOR
     # env_name = "MountainCarContinuous-h-v1"
@@ -26,8 +30,8 @@ def train():
     # env = gym.make(env_name)
 
     
-    state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.shape[0]
+    state_dim = environment.observation_space.shape[0]
+    action_dim = environment.action_space.shape[0] if not environment.discrete_actions else environment.action_space.n
     
     ### TODO: MOVE TO ARGS
     # """
@@ -71,53 +75,62 @@ def train():
     ### MOVE TO ARGS
     
     # save trained models
-    directory = "./preTrained/{}/{}level/".format(env_name, k_level) 
-    filename = "HAC_{}".format(env_name)
+    directory = "/hdd/datasets/counterfactual_data/Baselines/HAC/preTrained/{}/{}level/".format(args.env, args.k_level) 
+    filename = "HAC_{}".format(args.env)
     #########################################################
     
+    max_steps = 200
+    if args.env == "SelfBreakout":
+        goal_based = False
+        max_steps = 3000
+    else:
+        goal_based = True
     
-    if random_seed:
-        print("Random Seed: {}".format(random_seed))
-        env.seed(random_seed)
-        torch.manual_seed(random_seed)
-        np.random.seed(random_seed)
+    if args.seed:
+        print("Random Seed: {}".format(args.seed))
+        # env.seed(args.seed)
+        torch.manual_seed(args.seed)
+        np.random.seed(args.seed)
     
     # creating HAC agent and setting parameters
-    agent = HAC(k_level, H, state_dim, action_dim, render, threshold, 
-                action_bounds, action_offset, state_bounds, state_offset, lr)
-    
-    agent.set_parameters(lamda, gamma, action_clip_low, action_clip_high, 
-                       state_clip_low, state_clip_high, exploration_action_noise, exploration_state_noise)
+    flat_state = environment_model.get_HAC_flattened_state(environment_model.get_state(), use_instanced=True)
+    reduced_flat_state = environment_model.get_HAC_flattened_state(environment_model.get_state(), use_instanced=False)
+    if args.env == "SelfBreakout": object_dim = environment_model.object_sizes["Block"]
+    elif args.env == "RoboPushing": object_dim = environment_model.object_sizes["Obstacle"]
+    else: object_dim = environment_model.object_sizes["State"]
+    print(environment.name)
+    if args.env == "SelfBreakout": goal_final = None 
+    elif args.env == "RoboPushing": environment_model.goal_function
+    else: goal_final = np.array([0.48, 0.04]) # the goal state for mountaincar
+    agent = HAC(args, args.k_level, args.H, args.epsilon_close, args.epsilon, environment, environment_model, goal_final, flat_state, reduced_flat_state,
+    environment_model.flat_rel_space, environment_model.reduced_flat_rel_space, object_dim=object_dim)
+    agent.set_parameters(args.lamda, args.gamma)
     
     # logging file:
     log_f = open("log.txt","w+")
     
     # training procedure 
-    for i_episode in range(1, max_episodes+1):
+    for i_episode in range(1, args.num_episodes+1):
         agent.reward = 0
         agent.timestep = 0
         
-        state = env.reset()
+        full_state = environment.reset()
         # collecting experience in environment
-        last_state, done = HAC_collector(agent, env, state, False)
-        
-        if agent.check_goal(last_state, goal_state, threshold):
-            print("################ Solved! ################ ")
-            name = filename + '_solved'
-            agent.save(directory, name)
+        next_state, reward, done, info, total_time = run_HAC(agent, environment_model, agent.k_level-1, full_state, goal_final, False, goal_based=goal_based, max_steps=max_steps, render=False, printout=i_episode % args.log_interval == 0)
         
         # update all levels
-        agent.update(n_iter, batch_size)
+        losses_dict = agent.update(args.batch_size)
         
         # logging updates:
-        log_f.write('{},{}\n'.format(i_episode, agent.reward))
+        log_f.write('{},{}\n'.format(i_episode, reward))
         log_f.flush()
         
-        if i_episode % save_episode == 0:
+        if args.save_interval > 0 and i_episode % args.save_interval == 0:
             agent.save(directory, filename)
         
-        print("Episode: {}\t Reward: {}".format(i_episode, agent.reward))
-        
+        print("Episode: {}\t Reward: {}".format(i_episode, reward))
+        if args.log_interval > 0 and i_episode % args.log_interval == 0:
+            print("losses", losses_dict)
     
 if __name__ == '__main__':
     train()
