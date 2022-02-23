@@ -21,7 +21,7 @@ def add_assessment(result, assessment, drops):
         else:
             drops.append(1)
 
-def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss, hit_miss_train, assessment_test, assessment_train, drops, train_drops, random=False, option=None, tensorboard_logger=None):
+def _collect_test_trials(args, test_collector, i, total_steps, total_epsiodes, test_perf, suc, hit_miss, hit_miss_train, assessment_test, assessment_train, drops, train_drops, random=False, option=None, tensorboard_logger=None):
     '''
     collect trials with the test collector
     the environment is reset before starting these trials
@@ -41,7 +41,7 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     for j in range(trials):
         result = test_collector.collect(n_episode=1, n_term=None if args.test_episode else 1, n_step=args.max_steps, random=random, visualize_param=args.visualize_param)
         test_perf.append(result["rews"].mean())
-        suc.append(float(result["terminate"]))
+        suc.append(float(result["terminate"] and args.max_steps != result['n/st']))
         hit_miss.append(result['n/h'])
         add_assessment(result, assessment_test, drops)
     
@@ -49,7 +49,7 @@ def _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, h
     if random:
         print("Initial trials: ", trials)
     else:
-        print("Iters: ", i, "Steps: ", total_steps)
+        print("Iters: ", i, "Steps: ", total_steps, "Episodes: ", total_epsiodes)
     mean_perf, mean_suc, mean_hit, mean_assessment = np.array(test_perf).mean(), np.array(suc).mean(), sum(hit_miss)/ max(1, len(hit_miss)), np.array(assessment_test).mean()
     total_drops = np.sum(np.array(drops))
     hmt = 0.0
@@ -95,7 +95,8 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     # collect initial random actions
     print("pre pretrain", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
     if not len(args.load_pretrain) > 0:
-        train_collector.collect(n_step=args.pretrain_iters, random=True, visualize_param=args.visualize_param, no_fulls=True) # param doesn't matter with random actions
+        pretrain_result = train_collector.collect(n_step=args.pretrain_iters, random=True, visualize_param=args.visualize_param, no_fulls=True) # param doesn't matter with random actions
+    total_steps, total_epsiodes = pretrain_result['n/st'], pretrain_result['n/tep']
     print("post pretrain", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
     if args.input_norm: option.policy.compute_input_norm(train_collector.buffer)
     if len(args.save_pretrain) > 0:
@@ -108,9 +109,8 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     print("pre save pretrain", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
     # collect initial test trials
     print("starting test trials")
-    initial_perf, initial_suc, initial_hit = _collect_test_trials(args, test_collector, 0, 0, list(), list(), list(), list(), list(), list(),list(), list(), random=True, option=option, tensorboard_logger=tensorboard_logger)
+    initial_perf, initial_suc, initial_hit = _collect_test_trials(args, test_collector, 0, total_steps, total_epsiodes, list(), list(), list(), list(), list(), list(),list(), list(), random=True, option=option, tensorboard_logger=tensorboard_logger)
 
-    total_steps = 0
     hit_miss_queue_test = deque(maxlen=2000)
     hit_miss_queue_train = deque(maxlen=args.log_interval)
     cumul_losses = deque(maxlen=args.log_interval)
@@ -121,7 +121,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
         collect_result = train_collector.collect(n_step=args.num_steps, visualize_param=args.visualize_param) # TODO: make n-episode a usable parameter for collect
         # print("assessment", collect_result["assessment"])
         # print("collected", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
-        total_steps = collect_result['n/st'] + total_steps
+        total_steps, total_episodes = collect_result['n/st'] + total_steps, collect_result['n/tep'] + total_episodes
         # once if the collected episodes' mean returns reach the threshold,
         # or every 1000 steps, we test it on test_collector
         add_assessment(collect_result, assessment_train, train_drops)
@@ -130,7 +130,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
 
         if i % args.log_interval == 0:
             print("testing collection")
-            _collect_test_trials(args, test_collector, i, total_steps, test_perf, suc, hit_miss_queue_test, hit_miss_queue_train, assessment_test, assessment_train, drops,  train_drops, option=option, tensorboard_logger=tensorboard_logger)
+            _collect_test_trials(args, test_collector, i, total_steps, total_episodes, test_perf, suc, hit_miss_queue_test, hit_miss_queue_train, assessment_test, assessment_train, drops,  train_drops, option=option, tensorboard_logger=tensorboard_logger)
             train_drops = deque(maxlen=1000)
         # train option.policy with a sampled batch data from buffer
         # print("pre update", psutil.Process().memory_info().rss / (1024 * 1024 * 1024))
@@ -225,7 +225,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
     if args.save_interval > 0:
         full_save(args, option, graph)
     final_perf, final_suc = list(), list()
-    final_perf, final_suc, final_hit = _collect_test_trials(args, test_collector, 0, 0, final_perf, final_suc, list(), list(),list(),list(),list(), list(), option=option, tensorboard_logger=tensorboard_logger)
+    final_perf, final_suc, final_hit = _collect_test_trials(args, test_collector, i, total_steps, total_epsiodes, final_perf, final_suc, list(), list(),list(),list(),list(), list(), option=option, tensorboard_logger=tensorboard_logger)
 
     print("performance comparison", initial_perf, final_perf)
     if initial_perf < final_perf - 2:

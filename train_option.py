@@ -136,12 +136,8 @@ if __name__ == '__main__':
 
     # add in the sampler to the environments if necessary
     if args.object == "Block" and args.env == "SelfBreakout" and args.breakout_variant == "proximity":
-        test_environment.sampler = samplers[args.sampler_type](dataset_model=dataset_model, 
-            sample_schedule=args.sample_schedule, environment_model=test_environment_model, init_state=init_state, 
-            no_combine_param_mask=args.no_combine_param_mask, sample_distance=args.sample_distance, target_object=args.target)
-        environment.sampler = samplers[args.sampler_type](dataset_model=dataset_model, 
-            sample_schedule=args.sample_schedule, environment_model=environment_model, init_state=init_state, 
-            no_combine_param_mask=args.no_combine_param_mask, sample_distance=args.sample_distance, target_object=args.target)
+        test_environment.sampler = sampler
+        environment.sampler = sampler
 
     # initialize state extractor
     option_name = dataset_model.name.split("->")[0].split("+")[0] # TODO: assumes only one option in the tail for now
