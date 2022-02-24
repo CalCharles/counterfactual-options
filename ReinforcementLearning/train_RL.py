@@ -13,8 +13,9 @@ def add_assessment(env, result, assessment, drops, timeout):
         assessment.append(env.timeout_penalty)
     for assesses in result["assessment"]:
         if assesses <= -1000:
-            drops.append(1)
-            assesses = assesses + 1000
+            while assesses <= -1000:
+                drops.append(1)
+                assesses = assesses + 1000
             assessment.append(assesses)
         elif assesses > -900:
             assessment.append(assesses)

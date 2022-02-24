@@ -303,7 +303,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
         episode_count = 0
         true_episode_count = 0
         term_count = 0
-        rews = 0
+        rews = np.float64(0.0)
         saved_fulls = list()
         hit_count, miss_count = 0,0
         term = False
