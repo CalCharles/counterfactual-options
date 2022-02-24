@@ -138,9 +138,9 @@ class Screen(RawEnvironment):
             if self.ball.block: self.assessment_stat += 1
         elif self.variant == "negative_rand_row":
             if self.reward > 0: self.assessment_stat += 1
-        elif self.variant == "center_full":
+        elif self.variant == "center_large":
             if self.ball.paddle: self.assessment_stat -= 1
-        elif self.variant == "breakout_priority_full":
+        elif self.variant == "breakout_priority_large":
             if self.ball.paddle: self.assessment_stat -= 1
         elif self.variant == "harden_single": 
             if self.ball.paddle: self.assessment_stat -= 1
