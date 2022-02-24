@@ -130,8 +130,10 @@ class Screen(RawEnvironment):
         self.num_remove = self.get_num_remove()
 
     def assign_assessment_stat(self):
-        if self.dropped:
+        if self.dropped and self.variant != "proximity":
             self.assessment_stat += -1000
+        elif self.dropped:
+            self.assessment_stat = -1000            
         elif self.variant == "big_block":
             if self.ball.block: self.assessment_stat = 1
         elif self.variant == "default":
