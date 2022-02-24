@@ -131,6 +131,7 @@ def train():
         print("Episode: {}\t Reward: {}".format(i_episode, reward))
         if args.log_interval > 0 and i_episode % args.log_interval == 0 and args.printout:
             for k in range(agent.k_level):
+                print("buffer filled to ", agent.buffer_at[k][0])
                 for j in range(40):
                     idx = (agent.buffer_at[k][0] + (j - 100)) % args.buffer_len
                     print(k, idx, len(agent.replay_buffer[k]), agent.buffer_at[k][0])

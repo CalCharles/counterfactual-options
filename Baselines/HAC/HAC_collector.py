@@ -38,7 +38,7 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
         obs = agent.get_obs(i_level, full_state, goal, env_model)
         act, action = agent.HAC[i_level].select_action(obs)
         if i_level != 0 and printout:
-            print(i_level, act, action, agent.HAC[i_level].paction_space.low, agent.HAC[i_level].paction_space.high)
+            print("initial   ", i, i_level, act, action, agent.HAC[i_level].paction_space.low, agent.HAC[i_level].paction_space.high)
         # act = pytorch_model.unwrap(act[0])
         # action = pytorch_model.unwrap(tensor_action[0])
         
@@ -127,7 +127,7 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
             agent.buffer_at[i_level], ep_rew, ep_len, ep_idx = agent.replay_buffer[i_level].add(data)
         if printout:
             target = agent.get_target(i_level, full_state, env_model)
-            print(i, rng, i_level, act, action, target, next_target, goal)
+            print("retargeted", i, i_level, act, action, target, next_target, goal)
         
         full_state = next_full_state
         data.update(full_state=full_state)

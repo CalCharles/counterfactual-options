@@ -467,6 +467,7 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                 term_done, timer, true = self._done_check(term, true_done)
                 term_end = term and not time_cutoff
                 if np.any(done):
+                    # print("episode ellapsed", np.any(term), np.any(done), np.any(true_done))
                     episode_count += int(np.any(done))
             if np.any(true_done) or (np.any(term) and self.terminate_reset):
                 if "assessment" in info[0]: assessments.append(info[0]["assessment"])

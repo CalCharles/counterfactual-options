@@ -122,6 +122,7 @@ class RoboPushingEnvironment(RawEnvironment):
                 keep_gripper_in_cube_plane=planar_mode
             )
 
+        self.timeout_penalty = -horizon
         self.frameskip = control_freq
         self.planar_mode = planar_mode # TODO: planar mode does not change the action space, but just makes the agent agnostic to the z axis action
 

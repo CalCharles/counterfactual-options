@@ -20,7 +20,7 @@ def initialize_environment(args, set_save=True, render=""):
     if args.env == "SelfBreakout":
         args.continuous = False
         nhigh, nwide, maxheight, no_breakout, hit_reset = args.block_shape
-        environment = Screen(drop_stopping=args.drop_stopping, target_mode=args.target_mode, 
+        environment = Screen(drop_stopping=args.drop_stopping, target_mode=args.target_mode,
             num_rows = nhigh, num_columns = nwide, max_block_height=maxheight, no_breakout=bool(no_breakout), hit_reset=hit_reset,
             breakout_variant=args.breakout_variant)
         args.timeout_penalty = environment.timeout_penalty

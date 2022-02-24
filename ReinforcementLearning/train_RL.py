@@ -8,14 +8,12 @@ import copy
 import psutil
 import time
 
-def add_assessment(args, result, assessment, drops, timeout):
+def add_assessment(env, result, assessment, drops, timeout):
     if timeout:
-        assessment.append(args.timeout_penalty)
+        assessment.append(env.timeout_penalty)
     for assesses in result["assessment"]:
-        if assesses == -1000 and args.drop_stopping:
+        if assesses <= -1000:
             drops.append(1)
-        elif assesses <= -1000:
-            if not args.drop_stopping: drops.append(1)
             assesses = assesses + 1000
             assessment.append(assesses)
         elif assesses > -900:
@@ -47,7 +45,7 @@ def _collect_test_trials(args, test_collector, i, total_steps, total_epsiodes, t
         test_perf.append(result["rews"].mean())
         suc.append(float(result["terminate"] and args.max_steps != result['n/st']))
         hit_miss.append(result['n/h'])
-        add_assessment(args, result, assessment_test, drops, args.max_steps == result['n/st'])
+        add_assessment(args.environment, result, assessment_test, drops, args.max_steps == result['n/st'])
     option.set_epsilon(eps)
     if random:
         print("Initial trials: ", trials)
@@ -127,7 +125,7 @@ def trainRL(args, train_collector, test_collector, environment, environment_mode
         total_steps, total_episodes = collect_result['n/st'] + total_steps, collect_result['n/tep'] + total_episodes
         # once if the collected episodes' mean returns reach the threshold,
         # or every 1000 steps, we test it on test_collector
-        add_assessment(args, collect_result, assessment_train, train_drops, False)
+        add_assessment(environment, collect_result, assessment_train, train_drops, False)
         # print("episodes", collect_result['n/ep'], collect_result['assessment'], np.mean(assessment_train))
         hit_miss_queue_train.append([collect_result['n/h'], collect_result['n/m']])
 
