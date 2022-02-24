@@ -4,6 +4,8 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from Environments.SelfBreakout.breakout_screen import Screen
 from Environments.SelfBreakout.gym_wrapper import BreakoutGymWrapper
+from DistributionalModels.InteractionModels.samplers import BreakoutRandomSampler
+from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEnvironmentModel
 
 import gym
 import numpy as np
@@ -24,7 +26,15 @@ from tianshou.policy import BasePolicy
 
 
 def make_breakout_env(args):
-    return BreakoutGymWrapper(Screen(breakout_variant=args.variant, angle_mode=args.use_angle_mode), args)
+    if args.variant == 'proximity':
+        screen = Screen(breakout_variant=args.variant, angle_mode=args.use_angle_mode)
+        env_model = BreakoutEnvironmentModel(screen)
+        sampler = BreakoutRandomSampler({ 'environment_model' : env_model, 'init_state' : screen.get_state() })
+        screen.sampler = sampler
+
+        return BreakoutGymWrapper(screen, args)
+    else:
+        return BreakoutGymWrapper(Screen(breakout_variant=args.variant, angle_mode=args.use_angle_mode), args)
 
 def make_breakout_env_fn(args):
     def create():
