@@ -130,8 +130,10 @@ class Screen(RawEnvironment):
         self.num_remove = self.get_num_remove()
 
     def assign_assessment_stat(self):
-        if self.dropped:
-            self.assessment_stat = -1000
+        if self.dropped and self.variant != "proximity":
+            self.assessment_stat += -1000
+        elif self.dropped:
+            self.assessment_stat = -1000            
         elif self.variant == "big_block":
             if self.ball.block: self.assessment_stat = 1
         elif self.variant == "default":
@@ -415,11 +417,11 @@ class Screen(RawEnvironment):
                 self.total_score += -10 * self.default_reward * int(not self.ball.block)
                 self.needs_ball_reset = True
                 self.since_last_bounce = 0
-                self.truncate = True
                 self.dropped = True
-                print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
-                if (self.drop_stopping or self.target_mode):
+                if self.drop_stopping:
+                    self.truncate = True
                     self.done = True
+                print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
                 break
 
             if (self.ball.losses == 4 and pre_stop) or (self.target_mode and ((self.ball.top_wall and self.bounce_cost == 0) or self.ball.bottom_wall or self.ball.block)):
@@ -431,6 +433,7 @@ class Screen(RawEnvironment):
                 self.total_score = 0
                 self.since_last_bounce = 0
                 needs_reset = True
+                print("eoe", self.total_score)
                 if not self.ball.block: print("top drp", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
                 self.truncate = not self.ball.block and not (self.target_mode and ((self.ball.top_wall and self.bounce_cost == 0)))
                 break
