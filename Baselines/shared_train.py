@@ -52,8 +52,12 @@ class VideoCollector(Collector):
         buffer: Optional[ReplayBuffer] = None,
         preprocess_fn: Optional[Callable[..., Batch]] = None,
         exploration_noise: bool = False,
+        episode_limit: int = -1,
+        timeout_penalty: int = -1
     ):
         super().__init__(policy, env, buffer, preprocess_fn, exploration_noise)
+        self.episode_limit = episode_limit
+        self.timeout_penalty = timeout_penalty
 
     def collect(
             self,
@@ -115,6 +119,7 @@ class VideoCollector(Collector):
             start_time = time.time()
 
             step_count = 0
+            curr_ep_step_count = 0
             episode_count = 0
             episode_rews = []
             episode_lens = []
@@ -157,21 +162,6 @@ class VideoCollector(Collector):
                 result = self.env.step(action_remap, ready_env_ids)  # type: ignore
                 obs_next, rew, done, info = result
 
-                assert(len(info) == 1)
-
-                if done or ((n_step and step_count >= n_step) or \
-                        (n_episode and episode_count >= n_episode)):
-                    if info[0]['assessment'] <= -1000:
-                        info[0]['assessment'] = info[0]['assessment'] + 1000
-                        drops.append(1)
-                        assessment.append(info[0]["assessment"])
-                    elif info[0]["assessment"] > -900:
-                        assessment.append(info[0]["assessment"])
-                        drops.append(0)
-                    else:
-                        info[0]['assessment'] = info[0]['assessment'] + 1000
-                        drops.append(1)
-                        assessment.append(info[0]["assessment"])
 
                 self.data.update(obs_next=obs_next, rew=rew, done=done, info=info)
                 if self.preprocess_fn:
@@ -198,8 +188,28 @@ class VideoCollector(Collector):
 
                 # collect statistics
                 step_count += len(ready_env_ids)
+                curr_ep_step_count += len(ready_env_ids)
+
+                if np.any(done) or (self.episode_limit >= 0 and curr_ep_step_count >= self.episode_limit):
+                    curr_ep_step_count = 0
+                    if self.episode_limit >= 0 and curr_ep_step_count >= self.episode_limit:
+                        print('here')
+                        assessment.append(self.timeout_penalty)
+                        done[0] = True
+                    elif info[0]['assessment'] <= -1000:
+                        info[0]['assessment'] = info[0]['assessment'] + 1000
+                        drops.append(1)
+                        assessment.append(info[0]["assessment"])
+                    elif info[0]["assessment"] > -900:
+                        assessment.append(info[0]["assessment"])
+                        drops.append(0)
+                    else:
+                        info[0]['assessment'] = info[0]['assessment'] + 1000
+                        drops.append(1)
+                        assessment.append(info[0]["assessment"])
 
                 if np.any(done):
+                    curr_ep_step_count = 0
                     env_ind_local = np.where(done)[0]
                     env_ind_global = ready_env_ids[env_ind_local]
                     episode_count += len(env_ind_local)

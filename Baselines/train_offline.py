@@ -22,6 +22,16 @@ from Baselines.env_args import add_env_args
 
 from Networks.critic import BoundedDiscreteCritic
 
+variant_timeout_limits = { 'big_block' : 300,
+                           'single_block' : 300,
+                           'negative_rand_row' : 2000,
+                           'center_large' : 3000,
+                           'breakout_priority_large' : 3000,
+                           'harden_single' : 3000,
+                           'default' : 5000,
+                           'proximity' : 200
+                           }
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--algorithm', choices=['dqn', 'rainbow', 'sac'])
@@ -235,9 +245,12 @@ def test(args=get_args()):
         policy.load_state_dict(torch.load(args.resume_path, map_location=args.device))
         print("Loaded agent from: ", args.resume_path)
 
+    episode_limit = variant_timeout_limits[args.variant]
+    timeout_penalty = env.env.timeout_penalty
     # collector
-    train_collector = VideoCollector(policy, train_envs, buffer, exploration_noise=args.algorithm in ['rainbow', 'dqn'])
-    test_collector = VideoCollector(policy, test_envs, exploration_noise=args.algorithm in ['rainbow', 'dqn'])
+    train_collector = VideoCollector(policy, train_envs, buffer, exploration_noise=args.algorithm in ['rainbow', 'dqn'], episode_limit=episode_limit, timeout_penalty=timeout_penalty)
+    test_collector = VideoCollector(policy, test_envs, exploration_noise=args.algorithm in ['rainbow', 'dqn'], episode_limit=episode_limit, timeout_penalty=timeout_penalty)
+
     # log
     writer = SummaryWriter(log_path)
     writer.add_text("args", str(args))
@@ -327,11 +340,11 @@ def test(args=get_args()):
             result = watch()
             rew = result["rews"].mean()
 
-            assess = result["assessment"].sum() / max(result["n/ep"], 1)
-            drops = result["drops"].sum()
+            assess = result["assessment"].sum() / result["n/ep"]
+            drops = result["drops"].sum() / result["n/ep"]
             images = result['saved_images']
 
-            logger.write("eval/env_step", env_step, {"eval/rew" : rew, "eval/assess" : assess, "eval/drops" : drops, "eval/n_ep" : result["n/ep"]})
+            logger.write("eval/env_step", env_step, {"eval/rew" : rew, "eval/assess" : assess, "eval/drops" : drops})
 
             fname = os.path.join(log_path, f'iter-{epoch}.mp4')
             writer = imageio.get_writer(fname, fps=20)
