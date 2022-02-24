@@ -16,41 +16,41 @@ ball_vels = [np.array([-1.,-1.]).astype(np.int), np.array([-2.,-1.]).astype(np.i
 
 # default settings for normal variants, args in order: 
 # target_mode (1)/edges(2)/center(3), scatter (4), num rows, num_columns, no_breakout (value for hit_reset), negative mode, bounce_count
-breakout_variants = {"default": (0,5, 20, -1, "", 0,0, 0),
-                     "row":  (0,1,10,-1,"", 0,0, 0),
-                     "small": (0,2,10,-1,"", 0,0, 0), 
-                    "row_nobreak": (0,1,10,10,"", 0,0, 0), 
-                    "small_nobreak": (0,2,10,15,"", 0,0, 0),
-                    "full_nobreak": (0,5,20,115,"", 0,0, 0),
-                    "big_block": (1,1,1,-1,"",0,0, 0),
-                    "single_block": (1,1,1,-1,"",-1,0, 0),
-                    "negative_split_full": (0,5,20,75,"side",0,0, 0),
-                    "negative_split_small": (0,2,10,15,"side",0,0, 0),
-                    "negative_split_row": (0,1,10,5,"side",0,0, 0),
-                    "negative_center_full": (0,5,20,75,"center",0,0, 0),
-                    "negative_center_small": (0,2,10,15,"center",0,0, 0),
-                    "negative_center_row": (0,1,10,10,"center",0,0, 0),
-                    "negative_edge_full": (0,5,20,75,"edge",0,0, 0),
-                    "negative_edge_small": (0,2,10,15,"edge",0,0, 0),
-                    "negative_edge_row": (0,1,10,10,"edge",0,0, 0),
-                    "negative_checker_row": (0,1,10,10,"checker",0,0, 0),
-                    "negative_rand_row": (0,1,10,5,"rand",0,0, 0),
-                    "negative_double": (1,1,1,-1,"rand",-1,0, 0),
-                    "negative_multi": (1,1,1,-1,"rand",-1,0, 0),
-                    "negative_top_full": (0,5,20,40,"top",0,0,0),
-                    "negative_top_small": (0,2,10,7,"top",0,0,0),
-                    "breakout_priority_small": (0,2,10,-1,"",-2,0, 1),
-                    "breakout_priority_medium": (0,3,10,-1,"",-2,0, 5),
-                    "breakout_priority_large": (0,4,15,-1,"",-1,0, 20),
-                    "breakout_priority_full": (0,5,20,-1,"",-2,0, 20),
-                    "edges_full": (2,5,20,-1,"",-1,0, 20),
-                    "edges_small": (2,2,10,-1,"",-1,0, 1),
-                    "center_small": (3,2,10,-1,"",-1,0, 1),
-                    "center_medium": (3,3,15,-1,"",-1,0, 5),
-                    "center_large": (3,4,15,-1,"",-1, 0,20),
-                    "center_full": (3,5,20,-1,"",-2, 0,20),
-                    "harden_single": (4,3,10,-1,"",-1,10,0),
-                    "proximity": (0,4,15,60,"", 0,0, 0)}
+breakout_variants = {"default": (0,5, 20, -1, "", 0,0, 0,-10),
+                     "row":  (0,1,10,-1,"", 0,0, 0,-10),
+                     "small": (0,2,10,-1,"", 0,0, 0,-10), 
+                    "row_nobreak": (0,1,10,10,"", 0,0, 0,-1), 
+                    "small_nobreak": (0,2,10,15,"", 0,0, 0,-1),
+                    "full_nobreak": (0,5,20,115,"", 0,0, 0,-1),
+                    "big_block": (1,1,1,-1,"",0,0, 0,-10),
+                    "single_block": (1,1,1,-1,"",-1,0, 0,-10),
+                    "negative_split_full": (0,5,20,75,"side",0,0, 0,-20),
+                    "negative_split_small": (0,2,10,15,"side",0,0, 0,-20),
+                    "negative_split_row": (0,1,10,5,"side",0,0, 0,-20),
+                    "negative_center_full": (0,5,20,75,"center",0,0, 0,-20),
+                    "negative_center_small": (0,2,10,15,"center",0,0, 0,-10),
+                    "negative_center_row": (0,1,10,10,"center",0,0, 0,-10),
+                    "negative_edge_full": (0,5,20,75,"edge",0,0, 0,-10),
+                    "negative_edge_small": (0,2,10,15,"edge",0,0, 0,-10),
+                    "negative_edge_row": (0,1,10,10,"edge",0,0, 0,-10),
+                    "negative_checker_row": (0,1,10,10,"checker",0,0, 0,-10),
+                    "negative_rand_row": (0,1,10,5,"rand",0,0, 0, -10),
+                    "negative_double": (1,1,1,-1,"rand",-1,0, 0, -10),
+                    "negative_multi": (1,1,1,-1,"rand",-1,0, 0, -10),
+                    "negative_top_full": (0,5,20,40,"top",0,0,0, -120),
+                    "negative_top_small": (0,2,10,7,"top",0,0,0, -30),
+                    "breakout_priority_small": (0,2,10,-1,"",-2,0, 1, -30),
+                    "breakout_priority_medium": (0,3,10,-1,"",-2,0, 5, -75),
+                    "breakout_priority_large": (0,4,15,-1,"",-1,0, 20, -100),
+                    "breakout_priority_full": (0,5,20,-1,"",-2,0, 20, -120),
+                    "edges_full": (2,5,20,-1,"",-1,0, 20, -120),
+                    "edges_small": (2,2,10,-1,"",-1,0, 1, -30),
+                    "center_small": (3,2,10,-1,"",-1,0, 1,-30),
+                    "center_medium": (3,3,15,-1,"",-1,0, 5,-75),
+                    "center_large": (3,4,15,-1,"",-1, 0,20,-100),
+                    "center_full": (3,5,20,-1,"",-2, 0,20,-120),
+                    "harden_single": (4,3,10,-1,"",-1,10,0,-10),
+                    "proximity": (0,4,15,60,"", 0,0, 0,-10)}
 
 class Screen(RawEnvironment):
     def __init__(self, frameskip = 1, drop_stopping=True, target_mode = False, angle_mode=False,
@@ -67,8 +67,9 @@ class Screen(RawEnvironment):
         bounce_cost = 0
         bounce_reset = 0
         self.completion_reward = 0
+        self.timeout_penalty = -1
         if len(breakout_variant) > 0: # overrides any existing arguments
-            var_form, num_rows, num_columns, hit_reset, negative_mode, bounce_cost, bounce_reset, completion_reward = breakout_variants[breakout_variant]
+            var_form, num_rows, num_columns, hit_reset, negative_mode, bounce_cost, bounce_reset, completion_reward, timeout_penalty = breakout_variants[breakout_variant]
             target_mode = (var_form == 1)
             if var_form == 2:
                 negative_mode = "hardedge"
@@ -77,6 +78,7 @@ class Screen(RawEnvironment):
             if var_form == 4:
                 negative_mode = "hardscatter"
             no_breakout = hit_reset > 0
+            self.timeout_penalty = timeout_penalty
             # self.completion_reward = completion_reward
 
         self.sampler = sampler

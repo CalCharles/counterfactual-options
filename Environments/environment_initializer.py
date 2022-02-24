@@ -23,6 +23,7 @@ def initialize_environment(args, set_save=True, render=""):
         environment = Screen(drop_stopping=args.drop_stopping, target_mode=args.target_mode, 
             num_rows = nhigh, num_columns = nwide, max_block_height=maxheight, no_breakout=bool(no_breakout), hit_reset=hit_reset,
             breakout_variant=args.breakout_variant)
+        args.timeout_penalty = environment.timeout_penalty
         environment.seed(args.seed)
         environment_model = BreakoutEnvironmentModel(environment)
     elif args.env == "Nav2D":

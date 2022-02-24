@@ -86,8 +86,8 @@ if __name__ == '__main__':
             dataset_model.environment_model = environment_model
         else:
             dataset_model = DummyMultiBlockDatasetModel(environment_model)
-            dataset_model.environment_model = environment_model            
-        dataset_model.sample_able.vals = np.array([dataset_model.sample_able.vals[0]]) # for some reason, there are some interaction values that are wrong
+            dataset_model.environment_model = environment_model
+            dataset_model.sample_able.vals = np.array([dataset_model.sample_able.vals[0]]) # for some reason, there are some interaction values that are wrong
         discretize_actions = {0: np.array([-1,-1]), 1: np.array([-2,-1]), 2: np.array([-2,1]), 3: np.array([-1,1])}
     if args.object == "Reward" and args.env == "SelfBreakout":
         args.num_instance = environment.num_blocks
