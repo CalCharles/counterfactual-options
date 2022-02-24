@@ -133,7 +133,7 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
         data.update(full_state=full_state)
         
         if done or goal_achieved:
-            # print("done", done, goal_achieved)
+            print("reached", done, goal_achieved)
             break
 
     for transition in subgoal_test_transitions:
