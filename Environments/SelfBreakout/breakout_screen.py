@@ -133,7 +133,7 @@ class Screen(RawEnvironment):
         if self.dropped and self.variant != "proximity":
             self.assessment_stat += -1000
         elif self.dropped:
-            self.assessment_stat = -1000            
+            self.assessment_stat = (1, -1000)            
         elif self.variant == "big_block":
             if self.ball.block: self.assessment_stat = 1
         elif self.variant == "default":
