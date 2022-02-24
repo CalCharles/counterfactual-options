@@ -34,7 +34,7 @@ def make_breakout_env(args):
     if args.variant == 'proximity':
         screen = Screen(breakout_variant=args.variant, angle_mode=args.use_angle_mode, drop_stopping=True)
         env_model = BreakoutEnvironmentModel(screen)
-        sampler = BreakoutRandomSampler({ 'environment_model' : env_model, 'init_state' : screen.get_state() })
+        sampler = BreakoutRandomSampler(**{ 'environment_model' : env_model, 'init_state' : screen.get_state() })
         screen.sampler = sampler
 
         return BreakoutGymWrapper(screen, args)
@@ -177,6 +177,9 @@ class VideoCollector(Collector):
                     elif info[0]['assessment'] <= -1000:
                         info[0]['assessment'] = info[0]['assessment'] + 1000
                         drops.append(1)
+                        while info[0]['assessment'] <= -1000:
+                            drops.append(1)
+                            info[0]['assessment'] = info[0]['assessment'] 1000
                         assessment.append(info[0]["assessment"])
                     elif info[0]["assessment"] > -900:
                         assessment.append(info[0]["assessment"])
