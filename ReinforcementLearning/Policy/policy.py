@@ -85,6 +85,7 @@ class TSPolicy(nn.Module):
         self.exploration_noise = self.algo_policy.exploration_noise
         self.grad_epoch = kwargs['grad_epoch']
         self.input_norm_timer = 0
+        print(self)
 
     def cpu(self):
         super().cpu()

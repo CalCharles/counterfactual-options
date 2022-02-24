@@ -443,8 +443,8 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
             # if self.test: print(self.data.obs.squeeze(), self.data.target.squeeze(), self.data.param.squeeze(), np.round_(self.data.act.squeeze(), 2), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             if self.test and self.print_test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), np.round_(self.data.act.squeeze(), 2), self.data.true_action.squeeze(), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
             # if self.test: print(self.data.param.squeeze(), self.data.target.squeeze(), self.data.mapped_act.squeeze(), self.data.full_state['factored_state']['Paddle'][0][1], np.round_(self.data.act.squeeze(), 2), self.data.true_action.squeeze(), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
-            print(self.data.param.squeeze(), self.data.mapped_act.squeeze(), self.data.full_state['factored_state']['Ball'], np.round_(self.data.act.squeeze(), 2), self.data.true_action.squeeze(), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
-            
+            # print(self.data.param.squeeze(), self.data.mapped_act.squeeze(), self.data.full_state['factored_state']['Ball'], np.round_(self.data.act.squeeze(), 2), self.data.true_action.squeeze(), self.data.rew.squeeze(), pytorch_model.unwrap(self.option.policy.compute_Q(self.data, nxt=False).squeeze()))
+
             if len(visualize_param) != 0:
                 frame = np.array(self.env.render()).squeeze()
                 viz_param, visualize_pth = True, visualize_param
@@ -470,8 +470,9 @@ class OptionCollector(Collector): # change to line  (update batch) and line 12 (
                     episode_count += int(np.any(done))
             if np.any(true_done) or (np.any(term) and self.terminate_reset):
                 if "assessment" in info[0]: assessments.append(info[0]["assessment"])
-                
+
                 true_episode_count += 1
+                # print("resetting")
                 # if we have a true done, reset the environments and self.data
                 if self.env_reset: # the same as reset_env except it does not reset the env
                     full_state = self.environment_model.get_state()

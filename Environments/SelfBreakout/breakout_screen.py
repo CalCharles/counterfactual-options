@@ -408,17 +408,18 @@ class Screen(RawEnvironment):
             for ani_obj in self.animate:
                 ani_obj.move()
             pre_stop = (self.ball.pos[0] == 77 and self.ball.vel[0] == 2) or (self.ball.pos[0] == 78 and self.ball.vel[0] == 1) or (self.ball.pos[0] == 78 and self.ball.vel[0] == 2)
-            if pre_stop and (self.drop_stopping or self.target_mode):
+            if pre_stop:
                 self.reward += -10 * self.default_reward # negative reward for dropping the ball since done is not triggered
                 self.total_score += -10 * self.default_reward * int(not self.ball.block)
-                self.done = True
                 self.needs_ball_reset = True
-                print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
                 self.since_last_bounce = 0
                 self.truncate = True
                 self.dropped = True
-
+                print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
+                if (self.drop_stopping or self.target_mode):
+                    self.done = True
                 break
+
             if (self.ball.losses == 4 and pre_stop) or (self.target_mode and ((self.ball.top_wall and self.bounce_cost == 0) or self.ball.bottom_wall or self.ball.block)):
                 self.average_points_per_life = self.total_score / 5.0
                 self.done = True
