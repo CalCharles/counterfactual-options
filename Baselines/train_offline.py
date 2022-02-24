@@ -248,7 +248,7 @@ def test(args=get_args()):
     episode_limit = variant_timeout_limits[args.variant]
     timeout_penalty = env.env.timeout_penalty
     # collector
-    train_collector = VideoCollector(policy, train_envs, buffer, exploration_noise=args.algorithm in ['rainbow', 'dqn'], episode_limit=episode_limit, timeout_penalty=timeout_penalty)
+    train_collector = VideoCollector(policy, train_envs, buffer, exploration_noise=args.algorithm in ['rainbow', 'dqn'])
     test_collector = VideoCollector(policy, test_envs, exploration_noise=args.algorithm in ['rainbow', 'dqn'], episode_limit=episode_limit, timeout_penalty=timeout_penalty)
 
     # log
@@ -318,7 +318,7 @@ def test(args=get_args()):
             print("Testing agent ...")
             test_collector.reset()
             result = test_collector.collect(
-                n_step=args.test_steps, render=0.05
+                n_episode=args.test_num, render=0.05
             )
 
         rew = result["rews"].mean()
