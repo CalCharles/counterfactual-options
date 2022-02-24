@@ -10,13 +10,12 @@ from torch.utils.tensorboard import SummaryWriter
 from tianshou.data import PrioritizedVectorReplayBuffer, VectorReplayBuffer
 from tianshou.env import DummyVectorEnv
 from tianshou.policy import DQNPolicy, RainbowPolicy, DiscreteSACPolicy
-from tianshou.trainer import offpolicy_trainer
-from tianshou.utils import TensorboardLogger, WandbLogger
-
+# from tianshou.trainer import offpolicy_trainer
+# from tianshou.utils import TensorboardLogger
 from tianshou.utils.net.common import Net
 from tianshou.utils.net.discrete import Actor
 
-from Baselines.shared_train import make_breakout_env, make_breakout_env_fn, VideoCollector
+from Baselines.shared_train import make_breakout_env, make_breakout_env_fn, VideoCollector, offpolicy_trainer, ModifiedLogger
 from Baselines.networks import DQN, Rainbow, SACNet
 from Baselines.env_args import add_env_args
 
@@ -43,6 +42,7 @@ def get_args():
     parser.add_argument('--eps-train-final', type=float, default=0.05)
     parser.add_argument('--buffer-size', type=int, default=100000)
     parser.add_argument('--video-log-period', type=int, default=5)
+    parser.add_argument('--no-render', action="store_true", default=False)
     parser.add_argument('--save-checkpoint-period', type=int, default=None)
 
 
@@ -254,7 +254,7 @@ def test(args=get_args()):
     # log
     writer = SummaryWriter(log_path)
     writer.add_text("args", str(args))
-    logger = TensorboardLogger(writer)
+    logger = ModifiedLogger(writer)
 
     def save_fn(policy):
         torch.save(policy.state_dict(), os.path.join(log_path, 'policy.pth'))
@@ -279,7 +279,7 @@ def test(args=get_args()):
             policy.set_eps(args.eps_test)
 
     # watch agent's performance
-    def watch():
+    def watch(render):
         print("Setup test envs ...")
         policy.eval()
 
@@ -317,9 +317,15 @@ def test(args=get_args()):
         else:
             print("Testing agent ...")
             test_collector.reset()
-            result = test_collector.collect(
-                n_episode=args.test_num, render=0.05
-            )
+
+            if render:
+                result = test_collector.collect(
+                    n_episode=args.test_num, render=0.05
+                )
+            else:
+                result = test_collector.collect(
+                    n_episode=args.test_num
+                    )
 
         rew = result["rews"].mean()
         print(f'Mean reward (over {result["n/ep"]} episodes): {rew}')
@@ -327,7 +333,7 @@ def test(args=get_args()):
         return result
 
 
-    def save_checkpoint_fn(epoch, env_step, gradient_step):
+    def save_checkpoint_fn(epoch, env_step, gradient_step, env_ep):
         # see also: https://pytorch.org/tutorials/beginner/saving_loading_models.html
         ckpt_path = os.path.join(log_path, 'checkpoint.pth')
         torch.save({'model': policy.state_dict()}, ckpt_path)
@@ -337,7 +343,7 @@ def test(args=get_args()):
             torch.save({'model' : policy.state_dict()}, ckpt_path)
 
         if epoch % args.video_log_period == 0:
-            result = watch()
+            result = watch(args.no_render)
             rew = result["rews"].mean()
 
             assess = result["assessment"].sum() / result["n/ep"]
@@ -346,18 +352,21 @@ def test(args=get_args()):
 
             logger.write("eval/env_step", env_step, {"eval/rew" : rew, "eval/assess" : assess, "eval/drops" : drops})
 
-            fname = os.path.join(log_path, f'iter-{epoch}.mp4')
-            writer = imageio.get_writer(fname, fps=20)
+            logger.write("eval/env_ep", env_ep, {"eval/rew" : rew, "eval/assess" : assess, "eval/drops" : drops})
 
-            for img in images:
-                writer.append_data(img)
+            if not args.no_render:
+                fname = os.path.join(log_path, f'iter-{epoch}.mp4')
+                writer = imageio.get_writer(fname, fps=20)
 
-            writer.close()
+                for img in images:
+                    writer.append_data(img)
+
+                writer.close()
 
         return ckpt_path
 
     if args.watch:
-        watch()
+        watch(True)
         exit(0)
 
     # test train_collector and start filling replay buffer
@@ -384,7 +393,7 @@ def test(args=get_args()):
     )
 
     pprint.pprint(result)
-    watch()
+    watch(True)
 
 
 if __name__ == '__main__':
