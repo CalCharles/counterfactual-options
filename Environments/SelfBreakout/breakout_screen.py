@@ -151,12 +151,12 @@ class Screen(RawEnvironment):
         elif self.variant == "proximity":
             if self.ball.block:
                 # print(self.assessment_stat, self.sampler.param, self.ball.block_id.getMidpoint(), np.linalg.norm(self.sampler.param[:2] - self.ball.block_id.getMidpoint(), ord=1))
-                self.assessment_stat = (self.assessment_stat[0] + 1, self.assessment_stat[1] + np.linalg.norm(self.sampler.param[:2] - self.ball.block_id.getMidpoint(), ord=1))
+                if type(self.assessment_stat) == tuple: self.assessment_stat = (self.assessment_stat[0] + 1, self.assessment_stat[1] + np.linalg.norm(self.sampler.param[:2] - self.ball.block_id.getMidpoint(), ord=1))
                 print("hit at l1", np.linalg.norm(self.sampler.param[:2] - self.ball.block_id.getMidpoint(), ord=1), self.ball.block_id.getMidpoint(), self.sampler.param[:2])
                 # self.assessment_stat = np.linalg.norm(self.sampler.param[:2] - self.ball.block_id.getMidpoint(), ord=1)
             if self.done:
-                self.assessment_stat = self.assessment_stat[1] / self.assessment_stat[0]
-
+                if type(self.assessment_stat) == tuple:
+                    self.assessment_stat = self.assessment_stat[1] / self.assessment_stat[0]
 
     def ball_reset(self):
         self.ball.pos = [41, np.random.randint(20, 52)]
