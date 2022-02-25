@@ -352,7 +352,7 @@ def test(args=get_args()):
 
             logger.write("eval/env_step", env_step, {"eval/rew" : rew, "eval/assess" : assess, "eval/drops" : drops})
 
-            logger.write("eval/env_ep", env_ep, {"eval/rew" : rew, "eval/assess" : assess, "eval/drops" : drops})
+            logger.write("eval_ep/env_ep", env_ep, {"eval_ep/rew" : rew, "eval_ep/assess" : assess, "eval_ep/drops" : drops})
 
             if not args.no_render:
                 fname = os.path.join(log_path, f'iter-{epoch}.mp4')

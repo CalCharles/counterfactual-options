@@ -179,7 +179,7 @@ class VideoCollector(Collector):
                         drops.append(1)
                         while info[0]['assessment'] <= -1000:
                             drops.append(1)
-                            info[0]['assessment'] = info[0]['assessment'] 1000
+                            info[0]['assessment'] = info[0]['assessment'] + 1000
                         assessment.append(info[0]["assessment"])
                     elif info[0]["assessment"] > -900:
                         assessment.append(info[0]["assessment"])
