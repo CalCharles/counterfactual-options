@@ -54,7 +54,7 @@ def get_args():
                         help='gpu number to use (default: 0)')
     parser.add_argument('--hidden-sizes', type=int, nargs='*', default=[256, 256],
                         help='sizes of the internal hidden layers')
-    parser.add_argument('--no-keep-instanced', action = 'store_true', default=False,
+    parser.add_argument('--reduced-state', action = 'store_true', default=False,
                     help='if true, then use a reduced state for non-top of HAC')
     parser.add_argument('--init-form', default="none",
                         help='choose the initialization for the weights')    

@@ -53,7 +53,7 @@ class HAC:
             input_shape = (flat_state.shape[0], )
         else:
             args.policy_type = "basic"
-            input_shape = param_input_shape
+            input_shape = (no_param_input_shape[0] + goal_final.shape[0], )  if goal_final is not None else (no_param_input_shape[0], )
         # adding last level (might not be parametereized so state dim changes)
         print(input_shape, args.object_dim, args.first_obj_dim)
         self.HAC.append(HACPolicy(input_shape[0], paction_space, action_space, max_action, False, **vars(args)))
@@ -61,7 +61,7 @@ class HAC:
 
         self.buffer_at = [0 for i in range(k_level)]
         # set some parameters
-        self.keep_instanced = not args.no_keep_instanced
+        self.keep_instanced = not args.reduced_state
         self.goal_final = goal_final
         self.k_level = k_level
         self.H = H
@@ -80,14 +80,14 @@ class HAC:
 
     def get_obs(self, level, full_state, param, environment_model):
         use_instanced = self.keep_instanced or level == self.k_level - 1
-        inp = environment_model.get_HAC_flattened_state(full_state, use_instanced=use_instanced)
+        inp = environment_model.get_HAC_flattened_state(full_state, instanced=True, use_instanced=use_instanced)
         if level != self.k_level - 1 or self.goal_final is not None:
             inp = np.concatenate([param, inp], axis=-1)
         return inp
 
     def get_target(self, level, full_state, environment_model):
         use_instanced = self.keep_instanced or level == self.k_level - 1
-        return environment_model.get_HAC_flattened_state(full_state, use_instanced=use_instanced)
+        return environment_model.get_HAC_flattened_state(full_state, instanced=True, use_instanced=use_instanced)
 
     def set_epsilon_below(self, level, value):
         if level == 0:

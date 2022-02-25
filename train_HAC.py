@@ -84,7 +84,7 @@ def train():
     max_steps = 200
     if args.env == "SelfBreakout":
         goal_based = False
-        max_steps = 3000
+        max_steps = 20
     else:
         goal_based = True
     
@@ -95,8 +95,9 @@ def train():
         np.random.seed(args.seed)
     
     # creating HAC agent and setting parameters
-    flat_state = environment_model.get_HAC_flattened_state(environment_model.get_state(), use_instanced=True)
-    reduced_flat_state = environment_model.get_HAC_flattened_state(environment_model.get_state(), use_instanced=False)
+    flat_state = environment_model.get_HAC_flattened_state(environment_model.get_state(), instanced=True, use_instanced=True)
+    reduced_flat_state = environment_model.get_HAC_flattened_state(environment_model.get_state(), instanced=True, use_instanced=False)
+    print(reduced_flat_state.shape)
     if args.env == "SelfBreakout": object_dim = environment_model.object_sizes["Block"]
     elif args.env == "RoboPushing": object_dim = environment_model.object_sizes["Obstacle"]
     else: object_dim = environment_model.object_sizes["State"]
@@ -123,13 +124,15 @@ def train():
     # agent.set_epsilon_below(agent.k_level, 0)
 
     # training procedure 
+    total_time = 0
     for i_episode in range(1, args.num_episodes+1):
         agent.reward = 0
         agent.timestep = 0
         
         full_state = environment.reset()
         # collecting experience in environment
-        next_state, reward, done, info, total_time = run_HAC(agent, environment_model, agent.k_level-1, full_state, goal_final, False, goal_based=goal_based, max_steps=max_steps, render=False, printout=args.printout)
+        next_state, reward, done, info, ep_time = run_HAC(agent, environment_model, agent.k_level-1, full_state, goal_final, False, goal_based=goal_based, max_steps=max_steps, render=False, printout=args.printout)
+        total_time += ep_time
         # update all levels
         losses_dict = agent.update(args.batch_size)
         
@@ -140,7 +143,7 @@ def train():
         if args.save_interval > 0 and i_episode % args.save_interval == 0:
             agent.save(directory, filename)
         
-        print("Episode: {}\t Reward: {}".format(i_episode, reward))
+        print("Episode: {}\t Time: {}\t Reward: {}".format(i_episode, total_time, reward))
         if args.log_interval > 0 and i_episode % args.log_interval == 0 and args.printout:
             for k in range(agent.k_level):
                 print("buffer filled to ", agent.buffer_at[k][0], args.buffer_len)
@@ -149,7 +152,7 @@ def train():
                     idx = (agent.buffer_at[k][0] + (j - printout_num)) % args.buffer_len
                     print(k, idx, len(agent.replay_buffer[k]), agent.buffer_at[k][0])
                     print(k, j, agent.replay_buffer[k][idx])
-
+        if args.log_interval > 0 and i_episode % args.log_interval == 0:
             print("losses", losses_dict)
     
 if __name__ == '__main__':

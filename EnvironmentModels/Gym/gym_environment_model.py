@@ -21,7 +21,7 @@ class GymEnvironmentModel(EnvironmentModel):
         self.flat_rel_space = gym_environment.state_space
         self.reduced_flat_rel_space = gym_environment.state_space
 
-    def get_HAC_flattened_state(self, full_state, use_instanced=True):
+    def get_HAC_flattened_state(self, full_state, instanced=False, use_instanced=True):
         return self.flatten_factored_state(full_state['factored_state'], names=self.object_names[:1])
 
     def get_raw_state(self, full_state):

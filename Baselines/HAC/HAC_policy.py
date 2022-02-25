@@ -83,11 +83,12 @@ class HACPolicy(TSPolicy):
 
     def reverse_map_action(self, mapped_act):
         # COPIED FROMBASE reverse the effect of map_action, not one to one because information might be lost (ignores clipping)
+        act = mapped_act
         if self.algo_policy.action_scaling:
             low, high = self.paction_space.low, self.paction_space.high
             act = ((mapped_act - low) / (high - low)) * 2 - 1
         if self.algo_policy.action_bound_method == "tanh":
-            act = np.arctanh(act)
+            act = np.arctanh(mapped_act)
         return act
 
 

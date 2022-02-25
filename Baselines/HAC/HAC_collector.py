@@ -42,6 +42,7 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
         is_next_subgoal_test = is_subgoal_test
         
         obs = agent.get_obs(i_level, full_state, goal, env_model)
+        # print(i_level, obs.shape, goal_based)
         act, action = agent.HAC[i_level].select_action(obs)
         
         # action = force_actions[i_level][i] # FAX
@@ -104,7 +105,7 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
             if not is_subgoal_test:
                 if agent.primitive_action_discrete:
                     if np.random.random_sample() < agent.epsilon: # epsilon rate
-                      action = np.random.randint(self.max_action)
+                      action = np.random.randint(agent.max_action)
                       act = agent.HAC[i_level].reverse_map_action(action)
                 else:
                     if np.random.random_sample() > 0.2:

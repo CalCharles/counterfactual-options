@@ -19,10 +19,10 @@ class BreakoutEnvironmentModel(EnvironmentModel):
             self.state_size = sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])
             self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [1], "done": [1], "info": [1]}
             self.enumeration = {"Action": [0,1], "Paddle": [1,2], "Ball": [2,3], "Block": [3,3+num_blocks], 'Done':[103,104], "Reward":[104,105]}
-        self.flat_rel_space = spaces.Box(low=np.array([-84,-84,-2,-2,0,0,0,0,0,0,0,0,0,0,1,0,0,-2,-2,1] + [0,0,0,0,0] * num_blocks), 
-                                    high=np.array([84,84,2,2,0,0,0,0,0,4,84,84,0,0,1,84,84,2,2,1] + [84,84,0,0,1] * num_blocks), dtype=np.float64)
-        self.reduced_flat_rel_space = spaces.Box(low=np.array([-84,-84,-2,-2,0,0,0,0,0,0,0,0,0,0,1,0,0,-2,-2,1]), 
-                                    high=np.array([84,84,2,2,0,0,0,0,0,4,84,84,0,0,1,84,84,2,2,1]), 
+        self.flat_rel_space = spaces.Box(low=np.array([-84,-84,-2,-2,0,0,0,0,0,0.9,0,0,-2,-2,1] + [0,0,0,0,0] * num_blocks), 
+                                    high=np.array([84,84,2,2,0.1,84,84,0.1,0.1,1,84,84,2,2,1.1] + [84,84,0.1,0.1,1] * num_blocks), dtype=np.float64)
+        self.reduced_flat_rel_space = spaces.Box(low=np.array([-84,-84,-2,-2,0,0,0,0,0,0.9,0,0,-2,-2,1]), 
+                                    high=np.array([84,84,2,2,0.1,84,84,0.1,0.1,1,84,84,2,2,1.1]), 
                                     dtype=np.float64)
         self.param_size = self.state_size
         self.set_indexes()
@@ -31,9 +31,10 @@ class BreakoutEnvironmentModel(EnvironmentModel):
         factored_state = full_state['factored_state']
         return factored_state['Done']
 
-    def get_HAC_flattened_state(self, full_state, use_instanced=True):
+    def get_HAC_flattened_state(self, full_state, instanced=False, use_instanced=True):
         paddle_ball_rel = np.array(full_state['factored_state']['Paddle']) - np.array(full_state['factored_state']['Ball'])
-        return np.concatenate([paddle_ball_rel, self.flatten_factored_state(full_state['factored_state'], names=self.object_names[:4], use_instanced=use_instanced)])
+        upto = 4 if use_instanced else 3
+        return np.concatenate([paddle_ball_rel, self.flatten_factored_state(full_state['factored_state'], names=self.object_names[1:upto],instanced=instanced, use_instanced=use_instanced)])
 
 
     def get_interaction_trace(self, name):
