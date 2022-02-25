@@ -18,6 +18,8 @@ def get_args():
                         help='save interval, one save per n updates (default: 10)')
     parser.add_argument('--log-interval', type=int, default=10,
                         help='log interval, one log per n episodes (default: 10)')
+    parser.add_argument('--final-instanced', action='store_true', default=False,
+                    help='if the final layer is instanced (will generate a pairnet)')
 
     parser.add_argument('--lookahead', type=int, default=1,
                         help='optimization steps to look ahead (default: 1)')

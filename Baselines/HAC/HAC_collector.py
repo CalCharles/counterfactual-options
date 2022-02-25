@@ -2,6 +2,7 @@ import numpy as np
 from tianshou.data import Batch
 from Networks.network import pytorch_model
 import copy
+import pickle
 
 def update_full_data(data, obs, act, mapped_act,
     obs_next, param, next_target, rew, gamma, done, info):
@@ -9,7 +10,8 @@ def update_full_data(data, obs, act, mapped_act,
     data.update(obs=ed(obs), act=act, mapped_act=ed(mapped_act), obs_next=ed(obs_next), param=ed(param), 
         next_target=ed(next_target), rew=rew, gamma=[gamma], done=done, info=info)
 
-
+def print_data(data):
+    return " ".join([str(data.obs), str(data.act), str(data.rew), str(data.obs_next), str(data.param), str(data.gamma), str(data.done), str(data.mapped_act)]) 
 
 def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_based=True, max_steps=0, render=False, printout=False):
     next_state = None
@@ -25,7 +27,11 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
     if goal is None: # the goal is not used at this level
         goal = np.array(0) # use a dummy goal
     # logging updates
-    
+
+    fid = open("../forceHAC.pkl", 'rb') # FAX
+    force_actions = pickle.load(fid)
+    fid.close()
+
     # H attempts
     data.update(full_state=full_state)
     if i_level == agent.k_level-1: # we are in the top level
@@ -37,17 +43,31 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
         
         obs = agent.get_obs(i_level, full_state, goal, env_model)
         act, action = agent.HAC[i_level].select_action(obs)
-        if i_level != 0 and printout:
-            print("initial   ", i, i_level, act, action, agent.HAC[i_level].paction_space.low, agent.HAC[i_level].paction_space.high)
+        
+        # action = force_actions[i_level][i] # FAX
+        act = agent.HAC[i_level].reverse_map_action(action)
+        
+        if printout:
+            print("retargeted   ", i, i_level, act, action, agent.HAC[i_level].paction_space.low, agent.HAC[i_level].paction_space.high)
         # act = pytorch_model.unwrap(act[0])
         # action = pytorch_model.unwrap(tensor_action[0])
         
         #   <================ high level policy ================>
         if i_level > 0:
             # add noise or take random action if not subgoal testing
-            if is_subgoal_test:
-                agent.set_epsilon_below(i_level, 0)
-            
+            # if is_subgoal_test:
+            #     agent.set_epsilon_below(i_level, 0)
+            # else:
+            #     agent.set_epsilon_below(i_level, agent.epsilon)
+
+            if not is_subgoal_test:
+                if np.random.random_sample() < agent.epsilon:
+                  action = np.random.uniform(agent.HAC[i_level].paction_space.low, agent.HAC[i_level].paction_space.high)
+                  act = agent.HAC[i_level].reverse_map_action(action)
+                else:
+                  action = action + np.random.normal(0, agent.epsilon, size=agent.HAC[i_level].paction_space.shape)
+                  action = action.clip(agent.HAC[i_level].paction_space.low, agent.HAC[i_level].paction_space.high)
+
             # Determine whether to test subgoal (action)
             if np.random.random_sample() < agent.lamda:
                 is_next_subgoal_test = True
@@ -65,23 +85,39 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
                 obs_next = agent.get_obs(i_level, next_full_state, goal, env_model)
                 subgoal_data = copy.deepcopy(data)
                 update_full_data(subgoal_data, obs=obs, act=act, mapped_act=action, rew=-agent.H, obs_next=obs_next, param=goal, next_target=next_target, gamma=0.0, done=True, info=info)
+                if printout: print("subgoal transition", i, i_level, print_data(subgoal_data))
                 subgoal_test_transitions.append(subgoal_data)
-                agent.set_epsilon_below(i_level, agent.epsilon)
+                # agent.set_epsilon_below(i_level, agent.epsilon)
             
             # for hindsight action transition
             action = next_target
             act = agent.HAC[i_level].reverse_map_action(action)
+            # print(i_level, action, act)
             
         #   <================ low level policy ================>
         else:
             # add noise or take random action if not subgoal testing
-            if is_subgoal_test:
-                agent.set_epsilon_below(i_level, 0) # sets levels below EXCEPT with the bottom
-            else:
-                agent.set_epsilon_below(i_level, agent.epsilon) # sets levels below EXCEPT with the bottom
+            # if is_subgoal_test:
+            #     agent.set_epsilon_below(i_level, 0)
+            # else:
+            #     agent.set_epsilon_below(i_level, agent.epsilon)
+            if not is_subgoal_test:
+                if agent.primitive_action_discrete:
+                    if np.random.random_sample() < agent.epsilon: # epsilon rate
+                      action = np.random.randint(self.max_action)
+                      act = agent.HAC[i_level].reverse_map_action(action)
+                else:
+                    if np.random.random_sample() > 0.2:
+                      action = np.random.uniform(agent.HAC[i_level].paction_space.low, agent.HAC[i_level].paction_space.high)
+                      act = agent.HAC[i_level].reverse_map_action(action)
+                    else:
+                      action = action + np.random.normal(0, agent.epsilon, size=agent.HAC[i_level].paction_space.shape)
+                      action = action.clip(agent.HAC[i_level].paction_space.low, agent.HAC[i_level].paction_space.high)
+
 
             # take primitive action
             next_full_state, rew, done, info = env_model.step(action)
+            # print("env done", done)
             data.update(next_full_state=next_full_state)
             
             if render:
@@ -98,6 +134,7 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
             # check if goal is achieved
             next_target = agent.get_target(i_level, next_full_state, env_model)
             goal_achieved = agent.check_goal(next_target, goal, agent.threshold)
+            # print("comparison reached", i_level, goal, next_target, goal_achieved)
             
             # add values
             obs = agent.get_obs(i_level, full_state, goal, env_model)
@@ -109,9 +146,11 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
                 param=goal, next_target=next_target, rew =-1.0, gamma=agent.gamma, done=done, info=info)
             if goal_achieved:
                 data.update(rew=0.0, done=True)
+                if printout: print("base transition", i, i_level, print_data(data))
                 agent.buffer_at[i_level], ep_rew, ep_len, ep_idx = agent.replay_buffer[i_level].add(data)
             else:
                 data.update(rew=-1.0)
+                if printout: print("base transition", i, i_level, print_data(data))
                 agent.buffer_at[i_level], ep_rew, ep_len, ep_idx = agent.replay_buffer[i_level].add(data)
                 
             # copy for goal transition
@@ -124,16 +163,17 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
             obs_next = agent.get_obs(i_level, next_full_state, goal, env_model)
             update_full_data(data, obs=obs, act=act, mapped_act=action, obs_next=obs_next, 
                 param=goal, next_target=next_target, rew =rew, gamma=agent.gamma, done=done, info=info)
+            if printout: print("rew transition", i, i_level, print_data(data))
             agent.buffer_at[i_level], ep_rew, ep_len, ep_idx = agent.replay_buffer[i_level].add(data)
-        if printout:
-            target = agent.get_target(i_level, full_state, env_model)
-            print("retargeted", i, i_level, act, action, target, next_target, goal)
+        # if printout:
+        #     target = agent.get_target(i_level, full_state, env_model)
+        #     if printout: print("retargeted", i, i_level, act, action, target, next_target, goal)
         
         full_state = next_full_state
         data.update(full_state=full_state)
         
         if done or goal_achieved:
-            print("reached", done, goal_achieved)
+            # print("reached", done, goal_achieved)
             break
 
     for transition in subgoal_test_transitions:
@@ -154,7 +194,9 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
             obs_next = agent.get_obs(i_level, transition.next_full_state, param, env_model)
             goal_check = agent.check_goal(transition.next_target[0], param, agent.threshold)
             rew = 0.0 if goal_check else transition.rew
-            done = True if goal_check else transition.done
-            transition.update(obs=np.expand_dims(obs, 0), obs_next=np.expand_dims(obs_next, 0), param=np.expand_dims(param, 0), rew=rew, done=done)
+            gamma = [0.0] if goal_check else transition.gamma
+            hindsight_done = True if goal_check else transition.done
+            transition.update(obs=np.expand_dims(obs, 0), obs_next=np.expand_dims(obs_next, 0), param=np.expand_dims(param, 0), rew=rew, gamma=gamma, done=hindsight_done)
+            if printout: print("goal transition", i, i_level, print_data(transition))
             agent.buffer_at[i_level], ep_rew, ep_len, ep_idx = agent.replay_buffer[i_level].add(transition)
     return next_full_state, reward, done, info, total_time

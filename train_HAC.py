@@ -3,6 +3,8 @@ import gym
 import sys
 import os
 import numpy as np
+import pickle
+
 from Baselines.HAC.HAC_args import get_args
 from Baselines.HAC.HAC_agent import HAC
 from Baselines.HAC.HAC_collector import run_HAC
@@ -108,7 +110,18 @@ def train():
     
     # logging file:
     log_f = open("log.txt","w+")
-    
+
+    # force_actions = dict()
+    # for i in range(args.k_level):
+    #     force_actions[i] = list()
+    #     for j in range(1000):
+    #         force_actions[i].append(np.random.uniform(agent.HAC[i].paction_space.low, agent.HAC[i].paction_space.high))
+    # print(force_actions)
+    # fid = open("../forceHAC.pkl", 'wb')
+    # pickle.dump(force_actions, fid)
+    # fid.close()
+    # agent.set_epsilon_below(agent.k_level, 0)
+
     # training procedure 
     for i_episode in range(1, args.num_episodes+1):
         agent.reward = 0
@@ -117,7 +130,6 @@ def train():
         full_state = environment.reset()
         # collecting experience in environment
         next_state, reward, done, info, total_time = run_HAC(agent, environment_model, agent.k_level-1, full_state, goal_final, False, goal_based=goal_based, max_steps=max_steps, render=False, printout=args.printout)
-        
         # update all levels
         losses_dict = agent.update(args.batch_size)
         
@@ -131,7 +143,7 @@ def train():
         print("Episode: {}\t Reward: {}".format(i_episode, reward))
         if args.log_interval > 0 and i_episode % args.log_interval == 0 and args.printout:
             for k in range(agent.k_level):
-                print("buffer filled to ", agent.buffer_at[k][0])
+                print("buffer filled to ", agent.buffer_at[k][0], args.buffer_len)
                 printout_num=10
                 for j in range(printout_num):
                     idx = (agent.buffer_at[k][0] + (j - printout_num)) % args.buffer_len

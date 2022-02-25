@@ -17,12 +17,15 @@ class HAC:
         reduced flat state is the flattened state if reduced
         '''
         # adding lowest level
+        args.epsilon = 0 # we have separate exploration noise
         no_param_input_shape = flat_state.shape if args.keep_instanced else reduced_flat_state.shape
         param_input_shape = (no_param_input_shape[0] * 2, )
         primitive_action_space = environment.action_space
         action_space = primitive_action_space
         paction_space = primitive_action_space
-        max_action = primitive_action_space.n if environment.discrete_actions else primitive_action_space.high[0]
+        self.primitive_action_discrete = environment.discrete_actions 
+        self.max_action = primitive_action_space.n if environment.discrete_actions else primitive_action_space.high[0]
+        max_action = self.max_action
         args.object_dim = 0
         args.first_obj_dim = 0
         args.policy_type = "basic" # must use MLP architecture except at last layer with instanced
@@ -45,8 +48,12 @@ class HAC:
         args.first_obj_dim = reduced_flat_state.shape[0]
         print(reduced_flat_state.shape)
         args.post_dim = 0
-        args.policy_type = "pair" # must use MLP architecture except at last layer with instanced
-        input_shape = (flat_state.shape[0], )
+        if args.final_instanced:
+            args.policy_type = "pair" # must use MLP architecture except at last layer with instanced
+            input_shape = (flat_state.shape[0], )
+        else:
+            args.policy_type = "basic"
+            input_shape = param_input_shape
         # adding last level (might not be parametereized so state dim changes)
         print(input_shape, args.object_dim, args.first_obj_dim)
         self.HAC.append(HACPolicy(input_shape[0], paction_space, action_space, max_action, False, **vars(args)))
@@ -60,6 +67,7 @@ class HAC:
         self.H = H
         self.threshold = threshold
         self.epsilon = epsilon
+        args.epsilon = epsilon
         
         # logging parameters
         self.goals = [None]*self.k_level
@@ -91,6 +99,7 @@ class HAC:
         assert state.shape == goal.shape
         for i in range(state.shape[0]):
             if type(threshold) == np.ndarray:
+                # print("testing", state[i], state[i] - goal[i], threshold[i])
                 if abs(state[i]-goal[i]) > threshold[i]:
                     return False
             else: # it's a single value

@@ -254,6 +254,7 @@ if __name__ == '__main__':
     # apply cuda
     if args.cuda:
         option.cpu()
+        torch.cuda.empty_cache()
         option.cuda()
         option.set_device(args.gpu)
         policy.cuda()
