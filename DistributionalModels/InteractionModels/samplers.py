@@ -19,20 +19,20 @@ def check_dict(states):
 class Sampler():
     def __init__(self, **kwargs):
         self.dataset_model = kwargs["dataset_model"]
-        self.delta = self.dataset_model.delta
+        # self.delta = self.dataset_model.delta
         self.sample_continuous = True # kwargs["sample_continuous"] # hardcoded for now
         self.combine_param_mask = not kwargs["no_combine_param_mask"] # whether to multiply the returned param with the mask
         self.rate = 0
         self.current_distance = 0
 
         # specific to CFselectors
-        self.cfselectors = self.dataset_model.cfselectors
-        self.lower_cfs = np.array([i for i in [cfs.feature_range[0] for cfs in self.cfselectors]])
-        self.upper_cfs = np.array([i for i in [cfs.feature_range[1] for cfs in self.cfselectors]])
-        self.len_cfs = np.array([j-i for i,j in [tuple(cfs.feature_range) for cfs in self.cfselectors]]) # the range of the CFS
+        # self.cfselectors = self.dataset_model.cfselectors
+        # self.lower_cfs = np.array([i for i in [cfs.feature_range[0] for cfs in self.cfselectors]])
+        # self.upper_cfs = np.array([i for i in [cfs.feature_range[1] for cfs in self.cfselectors]])
+        # self.len_cfs = np.array([j-i for i,j in [tuple(cfs.feature_range) for cfs in self.cfselectors]]) # the range of the CFS
 
         self.param, self.mask = self.sample(kwargs["init_state"])
-        print("ranges", self.lower_cfs, self.upper_cfs)
+        # print("ranges", self.lower_cfs, self.upper_cfs)
         self.iscuda = False
 
     def cuda(self, device=None):

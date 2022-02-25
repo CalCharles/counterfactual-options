@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from Environments.SelfBreakout.breakout_screen import Screen
 from Environments.SelfBreakout.gym_wrapper import BreakoutGymWrapper
 from DistributionalModels.InteractionModels.samplers import BreakoutRandomSampler
+from DistributionalModels.DatasetModels.dataset_model import DatasetModel
 from EnvironmentModels.SelfBreakout.breakout_environment_model import BreakoutEnvironmentModel
 
 import gym
@@ -29,12 +30,18 @@ from tianshou.trainer import gather_info, test_episode
 from tianshou.utils import BaseLogger, LazyLogger, TensorboardLogger, MovAvg, tqdm_config
 from torch.utils.tensorboard import SummaryWriter
 
+class DummyOptionNode(object):
+    def __init__(self):
+        self.num_params = 0
+        self.name = "dummy"
 
 def make_breakout_env(args):
     if args.variant == 'proximity':
         screen = Screen(breakout_variant=args.variant, angle_mode=args.use_angle_mode, drop_stopping=True)
         env_model = BreakoutEnvironmentModel(screen)
-        sampler = BreakoutRandomSampler(**{ 'environment_model' : env_model, 'init_state' : screen.get_state() })
+
+        dummy_dataset_model = DatasetModel(**{ 'option_node' : DummyOptionNode() })
+        sampler = BreakoutRandomSampler(**{ 'environment_model' : env_model, 'init_state' : screen.get_state(), 'dataset_model' : dummy_dataset_model, 'no_combine_param_mask' : True })
         screen.sampler = sampler
 
         return BreakoutGymWrapper(screen, args)

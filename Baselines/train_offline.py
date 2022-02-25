@@ -279,7 +279,7 @@ def test(args=get_args()):
             policy.set_eps(args.eps_test)
 
     # watch agent's performance
-    def watch(render):
+    def watch(no_render):
         print("Setup test envs ...")
         policy.eval()
 
@@ -318,13 +318,13 @@ def test(args=get_args()):
             print("Testing agent ...")
             test_collector.reset()
 
-            if render:
+            if no_render:
                 result = test_collector.collect(
-                    n_episode=args.test_num, render=0.05
+                    n_episode=args.test_num
                 )
             else:
                 result = test_collector.collect(
-                    n_episode=args.test_num
+                    n_episode=args.test_num, render=0.05
                     )
 
         rew = result["rews"].mean()

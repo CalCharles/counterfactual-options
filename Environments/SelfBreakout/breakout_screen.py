@@ -160,6 +160,7 @@ class Screen(RawEnvironment):
 
     def ball_reset(self):
         self.ball.pos = [41, np.random.randint(20, 52)]
+        # self.ball.pos = [np.random.randint(38, 45), np.random.randint(14, 70)]
         self.ball.vel = np.array([np.random.randint(1,2), np.random.choice([-1,1])])
 
     def assign_attribute(self, nmode, block, atrv):
@@ -418,11 +419,12 @@ class Screen(RawEnvironment):
                 self.needs_ball_reset = True
                 self.since_last_bounce = 0
                 self.dropped = True
+                self.ball.losses += 1
+                print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()), self.ball.losses)
                 if self.drop_stopping:
                     self.truncate = True
                     self.done = True
-                print("dropped", np.array(self.ball.pos.tolist() + self.ball.vel.tolist() + self.paddle.pos.tolist()))
-                break
+                    break
 
             if (self.ball.losses == 4 and pre_stop) or (self.target_mode and ((self.ball.top_wall and self.bounce_cost == 0) or self.ball.bottom_wall or self.ball.block)):
                 self.average_points_per_life = self.total_score / 5.0
@@ -469,6 +471,8 @@ class Screen(RawEnvironment):
                     break
             if render:
                 self.render_frame()
+            if pre_stop:
+                break
         self.itr += 1
         full_state = self.get_state()
         frame, extracted_state = full_state['raw_state'], full_state['factored_state']
