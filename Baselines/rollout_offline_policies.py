@@ -20,6 +20,15 @@ from Baselines.shared_train import make_breakout_env, make_breakout_env_fn, Vide
 from Baselines.networks import DQN, Rainbow
 from Baselines.env_args import add_env_args
 
+variant_timeout_limits = { 'big_block' : 300,
+                           'single_block' : 300,
+                           'negative_rand_row' : 2000,
+                           'center_large' : 3000,
+                           'breakout_priority_large' : 3000,
+                           'harden_single' : 3000,
+                           'default' : 5000,
+                           'proximity' : 200
+                           }
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -60,8 +69,12 @@ def get_args():
     add_env_args(parser)
 
     # Rollout Args
-    parser.add('--num-episodes', type=int, default=10)
-    parser.add('--output-path', type=str, default='rollout.mp4')
+    parser.add_argument('--seed', type=int, default=238)
+    parser.add_argument(
+        '--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu'
+    )
+    parser.add_argument('--num-episodes', type=int, default=10)
+    parser.add_argument('--output-path', type=str, default='rollout.mp4')
 
     return parser.parse_args()
 
@@ -78,7 +91,6 @@ def test(args=get_args()):
     # seed
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    train_envs.seed(args.seed)
     test_envs.seed(args.seed)
     # define model
     if args.algorithm == 'rainbow':
@@ -109,23 +121,7 @@ def test(args=get_args()):
             target_update_freq=args.target_update_freq
         ).to(args.device)
 
-        if args.no_priority:
-            buffer = VectorReplayBuffer(
-                args.buffer_size,
-                buffer_num=len(train_envs),
-                ignore_obs_next=True,
-            )
-        else:
-            buffer = PrioritizedVectorReplayBuffer(
-                args.buffer_size,
-                buffer_num=len(train_envs),
-                ignore_obs_next=True,
-                alpha=args.alpha,
-                beta=args.beta,
-                weight_norm=not args.no_weight_norm
-            )
 
-        log_path = os.path.join(args.logdir, args.observation_type, 'rainbow', f'variant{args.variant}-seed{args.seed}')
     elif args.algorithm == 'dqn':
         observation_info = { 'observation-type' : args.observation_type,
                              'obj-dim' : env.block_dimension,
@@ -142,15 +138,6 @@ def test(args=get_args()):
             target_update_freq=args.target_update_freq
         ).to(args.device)
 
-        # replay buffer: `save_last_obs` and `stack_num` can be removed together
-        # when you have enough RAM
-        buffer = VectorReplayBuffer(
-            args.buffer_size,
-            buffer_num=len(train_envs),
-            ignore_obs_next=True,
-        )
-
-        log_path = os.path.join(args.logdir, args.observation_type, 'dqn', f'variant{args.variant}-seed{args.seed}')
     elif args.algorithm == 'sac':
         # TODO: Modify SAC networks to deal w different env types
         net = Net(*args.state_shape, hidden_sizes=args.hidden_sizes, device=args.device)
@@ -188,8 +175,6 @@ def test(args=get_args()):
                 reward_normalization=args.rew_norm
         )
 
-        buffer = VectorReplayBuffer(args.buffer_size, buffer_num=len(train_envs))
-        log_path = os.path.join(args.logdir, 'breakout', 'sac', f'seed{args.seed}')
     else:
         raise("Must specify valid algorithm to offline baseline trainer")
 
@@ -200,13 +185,15 @@ def test(args=get_args()):
     if args.algorithm in ['rainbow', 'dqn']:
         policy.set_eps(args.eps_test)
 
-    test_collector = VideoCollector(policy, test_envs, exploration_noise=args.algorithm in ['rainbow', 'dqn'])
+    episode_limit = variant_timeout_limits[args.variant]
+    timeout_penalty = env.env.timeout_penalty
+    test_collector = VideoCollector(policy, test_envs, exploration_noise=args.algorithm in ['rainbow', 'dqn'], episode_limit=episode_limit, timeout_penalty=timeout_penalty)
 
     test_envs.seed(args.seed)
     print("Testing agent ...")
     test_collector.reset()
     result = test_collector.collect(
-        n_episode=args.test_num, render=0.05
+        n_episode=args.num_episodes, render=0.05
     )
 
     writer = imageio.get_writer(args.output_path)
@@ -217,6 +204,12 @@ def test(args=get_args()):
 
     rew = result["rews"].mean()
     print(f'Mean reward (over {result["n/ep"]} episodes): {rew}')
+
+    assessment = result["assessment"].sum() / result["n/ep"]
+    print(f'Mean assessment over each episode: {assessment}')
+
+    drops = result["drops"].sum() / result["n/ep"]
+    print(f'Mean number drops over each episode: {drops}')
 
 if __name__ == '__main__':
     test_dqn(get_args())

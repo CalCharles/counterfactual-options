@@ -166,7 +166,11 @@ def test(args=get_args()):
                 weight_norm=not args.no_weight_norm
             )
 
-        log_path = os.path.join(args.logdir, args.variant, args.observation_type, f'rainbow-seed{args.seed}')
+        if args.resume_path:
+            log_path = os.path.join(args.logdir, args.variant, args.observation_type, f'rainbow-seed{args.seed}-pretrain')
+        else:
+            log_path = os.path.join(args.logdir, args.variant, args.observation_type, f'rainbow-seed{args.seed}')
+
     elif args.algorithm == 'dqn':
         observation_info = { 'observation-type' : args.observation_type,
                              'obj-dim' : env.block_dimension,
