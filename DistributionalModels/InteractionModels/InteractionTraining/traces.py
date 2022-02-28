@@ -58,7 +58,6 @@ def generate_interaction_trace(full_model, rollouts, names, target_name):
         traces = []
         for state in rollouts.get_values("state"):
             traces.append(set_traces(full_model, state, names, target_name))
-            print(traces)
     elif full_model.env_name == "RoboStick":
         traces = list()
         for val in rollouts.get_values("info"):

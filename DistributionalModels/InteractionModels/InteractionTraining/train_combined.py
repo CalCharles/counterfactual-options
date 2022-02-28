@@ -84,7 +84,7 @@ def _combined_logging(full_model, train_args, rollouts, test_rollout, i, idxes, 
         else:
             passive_binaries = (passive_error > train_args.passive_error_cutoff).float()
             test_binaries = (interaction_binaries.squeeze() + likelihood_binaries.squeeze())# + passive_binaries.squeeze())
-            print([interaction_likelihood.shape, likelihood_binaries.shape, interaction_binaries.shape, test_binaries.shape, forward_error.shape, passive_error.shape])
+            print([interaction_likelihood.shape, likelihood_binaries.shape, interaction_binaries.shape, true_binaries.shape, test_binaries.shape, forward_error.shape, passive_error.shape])
             if train_args.compare_trace: test_binaries += true_binaries.squeeze()
             test_binaries = test_binaries.long().squeeze()
             test_idxes = torch.nonzero(test_binaries)
@@ -262,7 +262,6 @@ def train_combined(full_model, rollouts, test_rollout, train_args, batchvals, ha
             # passive_bin_error = - passive_log_probs.max(dim=1)[0].unsqueeze(1)
 
             # interaction_binaries = full_model.compute_interaction(prediction_params[0].clone().detach(), passive_prediction_params[0].clone().detach(), self.rv(target))
-            print("fe, pe", forward_error.shape, passive_error.shape)
             interaction_binaries, potential = full_model.compute_interaction(forward_error, passive_error, full_model.rv(target))
             # print(interaction_binaries.shape, forward_error.shape, passive_error.shape)
             # interaction_loss = inter_loss(interaction_likelihood, interaction_binaries.detach())
@@ -272,12 +271,10 @@ def train_combined(full_model, rollouts, test_rollout, train_args, batchvals, ha
                 weight_bins =  pytorch_model.wrap(weights[idxes].astype(float), cuda=full_model.iscuda).unsqueeze(1)
                 interaction_final = torch.max(torch.cat([weight_bins, interaction_binaries, interaction_likelihood.clone()], dim=1).detach(), dim = 1)[0]
             else:
-                print(interaction_binaries.shape, interaction_likelihood.shape)
                 if full_model.multi_instanced:
                     interaction_final = torch.max(torch.cat([interaction_binaries.unsqueeze(-1), interaction_likelihood.clone().unsqueeze(-1)], dim=-1).detach(), dim = -1)[0]
                 else:
                     interaction_final = torch.max(torch.cat([interaction_binaries, interaction_likelihood.clone()], dim=1).detach(), dim = 1)[0]
-                print(interaction_final.shape)
             if proximal is not None: 
                 proximal_vector = pytorch_model.wrap(proximal[idxes], cuda=full_model.iscuda)
                 interaction_final *=  proximal_vector
