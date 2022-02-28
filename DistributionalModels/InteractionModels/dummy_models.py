@@ -123,6 +123,8 @@ class DummyVariantBlockDatasetModel():
         self.delta = environment_model.create_entity_selector(["Block"])
         self.num_blocks = environment_model.environment.num_blocks
         fs = FeatureSelector([19+ i * 5 for i in range(environment_model.environment.num_blocks)], {"Block": 4}, {"Block": np.array([[4, 19 + i * 5] for i in range(environment_model.environment.num_blocks)])}, ["Block"])
+        afs = FeatureSelector([4], {"Action": 4}, {"Action": np.array([[4, 4]])}, ["Action"])
+        self.controllable = [afs]
         rng = np.array([0,1])
         self.cfselectors = [ControllableFeature(fs, rng, 1, self)]
         self.sample_able = StateSet([np.array([0,0,0,0,0])])
