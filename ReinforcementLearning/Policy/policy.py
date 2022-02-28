@@ -91,10 +91,22 @@ class TSPolicy(nn.Module):
         super().cpu()
         self.assign_device("cpu")
 
-    def cuda(self, device=None):
+    def cuda(self, device=None, args=None, critic_lr=1e-5, actor_lr=1e-5):
         super().cuda()
         if device is not None:
             self.assign_device(device)
+            if hasattr(self.algo_policy, "optim"):
+                self.algo_policy.optim = torch.optim.Adam(self.algo_policy.model.parameters(), lr=critic_lr)
+            if hasattr(self.algo_policy, "critic_optim"):
+                self.algo_policy.critic_optim = torch.optim.Adam(self.algo_policy.critic.parameters(), lr=critic_lr)
+            if hasattr(self.algo_policy, "critic1_optim"):
+                self.algo_policy.critic1_optim = torch.optim.Adam(self.algo_policy.critic1.parameters(), lr=critic_lr)
+            if hasattr(self.algo_policy, "critic2_optim"):
+                self.algo_policy.critic2_optim = torch.optim.Adam(self.algo_policy.critic2.parameters(), lr=critic_lr)
+            if hasattr(self.algo_policy, "actor_optim"):
+                self.algo_policy.actor_optim = torch.optim.Adam(self.algo_policy.actor.parameters(), lr=actor_lr)
+            if hasattr(self.algo_policy, "alpha_optim"):
+                self.algo_policy.alpha_optim = torch.optim.Adam(self._alpha, lr=1e-4) # TODO alpha learning rate not hardcoded
 
 
     def assign_device(self, device):
@@ -129,6 +141,7 @@ class TSPolicy(nn.Module):
         if self.algo_name in ["isl"]:
             self.algo_policy.model.last.device = device
             self.algo_policy.model.device = device
+        # hac.algo_policy.optim.zero_grad()
 
     def init_networks(self, args, input_shape, action_shape, discrete_actions, max_action = 1):
         if discrete_actions:
@@ -288,7 +301,6 @@ class TSPolicy(nn.Module):
         self.learning_algorithm = la
         self.sample_buffer = sample_buffer
         self.option = opt
-
 
     def compute_Q(
         self, batch: Batch, nxt: bool

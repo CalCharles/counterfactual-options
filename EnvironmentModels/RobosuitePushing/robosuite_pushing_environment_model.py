@@ -1,6 +1,8 @@
 from EnvironmentModels.environment_model import EnvironmentModel
 import robosuite.utils.macros as macros
 macros.SIMULATION_TIMESTEP = 0.02
+from gym import spaces
+import numpy as np
 
 class RobosuitePushingEnvironmentModel(EnvironmentModel):
     def __init__(self, env):
@@ -26,6 +28,40 @@ class RobosuitePushingEnvironmentModel(EnvironmentModel):
         self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [self.action_dim], "done": [1], "info": [1]}
         self.param_size = self.state_size
         self.set_indexes()
+        self.flat_rel_space = spaces.Box(low=np.array([-.4,-.5,-.0425,-.2, -.21,.83,-.2,-.21,.8239] + [-.22,-.12,.8009, -.23,-.32,.0229] * env.num_obstacles), 
+                                    high=np.array(    [ .4,  .5, .0425, .2, .26, .925,.2, .26,.8241] + [.02 ,.12, .801, .42,.38,.023] * env.num_obstacles), dtype=np.float64)
+        self.reduced_flat_rel_space = spaces.Box(low=np.array([-.4,-.5,-.0425,-.2, -.21,.83,-.2,-.21,.8239]), 
+                                    high=            np.array([ .4,  .5, .0425, .2, .26, .925,.2, .26,.8241]), 
+                                    dtype=np.float64)
+
+    def get_HAC_flattened_state(self, full_state, instanced=False, use_instanced=True):
+        gripper_block_rel = np.array(full_state['factored_state']['Gripper']) - np.array(full_state['factored_state']['Block'])
+        # block_target_rel = np.array(full_state['factored_state']['Block']) - np.array(full_state['factored_state']['Target'])
+        if use_instanced:
+            i=0
+            obsname = "Obstacle" + str(i)
+            block_obstacle_rel = []
+            while obsname in full_state['factored_state']:
+                obs = np.array(full_state['factored_state'][obsname])
+                obsrel = np.array(full_state['factored_state']["Block"]) - np.array(full_state['factored_state'][obsname])
+                obs = np.concatenate([obs, obsrel], axis=-1)
+                block_obstacle_rel.append(obs)
+                i += 1
+                obsname = "Obstacle" + str(i)
+            block_obstacle_rel = np.concatenate(block_obstacle_rel, axis=-1)
+        upto = 4 if use_instanced else 3
+        if use_instanced:
+            return np.concatenate([gripper_block_rel, self.flatten_factored_state(full_state['factored_state'], names=self.object_names[1:3],instanced=instanced, use_instanced=False), block_obstacle_rel], axis=-1)
+        return np.concatenate([gripper_block_rel, self.flatten_factored_state(full_state['factored_state'], names=self.object_names[1:3],instanced=instanced, use_instanced=use_instanced)], axis=-1)
+
+
+# robopush_gripper_norm = (np.array([0.0,-.05,.8725]), np.array([.2,.26,.0425]))
+
+# robopush_state_norm = (np.array([0.0,-.05,.824]), np.array([.2,.26,.1]))
+
+# robopush_obstacle_norm = (np.array([-.07, 0.0, 0.824]), np.array([.2,.26,.1]))
+
+# robopush_relative_norm = (np.array([0,0,0]), np.array([.2,.26,.0425]))
 
     # TODO: interaction traces not supported
     # def get_interaction_trace(self, name):

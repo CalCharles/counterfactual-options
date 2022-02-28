@@ -18,13 +18,23 @@ def get_args():
                         help='save interval, one save per n updates (default: 10)')
     parser.add_argument('--log-interval', type=int, default=10,
                         help='log interval, one log per n episodes (default: 10)')
+    parser.add_argument('--pretrain-episodes', type=int, default=20,
+                        help='gathers random actions for pretrain episodes(default: 20)')
+    parser.add_argument('--top-level-random', type=int, default=0,
+                        help='gathers random actions for the top level for some time (default: 0)')
     parser.add_argument('--final-instanced', action='store_true', default=False,
                     help='if the final layer is instanced (will generate a pairnet)')
+    parser.add_argument('--not-deterministic-eval', action='store_true', default=False,
+                        help='if true, deterministic evaluation for SAC is false')
+    parser.add_argument('--relative-action', action='store_true', default=False,
+                        help='if true, uses relative actions when available')
 
     parser.add_argument('--lookahead', type=int, default=1,
                         help='optimization steps to look ahead (default: 1)')
     parser.add_argument('--input-norm', action='store_true', default=False,
                     help='normalize the inputs by the sample mean variance from the buffer')
+    parser.add_argument('--specialized', action='store_true', default=False,
+                    help='uses a specialized HAC architecture because normal HAC does not work')
     parser.add_argument('--printout', action='store_true', default=False,
                     help='debugging printouts')
     parser.add_argument('--epsilon', type=float, default=0,
@@ -35,8 +45,12 @@ def get_args():
                         help='number of forward steps used to compute gradient, -1 for not used (default: -1)')
     parser.add_argument('--num-episodes', type=int, default=1000,
                         help='number of episodes to run (default: 1000)')
+    parser.add_argument('--num-atoms', type=int, default=51,
+                        help='number of atoms for c51 (default: 51)')
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='learning rate, not used if actor and critic learning rate used for algo (default: 1e-6)')
+    parser.add_argument('--sac-alpha', type=float, default=0.2,
+                        help='sac alpha value (default: 1e-6)')
     parser.add_argument('--actor-lr', type=float, default=-1,
                         help='actor learning rate (default: -1 (replace wih lr))')
     parser.add_argument('--critic-lr', type=float, default=-1,
@@ -46,6 +60,8 @@ def get_args():
                     help='bounds the critic values between -max-critic and max-critic (-1 is not used)')
     parser.add_argument('--bound-output', type=float, default=0,
                     help='bounds the output between -bound-output and bound-output (0 is not used)')
+    parser.add_argument('--ctrl-type', default="",
+                        help='specialized control for breakout')
     parser.add_argument('--policy-type', default="basic",
                         help='choose the model form for the policy, which is defined in Policy.policy, overloaded to also specify the kind of network when training the hypothesis model')
     parser.add_argument('--learning-type', default="ddpg",
@@ -68,6 +84,11 @@ def get_args():
                         help='replay buffer length')
     parser.add_argument('--prioritized-replay', type=float, nargs='*', default=[.6, .4],
                         help='alpha and beta values for prioritized replay')
+    parser.add_argument('--save-name', default="network",
+                        help='name to save under')    
+
+    parser.add_argument('--load-name', default="",
+                        help='name to load under, empty string is no loading')    
 
     parser.add_argument('--epsilon-close', type=float, nargs='*', default=[1e-2],
                     help='how close to the target state is considered a goal')
@@ -91,6 +112,18 @@ def get_args():
                     help='in breakout, induces a domain where there is a single block to target')
     parser.add_argument('--breakout-variant', default='',
                         help='name of a specialized variant of breakout')
+    parser.add_argument('--is-dueling', action='store_true', default=False,
+                        help='using dueling DQN')
+
+    # robosuite parameters
+    parser.add_argument('--time-cutoff', type=int, default=200,
+                    help='time to cut off trajectories')
+    parser.add_argument('--num-obstacles', type=int, default=15,
+                    help='number of obstacle regions')
+    parser.add_argument('--hard-obstacles', action='store_true', default=False,
+                    help='use hard obstacles in robopushing')
+    parser.add_argument('--planar-mode', action='store_true', default=False,
+                    help='use planar pushing in robopushing')
 
     # # HAC parameters:
     # k_level = 2                 # num of levels in hierarchy
@@ -111,6 +144,7 @@ def get_args():
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     args.critic_lr = args.lr if args.critic_lr < 0 else args.critic_lr
     args.actor_lr = args.lr if args.actor_lr < 0 else args.actor_lr
-    args.keep_instanced = not args.no_keep_instanced
+    args.keep_instanced = not args.reduced_state
+    args.deterministic_eval = not args.not_deterministic_eval
 
     return args

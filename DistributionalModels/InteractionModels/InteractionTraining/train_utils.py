@@ -25,6 +25,10 @@ def get_weights(err=None, ratio_lambda=2, passive_error_cutoff=2,
         # print(err[200:300])
 
         weights = pytorch_model.unwrap(err).copy().squeeze()
+        print(passive_error_cutoff)
+        print(weights[:100])
+        print(weights[100:200])
+        print(weights[200:300])
         weights[weights<=passive_error_cutoff] = 0
         weights[weights>passive_error_upper] = 0
         weights[weights>passive_error_cutoff] = 1

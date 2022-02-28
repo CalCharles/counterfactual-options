@@ -4,16 +4,21 @@ import sys
 import os
 import numpy as np
 import pickle
+import copy
 
 from Baselines.HAC.HAC_args import get_args
-from Baselines.HAC.HAC_agent import HAC
+from Baselines.HAC.HAC_agent import HAC, BreakoutHAC, Breakout2HAC, RobopushingHAC
 from Baselines.HAC.HAC_collector import run_HAC
 from Environments.environment_initializer import initialize_environment
+from DistributionalModels.InteractionModels.samplers import BreakoutRandomSampler
+from Rollouts.rollouts import ObjDict
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def train():
     #################### Hyperparameters ####################
+    # python train_HAC.py --specialized --reduced-state --num-episodes 30000 --pretrain-episodes 100 --env SelfBreakout --max-critic 200 --ctrl-type paddle --epsilon-close .5 --log-interval 1 --grad-epoch 10 --lr 3e-5 --epsilon .1 --policy-type pair
+    # python train_HAC.py --specialized --reduced-state --num-episodes 30000 --pretrain-episodes 20 --env RoboPushing --max-critic 200 --epsilon-close .01 --log-interval 1 --grad-epoch 30 --lr 3e-5 --epsilon .1 --policy-type pair --drop-stopping --H 10 --ctrl-type block2 --time-cutoff 300 --learning-type sac
     print("pid", os.getpid())
     print(" ".join(sys.argv))
     args = get_args()
@@ -21,7 +26,7 @@ def train():
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    environment, environment_model, args = initialize_environment(args, set_save=len(args.record_rollouts) != 0, render=False)
+    environment, environment_model, args = initialize_environment(args, set_save=len(args.record_rollouts) != 0, render="")
 
     # ACCOUNTED FOR
     # env_name = "MountainCarContinuous-h-v1"
@@ -78,16 +83,29 @@ def train():
     
     # save trained models
     directory = "/hdd/datasets/counterfactual_data/Baselines/HAC/preTrained/{}/{}level/".format(args.env, args.k_level) 
-    filename = "HAC_{}".format(args.env)
+    filename = "HAC_{}".format(args.save_name) + "_" + str(args.ctrl_type)
+
     #########################################################
     
     max_steps = 200
+    print(args.env)
     if args.env == "SelfBreakout":
         goal_based = False
-        max_steps = 20
+        max_steps = 2000
+        args.final_instanced = True
+    elif args.env == "RoboPushing":
+        args.final_instanced = True
+        goal_based = True
     else:
         goal_based = True
-    
+
+    sampler = None
+    if args.breakout_variant == "proximity":
+        dataset_model = ObjDict({'delta': 0, 'cfselectors': []})
+        sampler = BreakoutRandomSampler(environment_model=environment_model, dataset_model=dataset_model, no_combine_param_mask = True, init_state=None)
+        environment.sampler = sampler
+        # NOT goal based because hindsight block targeting is not supported
+
     if args.seed:
         print("Random Seed: {}".format(args.seed))
         # env.seed(args.seed)
@@ -102,12 +120,40 @@ def train():
     elif args.env == "RoboPushing": object_dim = environment_model.object_sizes["Obstacle"]
     else: object_dim = environment_model.object_sizes["State"]
     print(environment.name)
-    if args.env == "SelfBreakout": goal_final = None 
-    elif args.env == "RoboPushing": environment_model.goal_function
+    if args.env == "SelfBreakout": goal_final = None if args.breakout_variant != "proximity" else sampler.sample(None)[0]
+    elif args.env == "RoboPushing": goal_final = environment_model.get_state()['factored_state']["Target"]
     else: goal_final = np.array([0.48, 0.04]) # the goal state for mountaincar
-    agent = HAC(args, args.k_level, args.H, args.epsilon_close, args.epsilon, environment, environment_model, goal_final, flat_state, reduced_flat_state,
-    environment_model.flat_rel_space, environment_model.reduced_flat_rel_space, object_dim=object_dim)
+    args.augmented_goal = False
+
+
+    if args.env == "SelfBreakout" and args.specialized:
+        if args.ctrl_type in ["paddle", "brel", "bvel", "bpos"]:
+            agent = Breakout2HAC(args, args.k_level, args.H, args.epsilon_close, args.epsilon, environment, environment_model, goal_final, flat_state, reduced_flat_state,
+                    environment_model.flat_rel_space, environment_model.reduced_flat_rel_space, object_dim=object_dim, sampler=sampler)
+        elif args.ctrl_type in ["", "bvel3", "bpos3", "limit", "lrel"]:
+            agent = BreakoutHAC(args, args.k_level, args.H, args.epsilon_close, args.epsilon, environment, environment_model, goal_final, flat_state, reduced_flat_state,
+                    environment_model.flat_rel_space, environment_model.reduced_flat_rel_space, object_dim=object_dim, sampler=sampler)
+        agent.final_threshold = agent.threshold
+    elif args.env == "RoboPushing":
+        agent = RobopushingHAC(args, args.k_level, args.H, args.epsilon_close, args.epsilon, environment, environment_model, goal_final, flat_state, reduced_flat_state,
+                environment_model.flat_rel_space, environment_model.reduced_flat_rel_space, object_dim=object_dim, sampler=sampler)
+        args.augmented_goal = True
+        agent.final_threshold = np.array([.05, .05, .1])
+    else:
+        agent = HAC(args, args.k_level, args.H, args.epsilon_close, args.epsilon, environment, environment_model, goal_final, flat_state, reduced_flat_state,
+                    environment_model.flat_rel_space, environment_model.reduced_flat_rel_space, object_dim=object_dim, sampler=sampler)
+        agent.final_threshold = agent.threshold
     agent.set_parameters(args.lamda, args.gamma)
+    if len(args.load_name) > 0:
+        new_obs_space = copy.deepcopy(agent.HAC[-1].obs_space)
+        loadname = "HAC_{}".format(args.load_name) + "_" + str(args.ctrl_type)
+        agent.load(directory, loadname)
+        agent.HAC[-1].obs_space = new_obs_space
+        agent.HAC[-1].compute_mean_var()
+        agent.cpu()
+    agent.cuda(device="cuda:" + str(args.gpu), actor_lr = args.actor_lr, critic_lr = args.critic_lr)
+
+
     
     # logging file:
     log_f = open("log.txt","w+")
@@ -123,16 +169,66 @@ def train():
     # fid.close()
     # agent.set_epsilon_below(agent.k_level, 0)
 
-    # training procedure 
+    # training procedure
+    agent.save(directory, filename)
     total_time = 0
-    for i_episode in range(1, args.num_episodes+1):
+    total_reward = 0
+    pre_epsilon = agent.epsilon
+    agent.epsilon = 1
+    episode_scaling = 5 if args.env=="SelfBreakout" and args.drop_stopping else 1
+    print(args.pretrain_episodes, episode_scaling)
+    if args.top_level_random > 0:
+        agent.top_level_random == True
+    args.pretrain_episodes *= episode_scaling
+    for i_episode in range(1, args.pretrain_episodes+1):
         agent.reward = 0
         agent.timestep = 0
+        full_state = environment.reset()
+        if args.env == "RoboPushing":
+            goal_final = full_state['factored_state']['Target']
+        if sampler is not None:
+            goal_final = sampler.sample(None)[0]
+        next_state, reward, done, info, ep_time,reached = run_HAC(agent, environment_model, agent.k_level-1, full_state, goal_final, False,
+                                 goal_based=goal_based, max_steps=max_steps, render=False, printout=args.printout, 
+                                 reached=dict(), augmented_goal=args.augmented_goal, sampler=sampler)
+        total_time += ep_time
+        total_reward += reward
+        if i_episode % episode_scaling == 0:
+            print("Episode: {}\t Time: {}\t Reward: {}".format(i_episode // episode_scaling, total_time, total_reward))
+            total_reward = 0
+            if args.log_interval > 0 and i_episode % args.log_interval == 0 and args.printout:
+                for k in range(agent.k_level):
+                    print("buffer filled to ", agent.buffer_at[k][0], args.buffer_len)
+                    printout_num=10
+                    for j in range(printout_num):
+                        idx = (agent.buffer_at[k][0] + (j - printout_num)) % args.buffer_len
+                        print(k, idx, len(agent.replay_buffer[k]), agent.buffer_at[k][0])
+                        print(k, j, agent.replay_buffer[k][idx])
+            if args.log_interval > 0 and i_episode % args.log_interval == 0:
+                print("reached", reached)
+
+
+    agent.epsilon = pre_epsilon
+    args.num_episodes *= episode_scaling
+    for i_episode in range(args.pretrain_episodes+1, args.num_episodes+args.pretrain_episodes+1):
+        agent.reward = 0
+        agent.timestep = 0
+        if i_episode < args.top_level_random:
+            agent.top_level_random = True
+        else:
+            agent.top_level_random = False
         
         full_state = environment.reset()
+        if args.env == "RoboPushing":
+            goal_final = full_state['factored_state']['Target']
         # collecting experience in environment
-        next_state, reward, done, info, ep_time = run_HAC(agent, environment_model, agent.k_level-1, full_state, goal_final, False, goal_based=goal_based, max_steps=max_steps, render=False, printout=args.printout)
+        if sampler is not None:
+            goal_final = sampler.sample(None)[0]
+        next_state, reward, done, info, ep_time,reached = run_HAC(agent, environment_model, agent.k_level-1, full_state, goal_final, 
+            False, goal_based=goal_based, max_steps=max_steps, render=False, printout=args.printout, 
+            reached=dict(), augmented_goal=args.augmented_goal, sampler=sampler)
         total_time += ep_time
+        total_reward += reward
         # update all levels
         losses_dict = agent.update(args.batch_size)
         
@@ -143,17 +239,19 @@ def train():
         if args.save_interval > 0 and i_episode % args.save_interval == 0:
             agent.save(directory, filename)
         
-        print("Episode: {}\t Time: {}\t Reward: {}".format(i_episode, total_time, reward))
-        if args.log_interval > 0 and i_episode % args.log_interval == 0 and args.printout:
-            for k in range(agent.k_level):
-                print("buffer filled to ", agent.buffer_at[k][0], args.buffer_len)
-                printout_num=10
-                for j in range(printout_num):
-                    idx = (agent.buffer_at[k][0] + (j - printout_num)) % args.buffer_len
-                    print(k, idx, len(agent.replay_buffer[k]), agent.buffer_at[k][0])
-                    print(k, j, agent.replay_buffer[k][idx])
-        if args.log_interval > 0 and i_episode % args.log_interval == 0:
-            print("losses", losses_dict)
+        if i_episode % episode_scaling == 0:
+            print("Episode: {}\t Time: {}\t Reward: {}".format(i_episode // episode_scaling, total_time, total_reward))
+            total_reward = 0
+            if args.log_interval > 0 and i_episode % args.log_interval == 0 and args.printout:
+                for k in range(agent.k_level):
+                    print("buffer filled to ", agent.buffer_at[k][0], args.buffer_len)
+                    printout_num=10
+                    for j in range(printout_num):
+                        idx = (agent.buffer_at[k][0] + (j - printout_num)) % args.buffer_len
+                        print(k, idx, len(agent.replay_buffer[k]), agent.buffer_at[k][0])
+                        print(k, j, agent.replay_buffer[k][idx])
+            if args.log_interval > 0 and i_episode % args.log_interval == 0:
+                print("losses", losses_dict, "reached", reached)
     
 if __name__ == '__main__':
     train()

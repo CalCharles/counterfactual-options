@@ -12,10 +12,20 @@ from tianshou.data import Collector, Batch, ReplayBuffer
 from DistributionalModels.InteractionModels.InteractionTraining.train_utils import get_targets
 
 
-def get_error(output_norm_fn, mean, target, normalized = False):
+def get_error(output_norm_fn, mean, target, normalized = False, full_model=None):
     rv = output_norm_fn.reverse # self.output_normalization_function.reverse
     nf = output_norm_fn # self.output_normalization_function
     # print((rv(mean) - target).abs().sum(dim=1).shape)
+    print(rv(mean)[:100], target[:100])
+    num_batch = mean.shape[0]
+    if full_model is not None and full_model.multi_instanced:
+        if normalized:
+            # print(mean, nf(target))
+            return full_model.split_instances(mean - nf(target)).abs().sum(dim=-1).max(dim=-1)[0].unsqueeze(1)
+        else:
+            # print("item_shape", full_model.split_instances(rv(mean) - target).abs().sum(dim=-1).max(dim=-1)[0].unsqueeze(1).shape)
+            return full_model.split_instances(rv(mean) - target).abs().sum(dim=-1).max(dim=-1)[0].unsqueeze(1)
+
     if normalized:
         # print(mean, nf(target))
         return (mean - nf(target)).abs().sum(dim=1).unsqueeze(1)
@@ -36,7 +46,8 @@ def get_prediction_error(full_model, rollouts, active=False):
     for i in range(int(np.ceil(rollouts.filled / 500))): # run 10k at a time
         dstate_part = dstate[i*500:(i+1)*500].cuda() if full_model.iscuda else dstate[i*500:(i+1)*500]
         dnstate_part = dnstate[i*500:(i+1)*500].cuda() if full_model.iscuda else dnstate[i*500:(i+1)*500]
-        pred_error.append(pytorch_model.unwrap(get_error(full_model.output_normalization_function, model(dstate_part)[0], dnstate_part)) * pytorch_model.unwrap(done_flags[i*500:(i+1)*500]))
+
+        pred_error.append(pytorch_model.unwrap(get_error(full_model.output_normalization_function, model(dstate_part)[0], dnstate_part, full_model=full_model)) * pytorch_model.unwrap(done_flags[i*500:(i+1)*500]))
         # passive_error.append(full_model.dist(*full_model.passive_model(dstate[i*10000:(i+1)*10000])).log_prob(nf(dnstate[i*10000:(i+1)*10000])))
     return np.concatenate(pred_error, axis=0)
 

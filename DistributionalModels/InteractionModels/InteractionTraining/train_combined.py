@@ -14,7 +14,7 @@ from DistributionalModels.InteractionModels.InteractionTraining.compute_errors i
 from DistributionalModels.InteractionModels.InteractionTraining.assessment_functions import assess_error
 from Rollouts.rollouts import ObjDict, merge_rollouts
 
-def _combined_logging(full_model, train_args, rollouts, test_rollout, i, batchvals,
+def _combined_logging(full_model, train_args, rollouts, test_rollout, i, idxes, batchvals,
                      interaction_likelihood, interaction_binaries, true_binaries,
                      prediction_params, passive_prediction_params,
                      target, active_l2, passive_l2, done_flags, interaction_schedule,
@@ -250,14 +250,19 @@ def train_combined(full_model, rollouts, test_rollout, train_args, batchvals, ha
         # UNCOMMENT WHEN ACTUALLY RUNNING
         if train_args.interaction_iters <= 0:
             # redundant if interaction binaries are based on max/mean and not sum:
-            forward_error = - forward_log_probs.sum(dim=1).unsqueeze(1)
-            passive_error = - passive_log_probs.sum(dim=1).unsqueeze(1)
+            if full_model.multi_instanced:
+                forward_error = - full_model.split_instances(forward_log_probs).sum(dim=-1)
+                passive_error = - full_model.split_instances(passive_log_probs).sum(dim=-1)
+            else:
+                forward_error = - forward_log_probs.sum(dim=1).unsqueeze(1)
+                passive_error = - passive_log_probs.sum(dim=1).unsqueeze(1)                
             # forward_bin_error = - forward_log_probs.mean(dim=1).unsqueeze(1)
             # passive_bin_error = - passive_log_probs.mean(dim=1).unsqueeze(1)
             # forward_bin_error = - forward_log_probs.max(dim=1)[0].unsqueeze(1)
             # passive_bin_error = - passive_log_probs.max(dim=1)[0].unsqueeze(1)
 
             # interaction_binaries = full_model.compute_interaction(prediction_params[0].clone().detach(), passive_prediction_params[0].clone().detach(), self.rv(target))
+            print("fe, pe", forward_error.shape, passive_error.shape)
             interaction_binaries, potential = full_model.compute_interaction(forward_error, passive_error, full_model.rv(target))
             # print(interaction_binaries.shape, forward_error.shape, passive_error.shape)
             # interaction_loss = inter_loss(interaction_likelihood, interaction_binaries.detach())
@@ -267,7 +272,12 @@ def train_combined(full_model, rollouts, test_rollout, train_args, batchvals, ha
                 weight_bins =  pytorch_model.wrap(weights[idxes].astype(float), cuda=full_model.iscuda).unsqueeze(1)
                 interaction_final = torch.max(torch.cat([weight_bins, interaction_binaries, interaction_likelihood.clone()], dim=1).detach(), dim = 1)[0]
             else:
-                interaction_final = torch.max(torch.cat([interaction_binaries, interaction_likelihood.clone()], dim=1).detach(), dim = 1)[0]
+                print(interaction_binaries.shape, interaction_likelihood.shape)
+                if full_model.multi_instanced:
+                    interaction_final = torch.max(torch.cat([interaction_binaries.unsqueeze(-1), interaction_likelihood.clone().unsqueeze(-1)], dim=-1).detach(), dim = -1)[0]
+                else:
+                    interaction_final = torch.max(torch.cat([interaction_binaries, interaction_likelihood.clone()], dim=1).detach(), dim = 1)[0]
+                print(interaction_final.shape)
             if proximal is not None: 
                 proximal_vector = pytorch_model.wrap(proximal[idxes], cuda=full_model.iscuda)
                 interaction_final *=  proximal_vector
@@ -300,7 +310,7 @@ def train_combined(full_model, rollouts, test_rollout, train_args, batchvals, ha
 
         # INTERACTION OPTIMIZER SEPARATE
         if i % train_args.log_interval == 0:
-            _combined_logging(full_model, train_args, rollouts, test_rollout, i, batchvals,
+            _combined_logging(full_model, train_args, rollouts, test_rollout, i, idxes, batchvals,
                      interaction_likelihood, interaction_binaries, true_binaries,
                      prediction_params, passive_prediction_params,
                      target, active_l2, passive_l2, done_flags, interaction_schedule,

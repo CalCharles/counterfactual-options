@@ -42,7 +42,6 @@ def set_traces(full_model, flat_state, names, target_name):
     # cv2.imshow('frame', full_model.environment_model.environment.render())
     # cv2.waitKey(100)
     tr = full_model.environment_model.get_interaction_trace(target_name[0])
-    # print(tr, bin_trace(full_model, names, tr), names)
     return bin_trace(full_model, names, tr)
 
 def check_current_trace(full_model, source, target, iscuda):
@@ -59,6 +58,8 @@ def generate_interaction_trace(full_model, rollouts, names, target_name):
         traces = []
         for state in rollouts.get_values("state"):
             traces.append(set_traces(full_model, state, names, target_name))
+            print(traces)
+            error
     elif full_model.env_name == "RoboStick":
         traces = list()
         for val in rollouts.get_values("info"):

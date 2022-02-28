@@ -102,6 +102,7 @@ class Screen(RawEnvironment):
         self.used_angle = False
         self.done = False
         self.reward = 0
+        self.total_episode_reward = 0
         self.seed_counter = -1
         self.exposed_blocks = list()
         self.average_points_per_life = 0
@@ -284,6 +285,7 @@ class Screen(RawEnvironment):
         self.bounce_counter = 0
         self.resetted = True
         self.since_last_bounce = 0
+        self.total_episode_reward = 0
         return self.get_state()
 
     def render(self):
@@ -424,6 +426,11 @@ class Screen(RawEnvironment):
                 if self.drop_stopping:
                     self.truncate = True
                     self.done = True
+                    if self.ball.losses == 4 and pre_stop:
+                        self.episode_rewards.append(self.total_score)
+                        self.total_score = 0
+                        self.since_last_bounce = 0
+                        needs_reset = True
                     break
 
             if (self.ball.losses == 4 and pre_stop) or (self.target_mode and ((self.ball.top_wall and self.bounce_cost == 0) or self.ball.bottom_wall or self.ball.block)):
@@ -484,7 +491,10 @@ class Screen(RawEnvironment):
             self.write_objects(extracted_state, frame.astype(np.uint8))
         self.assign_assessment_stat() # bugs occur if using frame skipping
         assessment_stat = self.assessment_stat
-        if needs_reset: self.reset()
+        self.total_episode_reward += self.reward
+        if needs_reset: 
+            print("total episode reward: ", self.total_episode_reward)
+            self.reset()
         return {"raw_state": frame, "factored_state": extracted_state}, self.reward, self.done, {"lives": lives, "TimeLimit.truncated": self.truncate, "assessment": assessment_stat}
 
     def run(self, policy, iterations = 10000, render=False, save_path = "runs/", save_raw = True, duplicate_actions=1, angle_mode=False, visualize=False):
