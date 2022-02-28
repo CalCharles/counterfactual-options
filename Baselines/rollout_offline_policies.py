@@ -75,6 +75,7 @@ def get_args():
     )
     parser.add_argument('--num-episodes', type=int, default=10)
     parser.add_argument('--output-path', type=str, default='rollout.mp4')
+    parser.add_argument('--no-render', action="store_true", default=False)
 
     return parser.parse_args()
 
@@ -192,15 +193,21 @@ def test(args=get_args()):
     test_envs.seed(args.seed)
     print("Testing agent ...")
     test_collector.reset()
-    result = test_collector.collect(
-        n_episode=args.num_episodes, render=0.05
-    )
 
-    writer = imageio.get_writer(args.output_path)
-    for img in result['saved_images']:
-        writer.append_data(img)
+    if args.no_render:
+        result = test_collector.collect(
+            n_episode=args.num_episodes
+            )
+    else:
+        result = test_collector.collect(
+            n_episode=args.num_episodes, render=0.05
+        )
 
-    writer.close()
+        writer = imageio.get_writer(args.output_path)
+        for img in result['saved_images']:
+            writer.append_data(img)
+
+        writer.close()
 
     rew = result["rews"].mean()
     print(f'Mean reward (over {result["n/ep"]} episodes): {rew}')

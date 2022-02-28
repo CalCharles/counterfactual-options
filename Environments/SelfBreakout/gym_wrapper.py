@@ -36,6 +36,10 @@ class BreakoutGymWrapper():
 
         elif args.observation_type in ['multi-block-encoding', 'full-encoding']:
             dim = 15 + env.num_blocks * 5 # paddle + ball + delta + blocks
+            if env.variant == 'proximity':
+                # Add in param
+                dim += 5
+
             self.observation_space = spaces.Box(low=-84, high=84, shape=(dim,))
             self.env_wrapper_fn = self.multi_block_observation_wrapper
         else:
@@ -52,7 +56,7 @@ class BreakoutGymWrapper():
         return (data - mean) / var
 
     # Relative position between paddle and ball
-    def delta_observation_wrapper(self, obs):
+    def delta_observation_wrapper(self, obs, resample=False):
         factored_state = obs['factored_state']
         delta = np.array(factored_state['Paddle']) - np.array(factored_state['Ball'])
         if self.normalize:
@@ -61,7 +65,7 @@ class BreakoutGymWrapper():
         return delta
 
     # Returns uint8_image
-    def image_observation_wrapper(self, obs):
+    def image_observation_wrapper(self, obs, resample=False):
         # Needed to add single channel for torch image processing (Expects channels, h, w)
 
         self.frame_buffer.append(np.expand_dims(obs['raw_state'], axis=0))
@@ -69,7 +73,7 @@ class BreakoutGymWrapper():
         ret = np.concatenate(self.frame_buffer, axis=0)
         return ret
 
-    def multi_block_observation_wrapper(self, obs):
+    def multi_block_observation_wrapper(self, obs, resample=False):
         factored_state = obs['factored_state']
         delta = np.array(factored_state['Paddle']) - np.array(factored_state['Ball'])
         paddle = factored_state['Paddle']
@@ -89,10 +93,17 @@ class BreakoutGymWrapper():
             for i in range(len(blocks)):
                 blocks[i] = self.normalize_data(blocks[i], *breakout_block_norm)
 
-        flattened_array = np.concatenate([paddle, ball, delta] + blocks)
+
+        if self.env.variant == 'proximity' and resample:
+            self.env.sampler.sample(obs)
+
+        if self.env.variant == 'proximity':
+            normalized_param = self.normalize_data(self.env.sampler.param, *breakout_block_norm)
+            flattened_array = np.concatenate([paddle, ball, delta, normalized_param] + blocks)
+        else:
+            flattened_array = np.concatenate([paddle, ball, delta] + blocks)
 
         return flattened_array
-
 
     def reset(self):
         orig_obs = self.env.reset()
@@ -100,7 +111,7 @@ class BreakoutGymWrapper():
 
     def step(self, action):
         orig_obs, reward, done, info = self.env.step(action)
-        return self.env_wrapper_fn(orig_obs), reward, done, info
+        return self.env_wrapper_fn(orig_obs, resample=reward != 0.0), reward, done, info
 
     def render(self):
         return self.env.render()

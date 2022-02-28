@@ -390,6 +390,7 @@ def offpolicy_trainer(
     if save_fn:
         save_fn(policy)
 
+    last_print = 0
     for epoch in range(1 + start_epoch, 1 + max_epoch):
         # train
         policy.train()
@@ -399,10 +400,19 @@ def offpolicy_trainer(
             while t.n < t.total:
                 if train_fn:
                     train_fn(epoch, env_step)
+
+                if env_step - last_print >= 1000:
+                    last_print = env_step
+                    print(f'At time step {env_step}')
+
                 result = train_collector.collect(n_step=step_per_collect)
                 if result["n/ep"] > 0 and reward_metric:
                     rew = reward_metric(result["rews"])
                     result.update(rews=rew, rew=rew.mean(), rew_std=rew.std())
+
+                if result["rew"] != 0.0:
+                    print(f'Nonzero reward {result["rew"]}')
+
                 env_step += int(result["n/st"])
                 env_ep += int(result["n/ep"])
 
