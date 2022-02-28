@@ -121,6 +121,7 @@ def assess_error(full_model, test_rollout, passive_error_cutoff=2, trace=None, m
     print("targets", full_model.delta(targets)[:100])
     forward_error = np.sum(np.abs(sfe)) / np.sum(interaction)
     passive_error = np.sum(np.abs(spe)) / np.sum(interaction)
-    print("comparison", forward_error, passive_error)
+    forward_var = np.abs(forward_error - sfe) / np.sum(interaction)
+    passive_var = np.abs(passive_error - sfe) / np.sum(interaction)
+    print("comparison", forward_error, passive_error, forward_var, passive_var)
     return forward_error, passive_error
-

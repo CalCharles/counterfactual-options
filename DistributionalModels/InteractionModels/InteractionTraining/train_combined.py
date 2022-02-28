@@ -84,7 +84,7 @@ def _combined_logging(full_model, train_args, rollouts, test_rollout, i, idxes, 
         else:
             passive_binaries = (passive_error > train_args.passive_error_cutoff).float()
             test_binaries = (interaction_binaries.squeeze() + likelihood_binaries.squeeze())# + passive_binaries.squeeze())
-            print([interaction_likelihood.shape, likelihood_binaries.shape, interaction_binaries.shape, true_binaries.shape, test_binaries.shape, forward_error.shape, passive_error.shape])
+            print([interaction_likelihood.shape, likelihood_binaries.shape, interaction_binaries.shape, test_binaries.shape, forward_error.shape, passive_error.shape])
             if train_args.compare_trace: test_binaries += true_binaries.squeeze()
             test_binaries = test_binaries.long().squeeze()
             test_idxes = torch.nonzero(test_binaries)
