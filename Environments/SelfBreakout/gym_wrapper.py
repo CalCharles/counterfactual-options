@@ -50,7 +50,11 @@ class BreakoutGymWrapper():
         self.env.spec = None
         self.metadata = None
         self.block_dimension = 5
-        self.ball_paddle_info_dim = 15
+
+        if env.variant == 'proximity':
+            self.ball_paddle_info_dim = 20
+        else:
+            self.ball_paddle_info_dim = 15
 
     def normalize_data(self, data, mean, var):
         return (data - mean) / var
