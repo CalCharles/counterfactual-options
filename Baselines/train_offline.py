@@ -20,6 +20,7 @@ from Baselines.networks import DQN, Rainbow, SACNet
 from Baselines.env_args import add_env_args
 
 from Networks.critic import BoundedDiscreteCritic
+import collections
 
 variant_timeout_limits = { 'big_block' : 300,
                            'single_block' : 300,
@@ -41,7 +42,7 @@ def get_args():
     parser.add_argument('--eps-train', type=float, default=1.)
     parser.add_argument('--eps-train-final', type=float, default=0.05)
     parser.add_argument('--buffer-size', type=int, default=100000)
-    parser.add_argument('--video-log-period', type=int, default=5)
+    parser.add_argument('--video-log-period', type=int, default=1)
     parser.add_argument('--no-render', action="store_true", default=False)
     parser.add_argument('--save-checkpoint-period', type=int, default=None)
 
@@ -84,7 +85,7 @@ def get_args():
 
 
     parser.add_argument('--batch-size', type=int, default=32)
-    parser.add_argument('--test-num', type=int, default=5)
+    parser.add_argument('--test-num', type=int, default=10)
     parser.add_argument('--test-steps', type=int, default=2400)
 
     parser.add_argument('--logdir', type=str, default='log')
@@ -337,6 +338,8 @@ def test(args=get_args()):
         return result
 
 
+    previous_episodes = collections.deque(maxlen=5)
+
     def save_checkpoint_fn(epoch, env_step, gradient_step, env_ep):
         # see also: https://pytorch.org/tutorials/beginner/saving_loading_models.html
         ckpt_path = os.path.join(log_path, 'checkpoint.pth')
@@ -347,16 +350,34 @@ def test(args=get_args()):
             torch.save({'model' : policy.state_dict()}, ckpt_path)
 
         if epoch % args.video_log_period == 0:
+            print('Beginning Evaluation at env step', env_step)
             result = watch(args.no_render)
+
             rew = result["rews"].mean()
+
+            print("Assessment: ", result["assessment"])
+            print("Drops: ", result["drops"])
 
             assess = result["assessment"].sum() / result["n/ep"]
             drops = result["drops"].sum() / result["n/ep"]
+
+            previous_episodes.append((rew, assess, drops))
+
+            log_rew, log_assess, log_drops = 0.0, 0.0, 0.0
+            for p_rew, p_assess, p_drops in previous_episodes:
+                log_rew += p_rew
+                log_assess += p_assess
+                log_drops += p_drops
+
+            log_rew = log_rew / len(previous_episodes)
+            log_assess = log_assess / len(previous_episodes)
+            log_drops = log_drops / len(previous_episodes)
+
             images = result['saved_images']
 
-            logger.write("eval/env_step", env_step, {"eval/rew" : rew, "eval/assess" : assess, "eval/drops" : drops})
+            logger.write("eval/env_step", env_step, {"eval/rew" : log_rew, "eval/assess" : log_assess, "eval/drops" : log_drops})
 
-            logger.write("eval_ep/env_ep", env_ep, {"eval_ep/rew" : rew, "eval_ep/assess" : assess, "eval_ep/drops" : drops})
+            logger.write("eval_ep/env_ep", env_ep, {"eval_ep/rew" : log_rew, "eval_ep/assess" : log_assess, "eval_ep/drops" : log_drops})
 
             if not args.no_render:
                 fname = os.path.join(log_path, f'iter-{epoch}.mp4')

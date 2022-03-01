@@ -410,8 +410,8 @@ def offpolicy_trainer(
                     rew = reward_metric(result["rews"])
                     result.update(rews=rew, rew=rew.mean(), rew_std=rew.std())
 
-                if result["rew"] != 0.0:
-                    print(f'Nonzero reward {result["rew"]}')
+                if len(result["rews"]) > 0.0:
+                    print('Train rewards: ', result["rews"])
 
                 env_step += int(result["n/st"])
                 env_ep += int(result["n/ep"])
@@ -497,6 +497,7 @@ class ModifiedLogger(TensorboardLogger):
         save_interval: int = 1,
     ) -> None:
         super().__init__(writer, train_interval, test_interval, update_interval, save_interval)
+
 
     def save_data(
             self,
