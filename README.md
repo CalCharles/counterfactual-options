@@ -12,12 +12,12 @@ conda install psutil
 
 # Installing Robosuite with pushing domain (from source)
 git clone https://github.com/kvablack/robosuite.git
-cd robosuite
-pip install -r requirements.txt
-https://robosuite.ai/docs/installation.html
 conda activate rbt
+cd robosuite
 copy mujoco download to: ~/.mujoco/mujoco200
 copy mujoco key to ~/.mujoco/mjkey.txt
+pip install -r requirements.txt
+https://robosuite.ai/docs/installation.html
 
 
 python add_option.py --object Raw --option-type raw --true-environment --env Pend-Gym --buffer-steps 500000 --num-steps 1 --gamma .99 --batch-size 128 --num-iters 20000 --terminal-type true --reward-type true --epsilon-close 1 --init-form none --train --normalize --policy-type actorcritic --learning-type ddpg --grad-epoch 5 --warm-up 128 --warm-update 0 --lr 1e-4 --epsilon 0 --behavior-type greedyQ --return-form none --Q-critic --gpu 2 --log-interval 200 --optim Adam --factor 8 --num-layers 2 --use-layer-norm --double-Q .001 --actor-critic-optimizer

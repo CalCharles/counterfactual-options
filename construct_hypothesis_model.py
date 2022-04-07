@@ -142,8 +142,8 @@ if __name__ == '__main__':
         hypothesis_model.cuda()
 
         trace = None
-        if args.load_intermediate: trace = load_from_pickle("data/temp/trace.pkl").cpu().cuda()
-        else: trace = generate_interaction_trace(hypothesis_model, rollouts, [hypothesis_model.control_feature.object()], [hypothesis_model.target_name])
+        # if args.load_intermediate: trace = load_from_pickle("data/temp/trace.pkl").cpu().cuda()
+        # else: trace = generate_interaction_trace(hypothesis_model, rollouts, [hypothesis_model.control_feature.object()], [hypothesis_model.target_name])
         if args.save_intermediate:
             save_to_pickle("data/temp/trace.pkl", trace)
         forward_error, passive_error = assess_error(hypothesis_model, rollouts, passive_error_cutoff=args.passive_error_cutoff, trace=trace)

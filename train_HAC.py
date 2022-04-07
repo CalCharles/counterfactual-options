@@ -19,6 +19,25 @@ def train():
     #################### Hyperparameters ####################
     # python train_HAC.py --specialized --reduced-state --num-episodes 30000 --pretrain-episodes 100 --env SelfBreakout --max-critic 200 --ctrl-type paddle --epsilon-close .5 --log-interval 1 --grad-epoch 10 --lr 3e-5 --epsilon .1 --policy-type pair
     # python train_HAC.py --specialized --reduced-state --num-episodes 30000 --pretrain-episodes 20 --env RoboPushing --max-critic 200 --epsilon-close .01 --log-interval 1 --grad-epoch 30 --lr 3e-5 --epsilon .1 --policy-type pair --drop-stopping --H 10 --ctrl-type block2 --time-cutoff 300 --learning-type sac
+    # python train_HAC.py --specialized --reduced-state --num-episodes 20000 --pretrain-episodes 100 --env SelfBreakout --max-critic 200 --ctrl-type bvel --epsilon-close .5 --log-interval 1 --grad-epoch 10 --lr 3e-5 --epsilon .005 --policy-type pair --save-interval 10 --save-name pointep --drop-stopping --epoch-scaling 50
+    '''
+python train_HAC.py --specialized --reduced-state --num-episodes 20000 --pretrain-episodes 100 --env SelfBreakout --max-critic 200 --ctrl-type bvel --epsilon-close .5 --log-interval 1 --grad-epoch 10 --lr 3e-5 --epsilon .005 --policy-type pair --epoch-scaling 25 --breakout-variant harden_single --load-name pointep > logs/HAC/variants/hard.txt
+
+python train_HAC.py --specialized --reduced-state --num-episodes 20000 --pretrain-episodes 100 --env SelfBreakout --max-critic 200 --ctrl-type bvel --epsilon-close .5 --log-interval 1 --grad-epoch 10 --lr 3e-5 --epsilon .005 --policy-type pair --epoch-scaling 25 --breakout-variant negative_rand_row --load-name pointep > logs/HAC/variants/neg.txt
+
+python train_HAC.py --specialized --reduced-state --num-episodes 20000 --pretrain-episodes 100 --env SelfBreakout --max-critic 200 --ctrl-type bvel --epsilon-close .5 --log-interval 1 --grad-epoch 10 --lr 3e-5 --epsilon .005 --policy-type pair --epoch-scaling 25 --breakout-variant big_block --load-name pointep > logs/HAC/variants/big.txt
+
+python train_HAC.py --specialized --reduced-state --num-episodes 20000 --pretrain-episodes 100 --env SelfBreakout --max-critic 200 --ctrl-type bvel --epsilon-close .5 --log-interval 1 --grad-epoch 10 --lr 3e-5 --epsilon .005 --policy-type pair --epoch-scaling 25 --breakout-variant single --load-name pointep > logs/HAC/variants/single.txt
+
+python train_HAC.py --specialized --reduced-state --num-episodes 20000 --pretrain-episodes 100 --env SelfBreakout --max-critic 200 --ctrl-type bvel --epsilon-close .5 --log-interval 1 --grad-epoch 10 --lr 3e-5 --epsilon .005 --policy-type pair --epoch-scaling 25 --breakout-variant proximity --load-name pointep --drop-stopping > logs/HAC/variants/prox.txt
+
+python train_HAC.py --specialized --reduced-state --num-episodes 20000 --pretrain-episodes 100 --env SelfBreakout --max-critic 200 --ctrl-type bvel --epsilon-close .5 --log-interval 1 --grad-epoch 10 --lr 3e-5 --epsilon .005 --policy-type pair --epoch-scaling 25 --breakout-variant breakout_priority_large --load-name pointep > logs/HAC/variants/prio.txt
+
+python train_HAC.py --specialized --reduced-state --num-episodes 20000 --pretrain-episodes 100 --env SelfBreakout --max-critic 200 --ctrl-type bvel --epsilon-close .5 --log-interval 1 --grad-epoch 10 --lr 3e-5 --epsilon .005 --policy-type pair --epoch-scaling 25 --breakout-variant center_large --load-name pointep > logs/HAC/variants/center.txt
+
+
+    '''
+
     print("pid", os.getpid())
     print(" ".join(sys.argv))
     args = get_args()
@@ -82,7 +101,8 @@ def train():
     ### MOVE TO ARGS
     
     # save trained models
-    directory = "/hdd/datasets/counterfactual_data/Baselines/HAC/preTrained/{}/{}level/".format(args.env, args.k_level) 
+
+    directory = args.preamble_path + "/Baselines/HAC/preTrained/{}/{}level/".format(args.env, args.k_level) 
     filename = "HAC_{}".format(args.save_name) + "_" + str(args.ctrl_type)
 
     #########################################################
@@ -147,6 +167,7 @@ def train():
     if len(args.load_name) > 0:
         new_obs_space = copy.deepcopy(agent.HAC[-1].obs_space)
         loadname = "HAC_{}".format(args.load_name) + "_" + str(args.ctrl_type)
+        print(loadname)
         agent.load(directory, loadname)
         agent.HAC[-1].obs_space = new_obs_space
         agent.HAC[-1].compute_mean_var()
@@ -177,13 +198,16 @@ def train():
     agent.epsilon = 1
     episode_scaling = 5 if args.env=="SelfBreakout" and args.drop_stopping else 1
     print(args.pretrain_episodes, episode_scaling)
+    agent.train_top_only = args.train_top_only
     if args.top_level_random > 0:
         agent.top_level_random == True
     args.pretrain_episodes *= episode_scaling
     for i_episode in range(1, args.pretrain_episodes+1):
         agent.reward = 0
         agent.timestep = 0
-        full_state = environment.reset()
+        full_state = environment.get_state()
+        if i_episode % episode_scaling == 0:
+            full_state = environment.reset()
         if args.env == "RoboPushing":
             goal_final = full_state['factored_state']['Target']
         if sampler is not None:
@@ -191,6 +215,8 @@ def train():
         next_state, reward, done, info, ep_time,reached = run_HAC(agent, environment_model, agent.k_level-1, full_state, goal_final, False,
                                  goal_based=goal_based, max_steps=max_steps, render=False, printout=args.printout, 
                                  reached=dict(), augmented_goal=args.augmented_goal, sampler=sampler)
+        if args.env == "RoboPushing" and agent.k_level - 1 in reached:
+            full_state = environment_model.reset()
         total_time += ep_time
         total_reward += reward
         if i_episode % episode_scaling == 0:
@@ -210,6 +236,7 @@ def train():
 
     agent.epsilon = pre_epsilon
     args.num_episodes *= episode_scaling
+    n_epoch = args.grad_epoch
     for i_episode in range(args.pretrain_episodes+1, args.num_episodes+args.pretrain_episodes+1):
         agent.reward = 0
         agent.timestep = 0
@@ -218,7 +245,9 @@ def train():
         else:
             agent.top_level_random = False
         
-        full_state = environment.reset()
+        full_state = environment.get_state()
+        if i_episode % episode_scaling == 0:
+            full_state = environment.reset()
         if args.env == "RoboPushing":
             goal_final = full_state['factored_state']['Target']
         # collecting experience in environment
@@ -227,9 +256,15 @@ def train():
         next_state, reward, done, info, ep_time,reached = run_HAC(agent, environment_model, agent.k_level-1, full_state, goal_final, 
             False, goal_based=goal_based, max_steps=max_steps, render=False, printout=args.printout, 
             reached=dict(), augmented_goal=args.augmented_goal, sampler=sampler)
+        if args.env == "RoboPushing" and agent.k_level - 1 in reached:
+            full_state = environment_model.reset()
         total_time += ep_time
         total_reward += reward
         # update all levels
+        if args.epoch_scaling > 0:
+            n_epoch = args.grad_epoch + ep_time // args.epoch_scaling
+            for i in range(agent.k_level):
+                agent.HAC[i].grad_epoch = n_epoch
         losses_dict = agent.update(args.batch_size)
         
         # logging updates:
@@ -240,7 +275,7 @@ def train():
             agent.save(directory, filename)
         
         if i_episode % episode_scaling == 0:
-            print("Episode: {}\t Time: {}\t Reward: {}".format(i_episode // episode_scaling, total_time, total_reward))
+            print("Episode: {}\t Time: {}\t Reward: {}\t Epoch: {}".format(i_episode // episode_scaling, total_time, total_reward, n_epoch))
             total_reward = 0
             if args.log_interval > 0 and i_episode % args.log_interval == 0 and args.printout:
                 for k in range(agent.k_level):

@@ -104,6 +104,10 @@ if __name__ == '__main__':
      sample_distance=args.sample_distance, target_object=args.target, path_fn=find_path)
     if sampler is not None: sampler.dataset_model = dataset_model
 
+    # add in the sampler to the environments if necessary
+    if args.object == "Block" and args.env == "SelfBreakout" and args.breakout_variant == "proximity":
+        environment.sampler = sampler
+
     if args.cuda:
         dataset_model.cuda()
     # print(dataset_model.observed_outcomes)
@@ -113,6 +117,7 @@ if __name__ == '__main__':
     names = [args.object, option_name]
     load_option = args.object in graph.nodes
     print(load_option, args.object)
+
 
     if args.change_option:
         load_option = graph.nodes[args.object].option
@@ -151,6 +156,7 @@ if __name__ == '__main__':
         # graph.nodes[args.object] = OptionNode(args.object, option, action_shape = option.action_shape)
     else:
         option = graph.nodes[args.object].option
+        option.terminate_reward.time_cutoff = args.time_cutoff
         # initialize new terminate_reward (for if we want to assess a different function than the one given)
         # initialize termination function, reward function, done model
         tt = args.terminal_type[:4] if args.terminal_type.find('inst') != -1 else args.terminal_type

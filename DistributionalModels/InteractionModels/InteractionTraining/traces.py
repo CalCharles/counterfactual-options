@@ -62,13 +62,10 @@ def generate_interaction_trace(full_model, rollouts, names, target_name):
         traces = list()
         for val in rollouts.get_values("info"):
             traces.append(val)
-
             # locality = np.array([i - self.interaction_distance for i in range(int(self.interaction_distance * 2 + 1))])
             # locality[self.interaction_distance+1:] = 0
             # traces = np.convolve(traces, locality, 'same')
             # traces = self.interaction_distance - traces
-
-
     return pytorch_model.wrap(traces, cuda=full_model.iscuda)
 
 def adjust_interaction_trace(interaction_distance, traces, iscuda):

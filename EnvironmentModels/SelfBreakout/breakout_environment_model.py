@@ -19,7 +19,7 @@ class BreakoutEnvironmentModel(EnvironmentModel):
             self.state_size = sum([self.object_sizes[n] * self.object_num[n] for n in self.object_names])
             self.shapes_dict = {"state": [self.state_size], "next_state": [self.state_size], "state_diff": [self.state_size], "action": [1], "done": [1], "info": [1]}
             self.enumeration = {"Action": [0,1], "Paddle": [1,2], "Ball": [2,3], "Block": [3,3+num_blocks], 'Done':[103,104], "Reward":[104,105]}
-        self.flat_rel_space = spaces.Box(low=np.array([-8,-70,-2,-1,0,  72,  11,0,  0, 0.9,10,11,-2,-1,1] + [20,11,0,0,0] * num_blocks), 
+        self.flat_rel_space = spaces.Box(low=np.array([-8,-70,-2,-1,0,  72,  11,0,  0, 0.9,10,11,-2,-1,1] + [20,11,0,0,-1] * num_blocks), 
                                     high=np.array(    [74,70,  2, 1,0.1,72.1,79,0.1,0.1,1, 80,79, 2,1,1.1] + [40,79,0.1,0.1,1] * num_blocks), dtype=np.float64)
         self.reduced_flat_rel_space = spaces.Box(low=np.array([-8,-70,-2,-1,0,  72,  11,0,  0, 0.9,10,11,-2,-1,1]), 
                                     high=            np.array([74,70,  2, 1,0.1,72.1,79,0.1,0.1,1, 80,79, 2,1,1.1]), 

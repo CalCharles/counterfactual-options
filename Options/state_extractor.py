@@ -480,7 +480,7 @@ class StateExtractor():
                     target = target.reshape(self.num_instance, mask.shape[0])
             target = self.get_mask_param(target, mask)
             target = self.apply_normalization(target, 'param', mask)
-            diff = param_norm - target
+            diff = target - param_norm
             if self.num_instance > 1 and self.target_instanced:
                 if self.keep_target:
                     diff = np.concatenate((target, diff), axis = -1)

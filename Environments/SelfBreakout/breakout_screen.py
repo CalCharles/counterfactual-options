@@ -366,6 +366,10 @@ class Screen(RawEnvironment):
                     block.attribute = 1
                     self.assign_attribute(nmode, block, atrv)
 
+    def compute_proximity_reward(self, target_block, block):
+        dist = np.linalg.norm(target_block[:2] - block[:2], ord=1)
+        return (np.exp(-dist/10) - .2) * 2
+
 
     def step(self, action, render=True, angle=-1): # TODO: remove render as an input variable
         self.done = False
@@ -392,8 +396,9 @@ class Screen(RawEnvironment):
                         obj1.interact(obj2)
                         if preattr != obj2.attribute:
                             if self.variant == "proximity":
-                                dist = np.linalg.norm(np.array(obj1.getMidpoint()) - np.array(obj2.getMidpoint()), ord=1)
-                                self.reward += (np.exp(-dist/10) - .2) * 2
+                                rew = self.compute_proximity_reward(self.sampler.param, np.concatenate([np.array(obj2.getMidpoint()), np.array([0,0,0])]))
+                                print("reward", rew)
+                                self.reward += rew
                             else:
                                 self.reward += preattr * self.default_reward
                                 self.total_score += preattr * self.default_reward

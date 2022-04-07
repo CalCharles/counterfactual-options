@@ -19,6 +19,7 @@ class HAC:
         reduced flat state is the flattened state if reduced
         '''
         # adding lowest level
+        self.train_top_only = args.train_top_only
         self.top_level_random = False
         args.epsilon = 0 # we have separate exploration noise
         no_param_input_shape = flat_state.shape if args.keep_instanced else reduced_flat_state.shape
@@ -146,6 +147,8 @@ class HAC:
     def update(self, batch_size):
         losses_dict = {}
         for i in range(self.k_level):
+            if self.train_top_only and i < self.k_level - 1:
+                continue
             losses = self.HAC[i].update(self.replay_buffer[i], batch_size)
             losses_dict[i] = losses
         return losses_dict
@@ -157,7 +160,9 @@ class HAC:
     
     def load(self, directory, name):
         for i in range(self.k_level):
+            print(os.path.join(directory, name+'_level_{}.pt.pt'.format(i)))
             self.HAC[i] = torch.load(os.path.join(directory, name+'_level_{}.pt.pt'.format(i)))
+            print(self.HAC[i])
 
 class RobopushingHAC(HAC):
     def __init__(self, args, k_level, H, threshold, epsilon, environment, environment_model, goal_final, flat_state, reduced_flat_state, state_space, reduced_state_space, object_dim=0, sampler = None):
@@ -170,6 +175,7 @@ class RobopushingHAC(HAC):
         reduced flat state is the flattened state if reduced
         '''
         # adding lowest level
+        self.train_top_only = args.train_top_only
         self.top_level_random = False
         self.ctrl_type = args.ctrl_type
         args.relative_action = -1
@@ -207,6 +213,7 @@ class RobopushingHAC(HAC):
         max_action = self.max_action
         args.object_dim = 0
         args.first_obj_dim = 0
+        prepol = args.policy_type
         args.policy_type = "basic" # must use MLP architecture except at last layer with instanced
         lt = args.learning_type
         if environment.discrete_actions: args.learning_type = "dqn" 
@@ -294,6 +301,17 @@ class RobopushingHAC(HAC):
             return full_state['factored_state']['Block']
         return environment_model.get_HAC_flattened_state(full_state, instanced=True, use_instanced=use_instanced)
 
+    def check_goal(self, state, goal, threshold):
+        assert state.shape == goal.shape
+        for i in range(state.shape[0] - 1): # don't compare the last dimension
+            if type(threshold) == np.ndarray:
+                # print("testing", state[i], state[i] - goal[i], threshold[i])
+                if abs(state[i]-goal[i]) > threshold[i]:
+                    return False
+            else: # it's a single value
+                if abs(state[i]-goal[i]) > threshold:
+                    return False
+
 
 
 class BreakoutHAC(HAC):
@@ -307,6 +325,7 @@ class BreakoutHAC(HAC):
         reduced flat state is the flattened state if reduced
         '''
         # adding lowest level
+        self.train_top_only = args.train_top_only
         self.top_level_random = False
         args.hidden_sizes = [128,128]
         k_level = 3
@@ -322,6 +341,7 @@ class BreakoutHAC(HAC):
         max_action = self.max_action
         args.object_dim = 0
         args.first_obj_dim = 0
+        prepol = args.policy_type
         args.policy_type = "basic" # must use MLP architecture except at last layer with instanced
         lt = args.learning_type
         if environment.discrete_actions: args.learning_type = "dqn" 
@@ -393,6 +413,7 @@ class BreakoutHAC(HAC):
         input_shape = (int(flat_state.shape[0] + goal_final_size), )
         # adding last level (might not be parametereized so state dim changes)
         print(input_shape, args.object_dim, args.first_obj_dim)
+        args.policy_type = prepol
         self.HAC.append(HACPolicy(input_shape[0], paction_space, action_space, obs_space, max_action, False, **vars(args)))
         self.replay_buffer.append(ParamPriorityReplayBuffer(args.buffer_len, stack_num=1, alpha=args.prioritized_replay[0], beta=args.prioritized_replay[1]))
 
@@ -442,6 +463,7 @@ class Breakout2HAC(HAC):
         reduced flat state is the flattened state if reduced
         '''
         # adding lowest level
+        self.train_top_only = args.train_top_only
         self.top_level_random = False
         args.relative_action = -1.0
         args.hidden_sizes = [128,128,128,128,128]
@@ -458,6 +480,7 @@ class Breakout2HAC(HAC):
         max_action = self.max_action
         args.object_dim = 0
         args.first_obj_dim = 0
+        prepol = args.policy_type
         args.policy_type = "basic" # must use MLP architecture except at last layer with instanced
         lt = args.learning_type
         if environment.discrete_actions: args.learning_type = "dqn" 
@@ -504,6 +527,7 @@ class Breakout2HAC(HAC):
         input_shape = (int(flat_state.shape[0] + goal_final_size), )
         # adding last level (might not be parametereized so state dim changes)
         print(input_shape, args.object_dim, args.first_obj_dim)
+        args.policy_type = prepol
         self.HAC.append(HACPolicy(input_shape[0], paction_space, action_space, obs_space, max_action, False, **vars(args)))
         self.replay_buffer.append(ParamPriorityReplayBuffer(args.buffer_len, stack_num=1, alpha=args.prioritized_replay[0], beta=args.prioritized_replay[1]))
 

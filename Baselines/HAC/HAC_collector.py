@@ -95,6 +95,11 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
             data.update(next_full_state=next_full_state)
             next_target_lower = agent.get_target(i_level-1, next_full_state, env_model)
 
+            if sampler is not None:
+                print(action, rew)
+                if rew != 0:
+                    sampler.sample(None)
+                    done = True
             # if subgoal was tested but not achieved, add subgoal testing transition
             if is_next_subgoal_test and not agent.check_goal(action, next_target_lower, agent.threshold):
                 # states, actions, rewards, next_states, goals, gamma, dones
@@ -135,9 +140,7 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
                       act = agent.HAC[i_level].reverse_map_action(action, None)
             # take primitive action
             next_full_state, rew, done, info = env_model.step(action)
-            if sampler is not None:
-                if rew != 0:
-                    sampler.sample(None)
+                    # flush goal transitions
             # cv2.imshow('frame',next_full_state['raw_state'])
             # if cv2.waitKey(10):
             #     pass
@@ -195,6 +198,9 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
             update_full_data(goal_data, obs=obs, act=act, mapped_act=action, obs_next=obs_next, 
                 param=goal, next_target=next_target, rew=-1.0, gamma=agent.gamma, done=done, info=info)
             goal_transitions.append(goal_data)
+
+
+        ##### AUGMENTED GOALS ARE FOR ROBOPUSHING #### 
         elif augmented_goal and i_level == agent.k_level - 1:
             # check if goal is achieved
             next_target = agent.get_target(i_level, next_full_state, env_model)
@@ -227,6 +233,7 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
             update_full_data(goal_data, obs=obs, act=act, mapped_act=action, obs_next=obs_next, 
                 param=goal, next_target=next_target, rew=rew, gamma=agent.gamma, done=done, info=info)
             goal_transitions.append(goal_data)
+        #### NO GOALS IS FOR MOST BREAKOUT ENVIRONMENTS ####
         else: # add a transition with the environment reward
             # print("reward", rew)
             obs = agent.get_obs(i_level, full_state, goal, env_model)
@@ -255,20 +262,32 @@ def run_HAC(agent, env_model, i_level, full_state, goal, is_subgoal_test, goal_b
     
     #   <================ finish H attempts ================>
     
+    target_rew = 1
     if goal_based:
         # hindsight goal transition
         # last transition reward and discount is 0
-        goal_transitions[-1].update(rew=0.0)
+        hit_rew = 0.0
+        if sampler is not None: # special logic for transitions
+            if -1 <= goal_transitions[-1].rew <= 1:
+                hit_rew = 1.0
+            else:
+                return next_full_state, reward, done, info, total_time, reached
+        goal_transitions[-1].update(rew=hit_rew)
         goal_transitions[-1].update(done= True)
         param = agent.get_target(i_level, goal_transitions[-1].next_full_state, env_model)
         for g, transition in enumerate(goal_transitions):
             # last state is goal for all transitions
             obs = agent.get_obs(i_level, transition.full_state, param, env_model)
             obs_next = agent.get_obs(i_level, transition.next_full_state, param, env_model)
-            goal_check = agent.check_goal(transition.next_target[0], param, agent.threshold)
-            rew = 0.0 if goal_check else transition.rew
-            gamma = [0.0] if goal_check else transition.gamma
-            hindsight_done = True if goal_check else transition.done
+            if sampler is not None:
+                rew = 0.0
+                gamma = [0.0]
+                hindsight_done = False
+            else:
+                goal_check = agent.check_goal(transition.next_target[0], param, agent.threshold)
+                rew = 0.0 if goal_check else transition.rew
+                gamma = [0.0] if goal_check else transition.gamma
+                hindsight_done = True if goal_check else transition.done
             transition.update(obs=np.expand_dims(obs, 0), obs_next=np.expand_dims(obs_next, 0), param=np.expand_dims(param, 0), rew=rew, gamma=gamma, done=hindsight_done)
             if printout: print("goal transition", g, i_level, print_data(transition))
             agent.buffer_at[i_level], ep_rew, ep_len, ep_idx = agent.replay_buffer[i_level].add(transition)

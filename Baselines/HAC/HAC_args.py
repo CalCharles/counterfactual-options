@@ -22,12 +22,18 @@ def get_args():
                         help='gathers random actions for pretrain episodes(default: 20)')
     parser.add_argument('--top-level-random', type=int, default=0,
                         help='gathers random actions for the top level for some time (default: 0)')
+    parser.add_argument('--epoch-scaling', type=int, default=-1,
+                        help='performs more grad iterations if the episodes are longer (default: -1)')
     parser.add_argument('--final-instanced', action='store_true', default=False,
                     help='if the final layer is instanced (will generate a pairnet)')
     parser.add_argument('--not-deterministic-eval', action='store_true', default=False,
                         help='if true, deterministic evaluation for SAC is false')
     parser.add_argument('--relative-action', action='store_true', default=False,
                         help='if true, uses relative actions when available')
+    parser.add_argument('--train-top-only', action='store_true', default=False,
+                        help='if true, only trains the top layer of HAC')
+    parser.add_argument('--preamble-path', default="/hdd/datasets/counterfactual_data/",
+                        help='path to where networks are recorded (default: /hdd/datasets/counterfactual_data/)')
 
     parser.add_argument('--lookahead', type=int, default=1,
                         help='optimization steps to look ahead (default: 1)')

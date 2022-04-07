@@ -30,7 +30,7 @@ def testRL(args, test_collector, environment, environment_model, option, names, 
             hit_count.append(result['n/h'])
             miss_count.append(result['n/m'])
             test_perf.append(result["rews"].mean())
-            add_assessment(result, assessment, drops)
+            add_assessment(environment, result, assessment, drops, args.max_steps == result['n/st'])
             suc.append(float(result["terminate"]))
         print("Iters: ", i, "Steps: ", total_steps)
         mean_hit = sum(hit_count)/ max(1, sum(miss_count) + sum(hit_count))
